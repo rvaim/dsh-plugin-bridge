@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
-import { mkdir, open, readFile, stat, symlink, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { mkdir, open, readFile, stat, symlink } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { gunzipSync, inflateRawSync } from 'node:zlib'
 import {
   DEFAULT_EXTRACTION_LIMITS,

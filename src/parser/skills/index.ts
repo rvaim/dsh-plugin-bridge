@@ -1,3 +1,5 @@
-export * from './claude-code.js'
-export * from './codex.js'
-export * from './common.js'
+export {
+  parseSkillsForHarness,
+  parseSkillsForHarness as parseClaudeSkills,
+  parseSkillsForHarness as parseCodexSkills,
+} from './common.js'

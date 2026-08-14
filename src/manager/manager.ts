@@ -2,7 +2,6 @@ import { lstat, mkdir, realpath, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { acquireSource, cleanAcquisition, materializeExternalPlugin } from './acquire.js'
 import { findCapabilityConflicts, findCapabilityConflictsWithin, stripConflictDiagnostics } from './conflicts.js'
-import { migrateLegacyRepository } from './migration.js'
 import { PARSER_VERSION, parseCompatPlugin, withAdditionalDiagnostics } from '../parser/normalize.js'
 import { parseCompatSource, validateSourceDirectory } from '../parser/source/index.js'
 import type { SourceDiscovery, SourcePluginCandidate } from '../parser/source/types.js'
@@ -89,14 +88,6 @@ export interface PluginInstallResult {
 export interface InstallResult {
   source: SourceInspection
   plugins: PluginInstallResult[]
-  /** @deprecated 单插件调用兼容；多插件时指向第一个结果。 */
-  plugin: CompatPlugin
-  /** @deprecated 单插件调用兼容。 */
-  enabled: boolean
-  /** @deprecated 单插件调用兼容。 */
-  runtime: PluginRuntimeSnapshot
-  /** @deprecated 单插件调用兼容。 */
-  install: InstallMetadata
 }
 
 export interface PluginListEntry {
@@ -137,8 +128,6 @@ export interface SourceInspection extends InstalledSourceRecord {
   installedPlugins: Array<{ pluginId: string; sourcePluginId: string }>
   /** install.json 无法读取，无法安全判断 Source 归属的安装目录。 */
   unreadablePluginIds: string[]
-  /** @deprecated 请使用 installedPlugins。 */
-  installedPluginIds: string[]
 }
 
 export interface SourceUpdateResult {
@@ -289,12 +278,9 @@ export class CompatManager {
     readonly runtime?: CompatRuntimeManager,
   ) {}
 
-  /** 所有管理操作都在仓库锁内先完成 0.1.x 布局迁移。 */
+  /** 所有管理操作共享同一个仓库锁，避免 Source/Plugin 事务交叉。 */
   private async withManagedRepository<T>(operation: () => Promise<T>): Promise<T> {
-    return await withRepositoryLock(this.layout, async () => {
-      await migrateLegacyRepository(this.layout)
-      return await operation()
-    })
+    return await withRepositoryLock(this.layout, operation)
   }
 
   private runtimeSnapshot(pluginId: string, enabled: boolean): PluginRuntimeSnapshot {
@@ -318,7 +304,6 @@ export class CompatManager {
 
   private async parseStoredSource(sourceId: string, record: InstalledSourceRecord): Promise<SourceDiscovery> {
     return await parseCompatSource(this.layout.sourcePackageDir(sourceId), {
-      sourceId,
       ...(record.scan.manualPaths === undefined ? {} : { paths: record.scan.manualPaths }),
     })
   }
@@ -440,7 +425,6 @@ export class CompatManager {
       compat: asCompatSource(record),
       installedPlugins,
       unreadablePluginIds: referenceScan.unreadablePluginIds,
-      installedPluginIds: installedPlugins.map(item => item.pluginId),
     }
   }
 
@@ -725,7 +709,6 @@ export class CompatManager {
     const acquired = await acquireSource(resolved, join(transaction, 'source-acquire'))
     const provisional = normalizeManagementId(options.as ?? resolved.suggestedId ?? 'source', 'source')
     const discovery = await parseCompatSource(acquired.acquiredRoot, {
-      sourceId: provisional,
       ...(options.paths === undefined ? {} : { paths: options.paths }),
       allowSingleWrapper: acquired.allowSingleWrapper,
       suggestedPluginId: resolved.suggestedId,
@@ -1048,15 +1031,10 @@ export class CompatManager {
               }
               throw error
             }
-            const first = results[0]
-            if (first === undefined) throw new Error('安装事务未产生插件结果')
+            if (results.length === 0) throw new Error('安装事务未产生插件结果')
             return {
               source: await this.inspectSourceUnlocked(sourceId),
               plugins: results,
-              plugin: first.plugin,
-              enabled: first.enabled,
-              runtime: first.runtime,
-              install: first.install,
             }
           },
         ))
@@ -1209,7 +1187,6 @@ export class CompatManager {
     try {
       const acquired = await acquireSource(resolved, join(transaction, 'source-acquire'))
       const discovery = await parseCompatSource(acquired.acquiredRoot, {
-        sourceId,
         ...(oldSource.scan.manualPaths === undefined ? {} : { paths: oldSource.scan.manualPaths }),
         allowSingleWrapper: acquired.allowSingleWrapper,
       })

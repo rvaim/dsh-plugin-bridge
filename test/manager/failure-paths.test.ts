@@ -19,7 +19,7 @@ test('安装阶段拒绝恶意归档且不留下半安装目录或事务目录',
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const manager = new CompatManager(layout)
     await assert.rejects(manager.install(archive, { enable: false }), /逃逸/)
-    assert.deepEqual(await readdir(layout.plugins), [])
+    assert.deepEqual(await readdir(layout.installed), [])
     assert.deepEqual(await readdir(layout.temp), [])
     await assert.rejects(readFile(resolve(temp.path, 'outside.txt')), /ENOENT/)
   } finally {
@@ -35,7 +35,7 @@ test('损坏清单作为结构化 error 保存，插件可 inspect 但不会启�
     await writeFile(resolve(source, '.claude-plugin/plugin.json'), '{broken json')
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const manager = new CompatManager(layout)
-    const result = await manager.install(source)
+    const result = (await manager.install(source)).plugins[0]
     assert.equal(result.enabled, false)
     assert(result.plugin.diagnostics.some(item => item.code === 'PLUGIN_MANIFEST_INVALID' && item.level === 'error'))
     assert.equal((await manager.inspect(result.plugin.id)).state.enabled, false)
@@ -76,7 +76,7 @@ test('运行实例 dispose 失败时卸载中止，正式插件目录保持完�
 
     await assert.rejects(manager.uninstall('dispose-failure'), /dispose 失败/)
     assert.match(await readFile(layout.installFile('dispose-failure'), 'utf8'), /dispose-failure/)
-    assert.match(await readFile(resolve(layout.packageDir('dispose-failure'), '.claude-plugin/plugin.json'), 'utf8'), /dispose-failure/)
+    assert.match(await readFile(resolve(layout.sourcePackageDir('dispose-failure'), '.claude-plugin/plugin.json'), 'utf8'), /dispose-failure/)
     assert.deepEqual(await readdir(layout.temp), [])
   } finally {
     await ctx.dispose()

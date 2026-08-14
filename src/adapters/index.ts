@@ -1,3 +1,3 @@
-export * from './hooks/index.js'
-export * from './mcp/index.js'
-export * from './skills/index.js'
+export * from './hooks/register.js'
+export * from './mcp/client.js'
+export * from './skills/provider.js'

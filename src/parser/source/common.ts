@@ -20,7 +20,7 @@ export function stringField(object: Record<string, unknown>, name: string): stri
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined
 }
 
-export function normalizeRelativeSourcePath(raw: string, marketplaceFile: string): string {
+export function normalizeRelativeSourcePath(raw: string): string {
   if (raw.includes('\0')) throw new Error('路径包含 NUL 字符')
   const portable = raw.replaceAll('\\', '/')
   if (portable.startsWith('/') || portable.startsWith('//') || /^[A-Za-z]:\//.test(portable)) {
@@ -36,12 +36,12 @@ export function normalizeRelativeSourcePath(raw: string, marketplaceFile: string
   return normalized
 }
 
-export function combinePluginRoot(pluginRoot: string | undefined, raw: string, marketplaceFile: string): string {
-  const root = pluginRoot === undefined ? '.' : normalizeRelativeSourcePath(pluginRoot, marketplaceFile)
-  const path = normalizeRelativeSourcePath(raw, marketplaceFile)
+export function combinePluginRoot(pluginRoot: string | undefined, raw: string): string {
+  const root = pluginRoot === undefined ? '.' : normalizeRelativeSourcePath(pluginRoot)
+  const path = normalizeRelativeSourcePath(raw)
   if (root === '.') return path
   if (path === '.') return root
-  return normalizeRelativeSourcePath(posix.join(root, path), marketplaceFile)
+  return normalizeRelativeSourcePath(posix.join(root, path))
 }
 
 
@@ -50,7 +50,7 @@ export function combinePluginRoot(pluginRoot: string | undefined, raw: string, m
  * 符号链接的最终目标也必须位于 Source 内。
  */
 export async function validateSourceDirectory(sourceRoot: string, rawPath: string): Promise<string> {
-  const path = normalizeRelativeSourcePath(rawPath, '(Source)')
+  const path = normalizeRelativeSourcePath(rawPath)
   const target = resolve(sourceRoot, path)
   let info
   try {
@@ -170,9 +170,7 @@ export function locationKey(location: CompatPluginLocation): string {
   }
 }
 
-/** 与旧命名兼容；位置身份只用于比较，不改写插件名称。 */
-export const locationIdentity = locationKey
-
+/** Marketplace 位置解析结果；位置身份只用于比较，不改写插件名称。 */
 export interface ParsedLocation {
   location: CompatPluginLocation
   installable: boolean
@@ -199,7 +197,7 @@ export async function parseMarketplaceLocation(options: {
       if (options.format === 'codex' && !rootPath && !raw.startsWith('./')) {
         throw new Error('Codex Marketplace 本地插件路径必须以 ./ 开头')
       }
-      const path = combinePluginRoot(options.pluginRoot, raw, marketplaceFile)
+      const path = combinePluginRoot(options.pluginRoot, raw)
       location = { type: 'source-path', path }
       const identity = await sourcePathIdentity(options.sourceRoot, path, marketplaceFile)
       return { location, key: identity.key, diagnostics: identity.diagnostics, installable: identity.installable }
@@ -217,7 +215,7 @@ export async function parseMarketplaceLocation(options: {
       if (options.format === 'codex' && !rootPath && !rawPath.startsWith('./')) {
         throw new Error('Codex Marketplace local.path 必须以 ./ 开头')
       }
-      const path = combinePluginRoot(options.pluginRoot, rawPath, marketplaceFile)
+      const path = combinePluginRoot(options.pluginRoot, rawPath)
       location = { type: 'source-path', path }
       const identity = await sourcePathIdentity(options.sourceRoot, path, marketplaceFile)
       return { location, key: identity.key, diagnostics: identity.diagnostics, installable: identity.installable }
@@ -244,7 +242,7 @@ export async function parseMarketplaceLocation(options: {
         throw new Error('Claude Marketplace 的 url source 不接受 path；请使用 git-subdir')
       }
       if (rawPath !== undefined) {
-        const path = normalizeRelativeSourcePath(rawPath, marketplaceFile)
+        const path = normalizeRelativeSourcePath(rawPath)
         if (path === '.') throw new Error('url.path 不能是仓库根目录；请省略 path')
         location = {
           type: 'git-subdir',
@@ -268,7 +266,7 @@ export async function parseMarketplaceLocation(options: {
       const url = stringField(object, 'url')
       const rawPath = stringField(object, 'path')
       if (url === undefined || rawPath === undefined) throw new Error('git-subdir source 需要 url 和 path')
-      const path = normalizeRelativeSourcePath(rawPath, marketplaceFile)
+      const path = normalizeRelativeSourcePath(rawPath)
       if (path === '.') throw new Error('git-subdir path 不能是仓库根目录；请使用 url source')
       location = {
         type: 'git-subdir',

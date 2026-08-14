@@ -10,9 +10,7 @@ const claudeFixture = resolve('test/fixtures/claude-code/full')
 const codexFixture = resolve('test/fixtures/codex/full')
 
 test('Claude Code 完整插件被规范化为 CompatPlugin', async () => {
-  const plugin = await parseCompatPlugin(claudeFixture, {
-    source: { type: 'directory', path: claudeFixture },
-  })
+  const plugin = await parseCompatPlugin(claudeFixture)
   assert.equal(plugin.id, 'legacy-full')
   assert.equal(plugin.name, 'legacy-full')
   assert.equal(plugin.version, '1.2.3')
@@ -31,9 +29,7 @@ test('Claude Code 完整插件被规范化为 CompatPlugin', async () => {
 })
 
 test('MCP 凭据和配置明文不进入扫描结果', async () => {
-  const plugin = await parseCompatPlugin(claudeFixture, {
-    source: { type: 'directory', path: claudeFixture },
-  })
+  const plugin = await parseCompatPlugin(claudeFixture)
   const serialized = JSON.stringify(plugin)
   assert.equal(serialized.includes('ghp_do_not_copy_to_scan'), false)
   assert.equal(serialized.includes('Bearer plain-secret'), false)
@@ -54,9 +50,7 @@ test('MCP 凭据和配置明文不进入扫描结果', async () => {
 })
 
 test('Codex 插件识别 snake_case Hook 和 Plugin Root 模板', async () => {
-  const plugin = await parseCompatPlugin(codexFixture, {
-    source: { type: 'directory', path: codexFixture },
-  })
+  const plugin = await parseCompatPlugin(codexFixture)
   assert.equal(plugin.id, 'codex-full')
   assert.deepEqual(plugin.formats, ['codex'])
   assert.equal(plugin.skills[0].name, 'analyze')
@@ -87,7 +81,7 @@ test('不支持的 Hook handler 与事件产生 error，不静默忽略', async 
         Stop: [{ hooks: [{ type: 'command', command: 'node', args: ['ok', 42] }] }],
       },
     }))
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     assert(plugin.diagnostics.some(item => item.code === 'HOOK_EVENT_UNSUPPORTED' && item.level === 'error'))
     assert(plugin.diagnostics.some(item => item.code === 'HOOK_UNSUPPORTED_HANDLER' && item.level === 'error'))
     assert(plugin.diagnostics.some(item => item.code === 'HOOK_ARGS_INVALID' && item.level === 'error'))
@@ -112,7 +106,7 @@ test('Claude Hook 的独立 args 保留参数边界且明文不进入扫描结�
       },
     }))
 
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     assert.equal(plugin.diagnostics.some(item => item.level === 'error'), false)
     const command = plugin.hooks[0].commands[0]
     assert.equal(command.command.type, 'deferred-json')
@@ -131,7 +125,7 @@ test('无显式清单但有标准目录时给出推断诊断', async () => {
   try {
     await mkdir(resolve(temp.path, 'skills', 'demo'), { recursive: true })
     await writeFile(resolve(temp.path, 'skills/demo/SKILL.md'), '---\nname: demo\ndescription: 示例\n---\n正文')
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     assert.deepEqual(plugin.formats, ['claude-code'])
     assert(plugin.diagnostics.some(item => item.code === 'PLUGIN_FORMAT_INFERRED'))
   } finally {
@@ -150,7 +144,7 @@ test('Node 依赖只产生显式运行环境警告，安装 parser 不执行包�
       dependencies: { example: '^1.0.0' },
     }))
 
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     const warning = plugin.diagnostics.find(item => item.code === 'NODE_DEPENDENCIES_NOT_INSTALLED')
     assert(warning)
     assert.equal(warning.level, 'warning')
@@ -171,7 +165,7 @@ test('同一插件内部的能力重名明确报错且不自动改名', async ()
     const skill = '---\nname: same\ndescription: 测试\n---\n正文'
     await writeFile(resolve(temp.path, 'skills/a/SKILL.md'), skill)
     await writeFile(resolve(temp.path, 'skills/b/SKILL.md'), skill)
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     assert(plugin.diagnostics.some(item => item.code === 'SKILL_NAME_DUPLICATE'))
     assert.equal(plugin.skills.length, 1)
     assert.equal(plugin.skills[0].name, 'same')
@@ -229,7 +223,7 @@ test('Codex 清单显式内联配置补充默认文件，并支持 PascalCase Ho
       },
     }))
 
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     assert.equal(plugin.diagnostics.some(item => item.level === 'error'), false)
     assert.equal(plugin.hooks.length, 2)
     const inlineHook = plugin.hooks.find(item => item.runtime.wireEventName === 'PreToolUse')
@@ -260,7 +254,7 @@ test('清单中的非法能力路径项会明确诊断，不会静默过滤', as
       agents: [null],
     }))
 
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     assert.equal(plugin.skills.length, 1)
     const invalid = plugin.diagnostics.filter(item => item.code === 'DECLARED_PATH_INVALID')
     assert.equal(invalid.length, 4)
@@ -290,7 +284,7 @@ test('Claude Code 新增能力会产生明确诊断，不会被静默当作已�
       dependencies: ['helper-plugin'],
     }))
 
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     const codes = new Set(plugin.diagnostics.map(item => item.code))
     for (const code of [
       'CLAUDE_WORKFLOWS_UNSUPPORTED',
@@ -333,7 +327,7 @@ test('Codex 现行顶层组件清单被规范化，apps 明确告警但不污染
       interface: { displayName: '现代 Codex 插件' },
     }))
 
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     assert.equal(plugin.name, '现代 Codex 插件')
     assert.deepEqual(plugin.skills.map(item => item.name), ['modern-skill'])
     assert.deepEqual(plugin.mcpServers.map(item => item.serverName), ['modern'])
@@ -359,7 +353,7 @@ test('Codex paths 包装字段被明确拒绝，不能伪装成当前插件 JSON
       },
     }))
 
-    const plugin = await parseCompatPlugin(temp.path, { source: { type: 'directory', path: temp.path } })
+    const plugin = await parseCompatPlugin(temp.path)
     assert.equal(plugin.skills.some(item => item.name === 'should-not-load'), false)
     assert.equal(plugin.mcpServers.some(item => item.serverName === 'hidden'), false)
     assert(plugin.diagnostics.some(item => item.code === 'CODEX_PLUGIN_PATHS_UNSUPPORTED' && item.level === 'error'))

@@ -6,7 +6,6 @@ import { sortDiagnostics } from '../types/diagnostic.js'
 import type { CompatHook } from '../types/hook.js'
 import type { CompatMcpServer } from '../types/mcp.js'
 import type { CompatFormat, CompatPlugin } from '../types/plugin.js'
-import type { InstallSource } from '../types/source.js'
 import type { CompatSkill } from '../types/skill.js'
 import { parseAgentsForHarness } from './agents/common.js'
 import { parseCommandsForHarness } from './commands/common.js'
@@ -21,13 +20,10 @@ import { pathExists, readJson } from './shared/fs.js'
 import { normalizeManagementId } from './shared/id.js'
 import type { MarketplacePluginDefinition } from './source/types.js'
 import { parseSkillsForHarness } from './skills/common.js'
-import { PARSER_VERSION } from './version.js'
 export { PARSER_VERSION } from './version.js'
 
 
 export interface ParsePluginOptions {
-  /** @deprecated 仅用于 0.1.x 调用兼容；新管理层使用 sourceId/sourcePluginId。 */
-  source?: InstallSource
   sourceId?: string
   sourcePluginId?: string
   suggestedId?: string
@@ -153,7 +149,7 @@ function firstDefinition(definitions: readonly MarketplacePluginDefinition[], fo
 }
 
 /** 将所有旧格式差异收敛为唯一的 CompatPlugin。 */
-export async function parseCompatPlugin(packageRoot: string, options: ParsePluginOptions): Promise<CompatPlugin> {
+export async function parseCompatPlugin(packageRoot: string, options: ParsePluginOptions = {}): Promise<CompatPlugin> {
   const collector = new DiagnosticCollector()
   const definitions = options.marketplaceDefinitions ?? []
   const detection = await detectPluginFormat(packageRoot, collector)

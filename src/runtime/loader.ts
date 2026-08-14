@@ -46,7 +46,6 @@ export async function loadInstalledPluginForRuntime(
   ) return record
 
   const catalog = await parseCompatSource(layout.sourcePackageDir(record.install.sourceId), {
-    sourceId: record.install.sourceId,
     ...(sourceRecord.scan.manualPaths === undefined ? {} : { paths: sourceRecord.scan.manualPaths }),
   })
   const candidate = catalog.candidates.find(item => item.id === record.install.sourcePluginId)

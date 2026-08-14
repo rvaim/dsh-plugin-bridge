@@ -10,8 +10,6 @@ import { hashDirectory } from '../source/snapshot.js'
 export interface AcquiredSource {
   /** 获取后的原始 Source 根；归档可能仍带一层包装目录。 */
   acquiredRoot: string
-  /** 兼容早期内部命名。 */
-  packageRoot: string
   origin: InstallSource
   revision: string
   /** 只有归档允许 Source parser 安全剥离一层包装目录。 */
@@ -38,7 +36,6 @@ export async function acquireSource(
     const contentHash = await hashDirectory(acquiredRoot)
     return {
       acquiredRoot,
-      packageRoot: acquiredRoot,
       origin: { type: 'directory', path: resolved.source.path, contentHash },
       revision: `directory:${contentHash}`,
       allowSingleWrapper: false,
@@ -50,7 +47,6 @@ export async function acquireSource(
     const sha256 = await sha256File(resolved.source.path)
     return {
       acquiredRoot,
-      packageRoot: acquiredRoot,
       origin: { type: 'archive', path: resolved.source.path, sha256 },
       revision: `archive:${sha256}`,
       allowSingleWrapper: true,
@@ -62,7 +58,6 @@ export async function acquireSource(
   if (commit === undefined) throw new Error('Git 获取成功但未得到 commit SHA')
   return {
     acquiredRoot,
-    packageRoot: acquiredRoot,
     origin: result.source,
     revision: `git:${commit}`,
     allowSingleWrapper: false,
@@ -108,18 +103,6 @@ export async function materializeExternalPlugin(
   }
 }
 
-/** 兼容早期内部命名。 */
-export const acquireExternalPlugin = materializeExternalPlugin
-
 export async function cleanAcquisition(path: string): Promise<void> {
   await rm(path, { recursive: true, force: true })
-}
-
-/** @deprecated 新模型请使用 acquireSource。 */
-export async function acquirePackage(
-  resolved: ResolvedInstallSource,
-  transactionRoot: string,
-): Promise<{ packageRoot: string; source: InstallSource }> {
-  const acquired = await acquireSource(resolved, join(transactionRoot, 'record'))
-  return { packageRoot: acquired.acquiredRoot, source: acquired.origin }
 }

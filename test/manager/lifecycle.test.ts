@@ -31,7 +31,7 @@ async function setup(): Promise<{
 test('安装、禁用、启用和整体卸载完整旧插件', async () => {
   const { temp, ctx, layout, manager } = await setup()
   try {
-    const installed = await manager.install(claudeFixture)
+    const installed = (await manager.install(claudeFixture)).plugins[0]
     assert.equal(installed.plugin.id, 'legacy-full')
     assert.equal(installed.enabled, true)
     assert.equal(installed.runtime.status, 'running')
@@ -74,7 +74,7 @@ test('包含不支持能力的插件仍安装，但保持 disabled 并可 inspec
   try {
     const source = resolve(temp.path, 'unsupported')
     await buildClaudePlugin(source, { name: 'unsupported', unsupportedHook: true })
-    const installed = await manager.install(source)
+    const installed = (await manager.install(source)).plugins[0]
     assert.equal(installed.enabled, false)
     assert.equal(installed.plugin.diagnostics.some(item => item.code === 'HOOK_EVENT_UNSUPPORTED'), true)
     const inspection = await manager.inspect('unsupported')
@@ -93,8 +93,8 @@ test('两个插件能力名称冲突时不自动改名，冲突插件不能启�
     const second = resolve(temp.path, 'second')
     await buildClaudePlugin(first, { name: 'first', skillName: 'same-skill', mcpName: 'same_mcp' })
     await buildClaudePlugin(second, { name: 'second', skillName: 'same-skill', mcpName: 'same_mcp' })
-    assert.equal((await manager.install(first)).enabled, true)
-    const secondResult = await manager.install(second)
+    assert.equal((await manager.install(first)).plugins[0].enabled, true)
+    const secondResult = (await manager.install(second)).plugins[0]
     assert.equal(secondResult.enabled, false)
     assert(secondResult.plugin.diagnostics.some(item => item.code === 'MCP_SERVER_NAME_CONFLICT'))
     assert(secondResult.plugin.diagnostics.some(item => item.code === 'SKILL_NAME_CONFLICT'))
@@ -124,7 +124,7 @@ test('同时安装同一插件仅有一个成功，不留下半安装目录', as
     assert.equal(results.filter(item => item.status === 'rejected').length, 1)
     assert.match(await readFile(layout.installFile('concurrent'), 'utf8'), /concurrent/)
     assert.deepEqual(await readdir(layout.temp), [])
-    assert.deepEqual(await readdir(layout.plugins), ['concurrent'])
+    assert.deepEqual(await readdir(layout.installed), ['concurrent'])
   } finally {
     await ctx.dispose()
     await temp.cleanup()
@@ -159,9 +159,9 @@ test('list/inspect 在 parserVersion 变化时从 package 真源重建 scan.json
 
     const stale = JSON.parse(await readFile(layout.scanFile('rescan-manager'), 'utf8')) as Record<string, unknown>
     await writeFile(layout.scanFile('rescan-manager'), JSON.stringify({ ...stale, parserVersion: '0.0.0' }))
-    await mkdir(resolve(layout.packageDir('rescan-manager'), 'skills', 'second-skill'), { recursive: true })
+    await mkdir(resolve(layout.sourcePackageDir('rescan-manager'), 'skills', 'second-skill'), { recursive: true })
     await writeFile(
-      resolve(layout.packageDir('rescan-manager'), 'skills/second-skill/SKILL.md'),
+      resolve(layout.sourcePackageDir('rescan-manager'), 'skills/second-skill/SKILL.md'),
       '---\nname: second-skill\ndescription: 重新扫描发现的能力\n---\n正文',
     )
 

@@ -25,10 +25,6 @@ export class CompatLayout {
   readonly external: string
   readonly temp: string
   readonly locks: string
-  /** 0.1.x 使用的旧目录；manager 启动时执行一次性迁移。 */
-  readonly legacyPlugins: string
-  /** 兼容早期代码中的属性名；新数据实际位于 installed/。 */
-  readonly plugins: string
 
   constructor(harnessHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')) {
     this.harnessHome = resolve(harnessHome)
@@ -38,8 +34,6 @@ export class CompatLayout {
     this.external = join(this.root, 'external')
     this.temp = join(this.root, 'temp')
     this.locks = join(this.root, 'locks')
-    this.legacyPlugins = join(this.root, 'plugins')
-    this.plugins = this.installed
   }
 
   async ensure(): Promise<void> {
@@ -88,11 +82,6 @@ export class CompatLayout {
 
   pluginRoot(pluginId: string): string {
     return join(this.installed, storageId(pluginId, 'Plugin'))
-  }
-
-  /** @deprecated 仅兼容 0.1.x 单插件测试；共享 Source 请使用 sourcePackageDir。 */
-  packageDir(pluginId: string): string {
-    return this.sourcePackageDir(pluginId)
   }
 
   dataDir(pluginId: string): string {

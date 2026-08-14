@@ -10,7 +10,6 @@ for (const file of [
   'cordis.patch.yml',
   'docs/ARCHITECTURE.md',
   'docs/COMPATIBILITY.md',
-  'docs/MIGRATION.md',
   'docs/SECURITY.md',
   'docs/TESTING.md',
   'docs/USAGE.md',
@@ -60,7 +59,7 @@ if ([...files].some(path => path.startsWith('dist/test/'))) throw new Error('npm
 if ([...files].some(path => path.startsWith('test/') || path.startsWith('src/') || path.startsWith('node_modules/'))) {
   throw new Error('npm 包意外包含源码、测试或 node_modules')
 }
-for (const required of ['CHANGELOG.md', 'docs/MIGRATION.md', 'docs/USAGE.md']) {
+for (const required of ['CHANGELOG.md', 'docs/USAGE.md']) {
   if (!files.has(required)) throw new Error(`npm 包缺少 ${required}`)
 }
 

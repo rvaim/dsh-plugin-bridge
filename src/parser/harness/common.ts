@@ -1,4 +1,4 @@
-import { dirname, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { lstat } from 'node:fs/promises'
 import { isPathInside } from '../../source/safety.js'
 import { pathExists, readJson, toPluginRelative } from '../shared/fs.js'

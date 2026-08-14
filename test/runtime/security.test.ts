@@ -31,7 +31,7 @@ test('下游 MCP 异常消息不会泄漏环境变量、Header 或 URL Token', a
     }))
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
-    const result = await new CompatManager(layout, runtime).install(source)
+    const result = (await new CompatManager(layout, runtime).install(source)).plugins[0]
 
     assert.equal(result.enabled, true)
     assert.equal(result.runtime.status, 'degraded')
@@ -60,7 +60,7 @@ test('所有运行能力失败时立即 dispose 父实例，不保留部分注�
     })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
-    const result = await new CompatManager(layout, runtime).install(source)
+    const result = (await new CompatManager(layout, runtime).install(source)).plugins[0]
 
     assert.equal(result.enabled, false)
     assert.equal(result.runtime.status, 'failed')

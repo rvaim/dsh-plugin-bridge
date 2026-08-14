@@ -132,7 +132,7 @@ export function formatSourceInspection(record: SourceInspection): string {
     `发现方式: ${record.scan.discovery}`,
     `格式: ${record.scan.formats.join(', ') || '(未识别)'}`,
     `Marketplace: ${record.scan.marketplaceFiles.join(', ') || '(无)'}`,
-    `已安装 Plugin: ${record.installedPluginIds.join(', ') || '(无)'}`,
+    `已安装 Plugin: ${record.installedPlugins.map(item => item.pluginId).join(', ') || '(无)'}`,
     ...(record.unreadablePluginIds.length === 0
       ? []
       : [`无法读取归属的安装目录: ${record.unreadablePluginIds.join(', ')}`]),

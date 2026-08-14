@@ -109,7 +109,7 @@ test('多插件 Marketplace 只安装被选择项，共享 Source 只保存一�
     })
 
     assert.deepEqual(installed.plugins.map(item => item.plugin.id), ['a', 'c'])
-    assert.deepEqual(installed.source.installedPluginIds, ['a', 'c'])
+    assert.deepEqual(installed.source.installedPlugins.map(item => item.pluginId), ['a', 'c'])
     assert.deepEqual(installed.source.scan.plugins.map(item => item.id), ['a', 'b', 'c'])
     assert.match(
       await readFile(resolve(layout.sourcePackageDir('shared-market'), 'plugins/b/.claude-plugin/plugin.json'), 'utf8'),
@@ -119,7 +119,7 @@ test('多插件 Marketplace 只安装被选择项，共享 Source 只保存一�
     await assert.rejects(lstat(layout.pluginRoot('b')), /ENOENT/)
 
     await manager.uninstall('a')
-    assert.deepEqual((await manager.sourceInspect('shared-market')).installedPluginIds, ['c'])
+    assert.deepEqual((await manager.sourceInspect('shared-market')).installedPlugins.map(item => item.pluginId), ['c'])
     assert.equal((await manager.inspect('c')).scan.plugin.id, 'c')
 
     await manager.uninstall('c')
@@ -142,14 +142,14 @@ test('显式 Source 在引用归零后保留，仍被 Plugin 引用时禁止删�
     const added = await manager.sourceAdd(source, { as: 'explicit-market' })
     assert.equal(added.source.ownership, 'explicit')
 
-    const installed = await manager.install('a@explicit-market', { enable: false })
+    const installed = (await manager.install('a@explicit-market', { enable: false })).plugins[0]
     assert.equal(installed.install.sourceId, 'explicit-market')
     await assert.rejects(manager.sourceRemove('explicit-market'), /仍被以下已安装插件使用：a/)
 
     await manager.uninstall('a')
     const retained = await manager.sourceInspect('explicit-market')
     assert.equal(retained.source.ownership, 'explicit')
-    assert.deepEqual(retained.installedPluginIds, [])
+    assert.deepEqual(retained.installedPlugins, [])
 
     await manager.sourceRemove('explicit-market')
     await assert.rejects(lstat(layout.sourceRoot('explicit-market')), /ENOENT/)
@@ -235,7 +235,7 @@ test('共享 Source 更新影响全部已安装 Plugin，新候选只进入可�
     assert.equal(await readFile(resolve((await manager.inspect('b')).packageRoot, 'marker.txt'), 'utf8'), 'b-v2')
     const sourceAfter = await manager.sourceInspect('update-market')
     assert.deepEqual(sourceAfter.scan.plugins.map(item => item.id), ['a', 'b', 'd'])
-    assert.deepEqual(sourceAfter.installedPluginIds, ['a', 'b'])
+    assert.deepEqual(sourceAfter.installedPlugins.map(item => item.pluginId), ['a', 'b'])
     assert.equal((await manager.list()).some(item => item.id === 'd'), false)
 
     await assert.rejects(manager.sourceUpdate('update-market', { source: missing }), /已安装插件 b 消失/)
@@ -339,11 +339,11 @@ test('Marketplace 外部 Git Plugin 保存在顶层 external，并随 Source 整
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const manager = new CompatManager(layout)
-    const installed = await manager.install(marketplace, {
+    const installed = (await manager.install(marketplace, {
       sourceAs: 'external-market',
       plugins: ['remote'],
       enable: false,
-    })
+    })).plugins[0]
 
     assert.equal(installed.install.location.type, 'git')
     assert.equal(installed.install.location.type === 'git' ? installed.install.location.sha : undefined, firstCommit)
@@ -393,7 +393,7 @@ test('复用已有 Source 时不静默忽略冲突的 --source-as', async () => 
       }),
       /--source-as another-name 不会被静默忽略/,
     )
-    assert.deepEqual((await manager.sourceInspect('canonical-market')).installedPluginIds, [])
+    assert.deepEqual((await manager.sourceInspect('canonical-market')).installedPlugins, [])
   } finally {
     await temp.cleanup()
   }
@@ -544,7 +544,7 @@ test('损坏的 install.json 会保守阻止 Source 删除和隐式 Source 自�
     await manager.uninstall('a')
     // Source 是 implicit 且已无已知引用，但未知归属记录存在时必须保留。
     await lstat(layout.sourceRoot('conservative-market'))
-    assert.deepEqual((await manager.sourceInspect('conservative-market')).installedPluginIds, [])
+    assert.deepEqual((await manager.sourceInspect('conservative-market')).installedPlugins, [])
   } finally {
     await temp.cleanup()
   }

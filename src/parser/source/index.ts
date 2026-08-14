@@ -8,7 +8,7 @@ import { detectPluginFormat } from '../detect.js'
 import { DiagnosticCollector } from '../shared/diagnostics.js'
 import { pathExists, readJson } from '../shared/fs.js'
 import { normalizeManagementId } from '../shared/id.js'
-import { SOURCE_PARSER_VERSION } from './version.js'
+import { SOURCE_PARSER_VERSION } from '../version.js'
 import { CLAUDE_MARKETPLACE_FILE, parseClaudeMarketplace } from './claude-code.js'
 import { CODEX_MARKETPLACE_FILE, parseCodexMarketplace } from './codex.js'
 import { locationKey, normalizeRelativeSourcePath, validateSourceDirectory } from './common.js'
@@ -20,12 +20,8 @@ export * from './codex.js'
 export { validateSourceDirectory } from './common.js'
 
 export interface ParseSourceOptions {
-  /** 仅用于诊断上下文；Source parser 不依赖管理 ID。 */
-  sourceId?: string
   /** --path 兜底目录；只在没有 Marketplace 时生效。 */
   paths?: string[]
-  /** 兼容内部旧命名。 */
-  manualPaths?: string[]
   /** 仅归档来源允许剥离一层普通包装目录。 */
   allowSingleWrapper?: boolean
   /** 单插件 Source 无清单名称时采用的稳定候选 ID。 */
@@ -165,7 +161,7 @@ async function singlePluginCandidate(
 ): Promise<SourcePluginCandidate> {
   let path: string
   try {
-    path = normalizeRelativeSourcePath(rawPath === '' ? '.' : rawPath, 'Source')
+    path = normalizeRelativeSourcePath(rawPath === '' ? '.' : rawPath)
     path = await validateSourceDirectory(sourceRoot, path)
   } catch (error) {
     const invalidPath = rawPath === '' ? '.' : rawPath
@@ -246,7 +242,7 @@ async function scanAtRoot(
     diagnostics.push(...codex.diagnostics)
   }
 
-  const requestedPaths = options.paths ?? options.manualPaths
+  const requestedPaths = options.paths
   let discovery: SourceScanCache['discovery']
   let candidates: SourcePluginCandidate[]
   let manualPaths: string[] | undefined
@@ -267,7 +263,7 @@ async function scanAtRoot(
     }
   } else if ((requestedPaths?.length ?? 0) > 0) {
     discovery = 'manual-paths'
-    manualPaths = [...new Set(requestedPaths!.map(path => normalizeRelativeSourcePath(path, 'Source')))].sort()
+    manualPaths = [...new Set(requestedPaths!.map(path => normalizeRelativeSourcePath(path)))].sort()
     candidates = []
     for (const [index, path] of manualPaths.entries()) {
       candidates.push(await singlePluginCandidate(sourceRoot, path, index))
@@ -316,7 +312,6 @@ export async function parseCompatSource(
   const directRecognized = direct.scan.marketplaceFiles.length > 0
     || direct.candidates.some(candidate => candidate.formats.length > 0)
     || options.paths !== undefined
-    || options.manualPaths !== undefined
   if (directRecognized || options.allowSingleWrapper !== true) return direct
 
   const entries = await readdir(sourceRoot, { withFileTypes: true })
@@ -327,6 +322,3 @@ export async function parseCompatSource(
     || wrapped.candidates.some(candidate => candidate.formats.length > 0)
   return wrappedRecognized ? wrapped : direct
 }
-
-/** 兼容早期内部命名。 */
-export const scanCompatSource = parseCompatSource

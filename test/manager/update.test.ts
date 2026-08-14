@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { CompatManager, CompatibilityError } from '../../src/manager/manager.js'
@@ -20,7 +20,7 @@ test('事务更新替换 package/，保留 data/state，并清理 cache', async 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
     const manager = new CompatManager(layout, runtime)
-    assert.equal((await manager.install(v1)).enabled, true)
+    assert.equal((await manager.install(v1)).plugins[0].enabled, true)
     await writeFile(resolve(layout.dataDir('updatable'), 'persistent.txt'), '保留我')
     await writeFile(resolve(layout.cacheDir('updatable'), 'old.cache'), '可删除')
 

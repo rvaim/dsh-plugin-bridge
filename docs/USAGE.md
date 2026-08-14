@@ -284,11 +284,7 @@ dsh-compat inspect <plugin-id>
 
 不会自动转换为 PowerShell。安装 Bash/WSL 等插件明确依赖的环境，或者选择跨平台版本的插件。
 
-## 8. 0.1.x 升级
-
-升级前建议备份 `$DSH_HOME/dsh-compat`。首次管理操作会自动迁移能够唯一识别的旧 `plugins/<pluginId>`。存在多 Plugin Marketplace 且无法唯一对应时，迁移会停止并保留原目录。详见 [MIGRATION.md](MIGRATION.md)。
-
-## 9. 运维建议
+## 8. 运维建议
 
 - 在线实例使用服务 API；离线 CLI 用于停机维护和 CI。
 - 更新前查看 Source 的已安装引用。

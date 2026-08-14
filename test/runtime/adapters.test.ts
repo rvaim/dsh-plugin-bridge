@@ -35,9 +35,9 @@ test('父运行实例注册 Skill、MCP、Hook，停止时整体撤销', async (
   try {
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     await layout.ensure()
-    await copyPluginDirectory(claudeFixture, layout.packageDir('legacy-full'))
-    const plugin = await parseCompatPlugin(layout.packageDir('legacy-full'), {
-      source: { type: 'directory', path: claudeFixture },
+    const packageRoot = layout.sourcePackageDir('legacy-full')
+    await copyPluginDirectory(claudeFixture, packageRoot)
+    const plugin = await parseCompatPlugin(packageRoot, {
       asId: 'legacy-full',
     })
     ctx.setCredential('GITHUB_TOKEN', 'resolved-token')
@@ -45,7 +45,7 @@ test('父运行实例注册 Skill、MCP、Hook，停止时整体撤销', async (
       workspaceRoot: resolve(temp.path, 'workspace'),
       dependencies: fakeRuntimeDependencies(ctx.shared),
     })
-    const snapshot = await runtime.start(plugin)
+    const snapshot = await runtime.start(plugin, packageRoot)
     assert.equal(snapshot.status, 'running')
 
     const provider = ctx.shared.providers.values().next().value
@@ -78,7 +78,7 @@ test('父运行实例注册 Skill、MCP、Hook，停止时整体撤销', async (
     assert.equal(claudeRun.options.trailingNewline, true)
     assert.deepEqual(claudeRun.options.env, {
       CLAUDE_PROJECT_DIR: resolve(temp.path, 'workspace'),
-      CLAUDE_PLUGIN_ROOT: layout.packageDir('legacy-full'),
+      CLAUDE_PLUGIN_ROOT: packageRoot,
       CLAUDE_PLUGIN_DATA: layout.dataDir('legacy-full'),
     })
     assert.deepEqual(claudeRun.options.payload, {
@@ -127,15 +127,15 @@ test('缺少一个 MCP 凭据时插件整体进入 degraded，其他能力继续
   try {
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     await layout.ensure()
-    await copyPluginDirectory(claudeFixture, layout.packageDir('legacy-full'))
-    const plugin = await parseCompatPlugin(layout.packageDir('legacy-full'), {
-      source: { type: 'directory', path: claudeFixture },
+    const packageRoot = layout.sourcePackageDir('legacy-full')
+    await copyPluginDirectory(claudeFixture, packageRoot)
+    const plugin = await parseCompatPlugin(packageRoot, {
       asId: 'legacy-full',
     })
     const runtime = new CompatRuntimeManager(ctx, layout, {
       dependencies: fakeRuntimeDependencies(ctx.shared),
     })
-    const snapshot = await runtime.start(plugin)
+    const snapshot = await runtime.start(plugin, packageRoot)
     assert.equal(snapshot.status, 'degraded')
     assert.equal(snapshot.capabilities.find(item => item.name === 'github')?.status, 'failed')
     assert.equal(snapshot.capabilities.find(item => item.name === 'remote')?.status, 'running')
@@ -152,9 +152,9 @@ test('Codex Hook 使用当前协议 payload，并忽略不受支持的 ask', asy
   try {
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     await layout.ensure()
-    await copyPluginDirectory(codexFixture, layout.packageDir('codex-full'))
-    const plugin = await parseCompatPlugin(layout.packageDir('codex-full'), {
-      source: { type: 'directory', path: codexFixture },
+    const packageRoot = layout.sourcePackageDir('codex-full')
+    await copyPluginDirectory(codexFixture, packageRoot)
+    const plugin = await parseCompatPlugin(packageRoot, {
       asId: 'codex-full',
     })
     ctx.setCredential('SEARCH_KEY', 'search-token')
@@ -162,17 +162,17 @@ test('Codex Hook 使用当前协议 payload，并忽略不受支持的 ask', asy
       codexModel: 'deepseek-v4',
       dependencies: fakeRuntimeDependencies(ctx.shared),
     })
-    assert.equal((await runtime.start(plugin)).status, 'running')
+    assert.equal((await runtime.start(plugin, packageRoot)).status, 'running')
     const search = ctx.shared.mcpConfigs.get('search')
     assert(search)
     assert.equal(search.toolCallTimeoutMs, 12_000)
-    assert.equal(search.cwd, layout.packageDir('codex-full'))
+    assert.equal(search.cwd, packageRoot)
     assert.deepEqual(search.args, [
-      resolve(layout.packageDir('codex-full'), 'scripts/search.js'),
+      resolve(packageRoot, 'scripts/search.js'),
       resolve(layout.dataDir('codex-full'), 'cache.json'),
     ])
     assert.equal((search.env as Record<string, string>).SEARCH_KEY, 'search-token')
-    assert.equal((search.env as Record<string, string>).PLUGIN_ROOT, layout.packageDir('codex-full'))
+    assert.equal((search.env as Record<string, string>).PLUGIN_ROOT, packageRoot)
     assert.equal((search.env as Record<string, string>).PLUGIN_DATA, layout.dataDir('codex-full'))
     const agent = fakeAgent(temp.path)
     const decision = await ctx.intercept('tools/pre-execute', [{
@@ -185,11 +185,11 @@ test('Codex Hook 使用当前协议 payload，并忽略不受支持的 ask', asy
     assert.equal(preRun.options.expectedEventName, 'PreToolUse')
     assert.equal(preRun.options.trailingNewline, false)
     assert.deepEqual(preRun.options.env, {
-      PLUGIN_ROOT: layout.packageDir('codex-full'),
+      PLUGIN_ROOT: packageRoot,
       PLUGIN_DATA: layout.dataDir('codex-full'),
-      CODEX_PLUGIN_ROOT: layout.packageDir('codex-full'),
+      CODEX_PLUGIN_ROOT: packageRoot,
       CODEX_PLUGIN_DATA: layout.dataDir('codex-full'),
-      CLAUDE_PLUGIN_ROOT: layout.packageDir('codex-full'),
+      CLAUDE_PLUGIN_ROOT: packageRoot,
       CLAUDE_PLUGIN_DATA: layout.dataDir('codex-full'),
       CLAUDE_PROJECT_DIR: temp.path,
     })
@@ -274,16 +274,16 @@ test('Claude Hook 的 command + args 被解析、展开并按 Shell Token 安全
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     await layout.ensure()
-    await copyPluginDirectory(sourceRoot, layout.packageDir('hook-args'))
-    const plugin = await parseCompatPlugin(layout.packageDir('hook-args'), {
-      source: { type: 'directory', path: sourceRoot },
+    const packageRoot = layout.sourcePackageDir('hook-args')
+    await copyPluginDirectory(sourceRoot, packageRoot)
+    const plugin = await parseCompatPlugin(packageRoot, {
       asId: 'hook-args',
     })
     const runtime = new CompatRuntimeManager(ctx, layout, {
       workspaceRoot: resolve(temp.path, 'workspace'),
       dependencies: fakeRuntimeDependencies(ctx.shared),
     })
-    assert.equal((await runtime.start(plugin)).status, 'running')
+    assert.equal((await runtime.start(plugin, packageRoot)).status, 'running')
 
     const agent = fakeAgent(resolve(temp.path, 'workspace'))
     await ctx.intercept('agent/pre-step', [{
@@ -296,7 +296,7 @@ test('Claude Hook 的 command + args 被解析、展开并按 Shell Token 安全
     assert.equal(ctx.shared.hookRuns.length, 1)
     assert.equal(ctx.shared.hookRuns[0].hook.command, [
       "'node'",
-      `'${resolve(layout.packageDir('hook-args'), 'bin/dispatch file.js')}'`,
+      `'${resolve(packageRoot, 'bin/dispatch file.js')}'`,
       "'--host'",
       "'claude'",
       `'quote'"'"'value'`,

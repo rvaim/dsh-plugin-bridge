@@ -67,7 +67,6 @@ DSH
 - 一个 Plugin 对应一个父 Cordis 运行实例，内部能力随父实例一起释放。
 - 安装成功与启用成功分离；有静态 `error` 时保留安装记录并保持禁用。
 - MCP、Skill、Command 等名称冲突明确诊断，不自动改名或静默覆盖。
-- 0.1.x 单插件存储布局的保守自动迁移。
 
 ### 运行能力
 
@@ -275,7 +274,6 @@ npm run verify:dsh
 - [架构与生命周期](docs/ARCHITECTURE.md)
 - [使用与运维](docs/USAGE.md)
 - [兼容矩阵](docs/COMPATIBILITY.md)
-- [从 0.1.x 迁移](docs/MIGRATION.md)
 - [安全模型](docs/SECURITY.md)
 - [测试策略](docs/TESTING.md)
 - [验证报告](docs/VALIDATION-REPORT.md)

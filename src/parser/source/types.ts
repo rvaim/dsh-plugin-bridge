@@ -56,6 +56,3 @@ export interface SourceDiscovery {
   scan: SourceScanCache
   candidates: SourcePluginCandidate[]
 }
-
-/** 兼容早期内部命名。 */
-export type SourceCatalogResult = SourceDiscovery

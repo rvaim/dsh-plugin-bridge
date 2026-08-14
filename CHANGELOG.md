@@ -18,11 +18,10 @@
 - 支持 Claude Code 与 Codex Marketplace、多插件选择、`--path` 兜底和混合 Marketplace 合并诊断。
 - 新增显式/隐式 Source、共享 Source 引用管理、整体更新、原子切换和失败回滚。
 - Plugin 安装记录只保存 `sourceId + pluginPath/location`，原始源码只在 Source 中保存一份。
-- 新增 0.1.x 单插件布局的保守迁移。
 - 对齐 Codex 现行顶层 `skills`、`hooks`、`mcpServers`、`apps` 清单与 Marketplace 内联回退清单，并拒绝未定义的 `paths` 包装字段。
 - 对 Claude Code Workflow、LSP、Monitor、Theme、Channel、userConfig、插件依赖等未适配能力提供明确诊断。
 - 加强 Git URL、Marketplace 字段、符号链接、归档、凭据和并发锁安全检查。
-- 扩充 Source、Marketplace、共享更新、回滚、迁移和 CLI 自动化测试。
+- 扩充 Source、Marketplace、共享更新、回滚和 CLI 自动化测试。
 
 ## 0.1.0
 

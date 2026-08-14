@@ -19,19 +19,20 @@ test('从带单层包装目录的 ZIP 安装并记录 SHA-256', async () => {
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const manager = new CompatManager(layout)
     const result = await manager.install(archive, { enable: false })
-    assert.equal(result.plugin.id, 'zip-plugin')
+    const installed = result.plugins[0]
+    assert.equal(installed.plugin.id, 'zip-plugin')
     assert.equal(result.source.source.origin.type, 'archive')
     assert.match(
       result.source.source.origin.type === 'archive' ? result.source.source.origin.sha256 ?? '' : '',
       /^[a-f0-9]{64}$/,
     )
-    assert.equal(result.install.sourceId, result.source.source.id)
+    assert.equal(installed.install.sourceId, result.source.source.id)
     assert.match(
-      await readFile(resolve(layout.sourcePackageDir(result.install.sourceId), '.claude-plugin/plugin.json'), 'utf8'),
+      await readFile(resolve(layout.sourcePackageDir(installed.install.sourceId), '.claude-plugin/plugin.json'), 'utf8'),
       /zip-plugin/,
     )
     await assert.rejects(
-      readFile(resolve(layout.sourcePackageDir(result.install.sourceId), 'zip-plugin/.claude-plugin/plugin.json')),
+      readFile(resolve(layout.sourcePackageDir(installed.install.sourceId), 'zip-plugin/.claude-plugin/plugin.json')),
       /ENOENT/,
     )
   } finally {
@@ -54,10 +55,11 @@ test('从本地 Git 仓库安装并把实际 commit 写入 install.json', async 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const manager = new CompatManager(layout)
     const result = await manager.install(`file://${repo}`, { enable: false })
+    const installed = result.plugins[0]
     assert.equal(result.source.source.origin.type, 'git')
     assert.equal(result.source.source.origin.type === 'git' ? result.source.source.origin.commit : undefined, commit)
-    assert.equal(result.install.sourceId, result.source.source.id)
-    await assert.rejects(readFile(resolve(layout.sourcePackageDir(result.install.sourceId), '.git/HEAD')), /ENOENT/)
+    assert.equal(installed.install.sourceId, result.source.source.id)
+    await assert.rejects(readFile(resolve(layout.sourcePackageDir(installed.install.sourceId), '.git/HEAD')), /ENOENT/)
   } finally {
     await temp.cleanup()
   }

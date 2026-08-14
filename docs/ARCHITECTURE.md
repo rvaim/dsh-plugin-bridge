@@ -293,7 +293,3 @@ dispose 父实例并等待子资源
 ```
 
 DSH 已经持久化的历史会话、工具调用和 Hook 结果属于历史事实，卸载不会回删。
-
-## 11. 0.1.x 迁移
-
-第一次管理操作会在仓库锁内检查旧的 `plugins/<pluginId>/`。可唯一识别时，为每个旧插件创建独占隐式 Source，迁移 `state/data/cache` 并重新扫描；无法唯一对应 Marketplace Plugin 时保留旧目录并停止猜测。详见 [MIGRATION.md](MIGRATION.md)。

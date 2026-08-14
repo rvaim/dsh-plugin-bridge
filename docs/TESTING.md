@@ -95,7 +95,6 @@ Adapter 测试直接构造统一结构，不依赖 Claude/Codex 原始 fixture�
 - 启用失败回写 disabled；
 - dispose 失败时不先删文件；
 - 并发重复安装与锁回收；
-- 0.1.x 自动迁移和歧义迁移拒绝。
 
 ## 6. Source 获取与安全测试
 

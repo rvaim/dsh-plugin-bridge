@@ -71,7 +71,7 @@ export class CompatRuntimeManager {
 
   async start(
     plugin: CompatPlugin,
-    packageRoot = this.layout.packageDir(plugin.id),
+    packageRoot: string,
   ): Promise<PluginRuntimeSnapshot> {
     if (hasErrorDiagnostics(plugin.diagnostics)) throw new Error(`插件 ${plugin.id} 存在 error 诊断，不能启用`)
     const existing = this.handles.get(plugin.id)

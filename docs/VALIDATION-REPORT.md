@@ -14,7 +14,7 @@ Source parser 版本：`2.0.0`
 
 ```text
 TypeScript strict 编译：通过
-自动化测试：105 / 105 通过
+自动化测试：103 / 103 通过
 失败：0
 跳过：0
 Node 实验性覆盖率：
@@ -32,7 +32,7 @@ npm pack dry-run：通过
 真实 ReMe 清单与隔离 launcher 冒烟：通过
 ```
 
-这里的“105 项通过”包括 Source parser、Plugin parser、manager、runtime/adapters、CLI、迁移、Git、归档安全、锁、事务、发布结构，以及真实 `@deepseek-ai/dsh-hook-protocol` 的加载、执行和实际 Hook adapter 阻止工具调用的契约测试。Hook adapter 的 DSH 事件分发仍主要通过可控 Context 验证；另以真实 ReMe 插件清单和 launcher 做了隔离子进程冒烟，但本报告不会将其扩大表述为真实 DSH agent 会话端到端通过。
+这里的“103 项通过”包括 Source parser、Plugin parser、manager、runtime/adapters、CLI、Git、归档安全、锁、事务、发布结构，以及真实 `@deepseek-ai/dsh-hook-protocol` 的加载、执行和实际 Hook adapter 阻止工具调用的契约测试。Hook adapter 的 DSH 事件分发仍主要通过可控 Context 验证；另以真实 ReMe 插件清单和 launcher 做了隔离子进程冒烟，但本报告不会将其扩大表述为真实 DSH agent 会话端到端通过。
 
 ## 2. 验证环境
 
@@ -81,13 +81,13 @@ npm run verify
 本次结果：
 
 ```text
-tests 105
-pass 105
+tests 103
+pass 103
 fail 0
 cancelled 0
 skipped 0
 todo 0
-包结构、DSH bundle、CLI 与 433 个发布文件检查通过
+包结构、DSH bundle、CLI 与 344 个发布文件检查通过
 ```
 
 ### 3.2 覆盖率
@@ -104,9 +104,9 @@ node --test \
 
 | 指标 | 覆盖率 |
 |---|---:|
-| 行 | 85.37% |
-| 分支 | 75.70% |
-| 函数 | 91.04% |
+| 行 | 85.40% |
+| 分支 | 76.26% |
+| 函数 | 90.79% |
 
 覆盖率由 Node.js 内置实验性覆盖率功能产生，并通过 `--test-coverage-include` 限定到本项目 `dist/src`，避免把新增的外部 Hook Protocol 运行依赖计入本项目覆盖率。覆盖率不是功能正确性的单独证明，最终判断以行为断言、故障注入、事务回滚和发布包回验共同构成。
 
@@ -439,25 +439,7 @@ dsh-compat install/list/inspect/enable/disable/update/uninstall
 - Node.js engines；
 - npm 包不夹带测试和源码目录。
 
-## 11. 0.1.x 存储迁移验证
-
-启动新版管理器时，会保守检查旧布局：
-
-```text
-$DSH_HOME/dsh-compat/plugins/<pluginId>/package/
-```
-
-已验证：
-
-- 可唯一识别的单插件旧目录迁移为隐式 Source；
-- 保留旧 `data/`；
-- 保留 `state.json` 的启用状态和优先级；
-- 保留管理 `pluginId`；
-- 重建 parser 缓存；
-- 旧 package 中包含多个 Marketplace Plugin 且无法唯一匹配时，迁移明确停止；
-- 歧义迁移不会猜测归属，也不会删除或改写原旧目录。
-
-## 12. 真实 DSH 验证边界
+## 11. 真实 DSH 验证边界
 
 本次自动化测试中的 Fake DSH Context 用于验证：
 
@@ -481,7 +463,7 @@ $DSH_HOME/dsh-compat/plugins/<pluginId>/package/
 1. **已证明：** `dsh-compat` 自身的 parser、Source/Plugin 管理、事务、回滚、安全、CLI、发布结构和模拟 DSH 生命周期行为通过自动化验证；发布 tarball 可由真实 `dsh plugin` 安装到 rc.5 profile，bundle 可组合，Hook Protocol 可解析并满足关键导出契约；真实 ReMe 清单、launcher、`command + args` 和 Codex Stop 消息入队已在隔离环境通过。
 2. **尚未证明：** 真实 agent 会话中的第三方 Hook 子进程、真实 MCP 网络握手，以及启用状态下的 profile 更新/回滚/卸载全流程。
 
-## 13. 目标 DSH 环境的最终烟测步骤
+## 12. 目标 DSH 环境的最终烟测步骤
 
 在满足 Node.js engines、且安装目标 DSH peer packages 的环境执行：
 

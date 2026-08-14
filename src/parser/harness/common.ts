@@ -3,12 +3,7 @@ import { lstat } from 'node:fs/promises'
 import { isPathInside } from '../../source/safety.js'
 import { pathExists, readJson, toPluginRelative } from '../shared/fs.js'
 import type { DiagnosticCollector } from '../shared/diagnostics.js'
-
-export function asObject(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
-}
+import { asObject } from '../shared/object.js'
 
 /**
  * 读取清单中的能力路径列表，并对每个非法项产生诊断。

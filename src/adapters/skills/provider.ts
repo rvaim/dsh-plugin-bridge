@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CompatPlugin } from '../../types/plugin.js'
+import type { CompatSkill } from '../../types/skill.js'
 import { parseFrontmatter } from '../../parser/shared/frontmatter.js'
 import type { DshContextLike, SkillRegistryLike } from '../../runtime/context.js'
 
@@ -17,23 +18,26 @@ export function registerSkillProvider(
   if (registry === undefined) throw new Error('DSH 未提供 ctx.skills，无法注册 Skill')
   const providerName = `dsh-compat:${plugin.id}`
   const byName = new Map(plugin.skills.map(skill => [skill.name, skill]))
+  const describe = (skill: CompatSkill) => ({
+    name: skill.name,
+    description: skill.description,
+    ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }),
+    invocation: skill.invocation,
+    source: 'dsh-compat',
+    provider: providerName,
+    resourceBase: { kind: 'directory', path: join(packageRoot, skill.rootPath) },
+    path: join(packageRoot, skill.contentPath),
+    ...(skill.metadata === undefined ? {} : { metadata: skill.metadata }),
+  })
 
   return registry.registerProvider((control: { signal: AbortSignal; invalidate(): void }) => ({
     name: providerName,
     async list(options: { cwd?: string; signal?: AbortSignal } = {}) {
       if (options.signal?.aborted === true || control.signal.aborted) throw options.signal?.reason ?? control.signal.reason
       return plugin.skills.map(skill => ({
-        name: skill.name,
-        description: skill.description,
-        ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }),
-        invocation: skill.invocation,
-        source: 'dsh-compat',
-        provider: providerName,
-        resourceBase: { kind: 'directory', path: join(packageRoot, skill.rootPath) },
+        ...describe(skill),
         rank: COMPAT_SKILL_RANK,
         locator: skill.name,
-        path: join(packageRoot, skill.contentPath),
-        ...(skill.metadata === undefined ? {} : { metadata: skill.metadata }),
       }))
     },
     async get(candidate: unknown, options: { cwd?: string; signal?: AbortSignal } = {}) {
@@ -43,19 +47,11 @@ export function registerSkillProvider(
         : ''
       const skill = byName.get(name)
       if (skill === undefined) return undefined
-      const path = join(packageRoot, skill.contentPath)
-      const parsed = parseFrontmatter(await readFile(path, 'utf8'))
+      const descriptor = describe(skill)
+      const parsed = parseFrontmatter(await readFile(descriptor.path, 'utf8'))
       return {
-        name: skill.name,
-        description: skill.description,
-        ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }),
-        invocation: skill.invocation,
-        source: 'dsh-compat',
-        provider: providerName,
-        resourceBase: { kind: 'directory', path: join(packageRoot, skill.rootPath) },
+        ...descriptor,
         content: parsed.body,
-        path,
-        ...(skill.metadata === undefined ? {} : { metadata: skill.metadata }),
       }
     },
   }))

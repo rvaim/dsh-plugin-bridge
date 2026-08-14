@@ -8,6 +8,7 @@ import { detectPluginFormat } from '../detect.js'
 import { DiagnosticCollector } from '../shared/diagnostics.js'
 import { pathExists, readJson } from '../shared/fs.js'
 import { normalizeManagementId } from '../shared/id.js'
+import { asObject } from '../shared/object.js'
 import { SOURCE_PARSER_VERSION } from '../version.js'
 import { CLAUDE_MARKETPLACE_FILE, parseClaudeMarketplace } from './claude-code.js'
 import { CODEX_MARKETPLACE_FILE, parseCodexMarketplace } from './codex.js'
@@ -140,11 +141,8 @@ async function inferSingleName(pluginRoot: string): Promise<string | undefined> 
     const path = resolve(pluginRoot, file)
     if (!await pathExists(path)) continue
     try {
-      const value = await readJson(path)
-      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
-        const name = (value as Record<string, unknown>).name
-        if (typeof name === 'string' && name.trim() !== '') return name.trim()
-      }
+      const name = asObject(await readJson(path))?.name
+      if (typeof name === 'string' && name.trim() !== '') return name.trim()
     } catch {
       // 具体清单错误由 Plugin parser 产生；Source 层只尝试获取展示标识。
     }

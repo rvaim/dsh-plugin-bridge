@@ -8,10 +8,10 @@ import type {
   DshHookEvent,
 } from '../../types/hook.js'
 import type { HarnessDescriptor } from '../harness/types.js'
-import { asObject } from '../harness/common.js'
 import type { DiagnosticCollector } from '../shared/diagnostics.js'
 import { readJson } from '../shared/fs.js'
 import { validateMatcher } from '../shared/matcher.js'
+import { asObject } from '../shared/object.js'
 import { escapeJsonPointer, parsePotentialSecretValue } from '../shared/template.js'
 
 const CLAUDE_EVENTS: Record<string, [CompatHookEvent, DshHookEvent]> = {

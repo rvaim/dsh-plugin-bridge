@@ -2,9 +2,9 @@ import { resolve } from 'node:path'
 import type { CompatMcpReconnect, CompatMcpServer } from '../../types/mcp.js'
 import type { CompatRuntimeValue } from '../../types/path.js'
 import type { HarnessDescriptor } from '../harness/types.js'
-import { asObject } from '../harness/common.js'
 import type { DiagnosticCollector } from '../shared/diagnostics.js'
 import { readJson } from '../shared/fs.js'
+import { asObject } from '../shared/object.js'
 import { parseCompatPath } from '../shared/path.js'
 import { escapeJsonPointer, parsePotentialSecretValue } from '../shared/template.js'
 
@@ -18,11 +18,14 @@ function finiteNumber(value: unknown): number | undefined {
 function parseReconnect(value: unknown): CompatMcpReconnect | undefined {
   const object = asObject(value)
   if (object === undefined) return undefined
+  const maxAttempts = finiteNumber(object.maxAttempts)
+  const initialDelayMs = finiteNumber(object.initialDelayMs)
+  const maxDelayMs = finiteNumber(object.maxDelayMs)
   return {
     ...(typeof object.enabled === 'boolean' ? { enabled: object.enabled } : {}),
-    ...(finiteNumber(object.maxAttempts) === undefined ? {} : { maxAttempts: finiteNumber(object.maxAttempts) }),
-    ...(finiteNumber(object.initialDelayMs) === undefined ? {} : { initialDelayMs: finiteNumber(object.initialDelayMs) }),
-    ...(finiteNumber(object.maxDelayMs) === undefined ? {} : { maxDelayMs: finiteNumber(object.maxDelayMs) }),
+    ...(maxAttempts === undefined ? {} : { maxAttempts }),
+    ...(initialDelayMs === undefined ? {} : { initialDelayMs }),
+    ...(maxDelayMs === undefined ? {} : { maxDelayMs }),
   }
 }
 
@@ -143,6 +146,7 @@ export async function parseMcpForHarness(
         || config.disabled_tools !== undefined) {
         collector.add('warning', 'MCP_TOOL_POLICY_UNSUPPORTED', 'mcp', `MCP ${serverName} 的工具审批/白名单策略当前由 DSH 自身策略管理`, source.file)
       }
+      const reconnect = parseReconnect(config.reconnect)
       const common = {
         serverName,
         sourceFormat: descriptor.format,
@@ -150,7 +154,7 @@ export async function parseMcpForHarness(
         environmentMode: descriptor.format === 'codex' ? 'codex-plugin' : 'claude-plugin',
         ...(toolCallTimeoutMs === undefined ? {} : { toolCallTimeoutMs }),
         ...(typeof config.failOnStartupError === 'boolean' ? { failOnStartupError: config.failOnStartupError } : {}),
-        ...(parseReconnect(config.reconnect) === undefined ? {} : { reconnect: parseReconnect(config.reconnect) }),
+        ...(reconnect === undefined ? {} : { reconnect }),
       } as const
 
       if (transport === 'sse') {

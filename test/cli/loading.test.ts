@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
-import type { SpinnerOptions } from '@clack/prompts'
+import type { SpinnerOptions, SpinnerResult } from '@clack/prompts'
 import {
   createLoadingIndicator,
   runWithLoading,
-  type SpinnerFactory,
 } from '../../src/cli/loading.js'
+
+type SpinnerFactory = (options?: SpinnerOptions) => SpinnerResult
 
 function fakeSpinner(): { create: SpinnerFactory; events: string[]; options: SpinnerOptions[] } {
   const events: string[] = []
@@ -48,7 +49,6 @@ test('加载动画支持更新文案、暂停并再次启动', () => {
       'clear',
     ])
     assert.equal(typeof fake.options[0]?.onCancel, 'function')
-    assert.equal(loading.active, false)
   } finally {
     output.destroy()
   }
@@ -82,7 +82,6 @@ test('禁用加载动画时不创建 spinner', () => {
     loading.start('不会显示')
     loading.stop('不会显示')
     assert.equal(created, false)
-    assert.equal(loading.active, false)
   } finally {
     output.destroy()
   }

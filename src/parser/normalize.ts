@@ -18,10 +18,10 @@ import { parseMcpForHarness } from './mcp/common.js'
 import { DiagnosticCollector } from './shared/diagnostics.js'
 import { pathExists, readJson } from './shared/fs.js'
 import { normalizeManagementId } from './shared/id.js'
+import { asObject } from './shared/object.js'
 import type { MarketplacePluginDefinition } from './source/types.js'
 import { parseSkillsForHarness } from './skills/common.js'
 export { PARSER_VERSION } from './version.js'
-
 
 export interface ParsePluginOptions {
   sourceId?: string
@@ -168,8 +168,8 @@ export async function parseCompatPlugin(packageRoot: string, options: ParsePlugi
   }
   const packageMetadata = await loadPackageMetadata(packageRoot, collector)
   for (const field of ['dependencies', 'optionalDependencies', 'peerDependencies'] as const) {
-    const value = packageMetadata[field]
-    if (value !== null && typeof value === 'object' && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length > 0) {
+    const value = asObject(packageMetadata[field])
+    if (value !== undefined && Object.keys(value).length > 0) {
       collector.add(
         'warning',
         'NODE_DEPENDENCIES_NOT_INSTALLED',

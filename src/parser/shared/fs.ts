@@ -1,16 +1,7 @@
 import { lstat, readFile, readdir, realpath } from 'node:fs/promises'
 import { relative, resolve } from 'node:path'
 import { isPathInside } from '../../source/safety.js'
-
-export async function pathExists(path: string): Promise<boolean> {
-  try {
-    await lstat(path)
-    return true
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-    throw error
-  }
-}
+export { pathExists } from '../../source/filesystem.js'
 
 export async function readUtf8(path: string): Promise<string> {
   return await readFile(path, 'utf8')

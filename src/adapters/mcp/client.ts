@@ -1,4 +1,5 @@
 import type { CompatMcpServer } from '../../types/mcp.js'
+import type { CompatRuntimeValue } from '../../types/path.js'
 import type { CompatPlugin } from '../../types/plugin.js'
 import type { CapabilityRuntimeHealth } from '../../types/runtime.js'
 import type { DshContextLike, FiberLike } from '../../runtime/context.js'
@@ -32,11 +33,13 @@ async function buildMcpConfig(
     failOnStartupError: server.failOnStartupError ?? false,
     ...(server.reconnect === undefined ? {} : { reconnect: server.reconnect }),
   }
-  if (server.transport === 'stdio') {
-    const envEntries = await Promise.all(Object.entries(server.env).map(async ([key, value]) => [
+  const resolveValues = async (values: Record<string, CompatRuntimeValue>) => Object.fromEntries(
+    await Promise.all(Object.entries(values).map(async ([key, value]) => [
       key,
       await resolveRuntimeValue(ctx, value, packageRoot, dataRoot, workspaceRoot, sensitiveValues),
-    ] as const))
+    ] as const)),
+  )
+  if (server.transport === 'stdio') {
     return {
       sensitiveValues,
       config: {
@@ -45,22 +48,18 @@ async function buildMcpConfig(
         args: await Promise.all(server.args.map(value => resolveRuntimeValue(ctx, value, packageRoot, dataRoot, workspaceRoot, sensitiveValues))),
         env: {
           ...buildPluginEnvironment(server.environmentMode, packageRoot, dataRoot, workspaceRoot),
-          ...Object.fromEntries(envEntries),
+          ...await resolveValues(server.env),
         },
         cwd: server.cwd === undefined ? '' : resolveCompatPath(server.cwd, packageRoot, workspaceRoot),
       },
     }
   }
-  const headerEntries = await Promise.all(Object.entries(server.headers).map(async ([key, value]) => [
-    key,
-    await resolveRuntimeValue(ctx, value, packageRoot, dataRoot, workspaceRoot, sensitiveValues),
-  ] as const))
   return {
     sensitiveValues,
     config: {
       ...common,
       url: await resolveRuntimeValue(ctx, server.url, packageRoot, dataRoot, workspaceRoot, sensitiveValues),
-      headers: Object.fromEntries(headerEntries),
+      headers: await resolveValues(server.headers),
     },
   }
 }

@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict'
 import { PassThrough } from 'node:stream'
 import test from 'node:test'
+import type { MultiSelectOptions } from '@clack/prompts'
 import {
-  PluginSelectionCancelledError,
+  PromptCancelledError,
   selectPluginsInteractively,
-  type PluginMultiSelect,
 } from '../../src/cli/select-plugins.js'
 import type { CompatSourcePlugin } from '../../src/types/source.js'
 
@@ -32,7 +32,7 @@ function ttyStreams(): { input: PassThrough; output: PassThrough } {
 
 test('多插件 TUI 把候选映射为 Clack 复选项并返回所选 ID', async () => {
   const streams = ttyStreams()
-  let received: Parameters<PluginMultiSelect>[0] | undefined
+  let received: MultiSelectOptions<string> | undefined
   try {
     const result = await selectPluginsInteractively([
       candidate('alpha', true, { displayName: 'Alpha Plugin', description: '第一项' }),
@@ -97,7 +97,7 @@ test('多插件 TUI 将 Clack 的取消结果转换为退出错误', async () =>
       ...streams,
       ci: false,
       prompt: async () => Symbol('cancel'),
-    }), PluginSelectionCancelledError)
+    }), PromptCancelledError)
   } finally {
     streams.input.destroy()
     streams.output.destroy()

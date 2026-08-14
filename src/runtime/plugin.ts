@@ -47,9 +47,9 @@ export function createLegacyRuntimePlugin(pluginId: string): {
       try {
         health.push(...await registerHooks(ctx, config.plugin, config.packageRoot, config.dataRoot, config.dependencies, {
           workspaceRoot: config.workspaceRoot,
-          ...(config.hookDefaultTimeoutMs === undefined ? {} : { defaultTimeoutMs: config.hookDefaultTimeoutMs }),
-          ...(config.hookStderrSummaryMaxChars === undefined ? {} : { stderrSummaryMaxChars: config.hookStderrSummaryMaxChars }),
-          ...(config.codexModel === undefined ? {} : { codexModel: config.codexModel }),
+          defaultTimeoutMs: config.hookDefaultTimeoutMs,
+          stderrSummaryMaxChars: config.hookStderrSummaryMaxChars,
+          codexModel: config.codexModel,
         }))
       } catch (error) {
         health.push(...config.plugin.hooks.map(hook => ({ capability: 'hook' as const, name: hook.id, status: 'failed' as const, message: String(error) })))

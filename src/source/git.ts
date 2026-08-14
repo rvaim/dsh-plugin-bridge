@@ -1,8 +1,9 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, open, rm, symlink } from 'node:fs/promises'
+import { mkdir, rm, symlink } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { TextDecoder } from 'node:util'
 import type { InstallSource } from '../types/source.js'
+import { writeExclusive } from './filesystem.js'
 import { runProcess, runProcessBuffer } from './process.js'
 import { validateGitRef } from './resolver.js'
 import {
@@ -50,16 +51,6 @@ function parseTree(buffer: Buffer): GitTreeEntry[] {
     entries.push({ mode: header[0], type: header[1], object: header[2], path })
   }
   return entries
-}
-
-async function writeExclusive(path: string, data: Buffer, mode: number): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  const handle = await open(path, 'wx', mode)
-  try {
-    await handle.writeFile(data)
-  } finally {
-    await handle.close()
-  }
 }
 
 async function readBlob(repository: string, object: string, name: string): Promise<Buffer> {

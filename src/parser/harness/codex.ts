@@ -2,8 +2,8 @@ import { resolve } from 'node:path'
 import type { MarketplacePluginDefinition } from '../source/types.js'
 import type { DiagnosticCollector } from '../shared/diagnostics.js'
 import { pathExists } from '../shared/fs.js'
+import { asObject } from '../shared/object.js'
 import {
-  asObject,
   collectConfigSources,
   declaredPathList,
   loadManifest,

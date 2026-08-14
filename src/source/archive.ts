@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto'
-import { mkdir, open, readFile, stat, symlink } from 'node:fs/promises'
+import { mkdir, readFile, stat, symlink } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { gunzipSync, inflateRawSync } from 'node:zlib'
+import { writeExclusive } from './filesystem.js'
 import {
   DEFAULT_EXTRACTION_LIMITS,
   type ExtractionLimits,
@@ -59,16 +60,6 @@ function findZipEndOfCentralDirectory(buffer: Buffer): number {
     if (buffer.readUInt32LE(offset) === 0x06054b50) return offset
   }
   throw new Error('ZIP 缺少 End of Central Directory')
-}
-
-async function writeExclusive(path: string, data: Buffer, mode = 0o600): Promise<void> {
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  const handle = await open(path, 'wx', mode)
-  try {
-    await handle.writeFile(data)
-  } finally {
-    await handle.close()
-  }
 }
 
 async function extractZip(buffer: Buffer, destination: string, limits: ExtractionLimits): Promise<void> {

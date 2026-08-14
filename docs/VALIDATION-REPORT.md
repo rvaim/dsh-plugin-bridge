@@ -14,25 +14,25 @@ Source parser 版本：`2.0.0`
 
 ```text
 TypeScript strict 编译：通过
-自动化测试：103 / 103 通过
+自动化测试：109 / 109 通过
 失败：0
 跳过：0
 Node 实验性覆盖率：
-  行覆盖率：85.37%
-  分支覆盖率：75.70%
-  函数覆盖率：91.04%
+  行覆盖率：85.79%
+  分支覆盖率：77.11%
+  函数覆盖率：90.68%
 DSH bundle manifest：通过
 独立 CLI 冒烟：通过
 npm pack dry-run：通过
 发布文件白名单：通过
-发布文件数量：433
+发布文件数量：360
 真实 DSH rc.5 契约探针：通过
 真实 dsh plugin profile 安装：通过
 安装后 Hook Protocol 动态导入：通过
 真实 ReMe 清单与隔离 launcher 冒烟：通过
 ```
 
-这里的“103 项通过”包括 Source parser、Plugin parser、manager、runtime/adapters、CLI、Git、归档安全、锁、事务、发布结构，以及真实 `@deepseek-ai/dsh-hook-protocol` 的加载、执行和实际 Hook adapter 阻止工具调用的契约测试。Hook adapter 的 DSH 事件分发仍主要通过可控 Context 验证；另以真实 ReMe 插件清单和 launcher 做了隔离子进程冒烟，但本报告不会将其扩大表述为真实 DSH agent 会话端到端通过。
+这里的“109 项通过”包括 Source parser、Plugin parser、manager、runtime/adapters、CLI、Git、归档安全、锁、事务、发布结构，以及真实 `@deepseek-ai/dsh-hook-protocol` 的加载、执行和实际 Hook adapter 阻止工具调用的契约测试。Hook adapter 的 DSH 事件分发仍主要通过可控 Context 验证；另以真实 ReMe 插件清单和 launcher 做了隔离子进程冒烟，但本报告不会将其扩大表述为真实 DSH agent 会话端到端通过。
 
 ## 2. 验证环境
 
@@ -81,13 +81,13 @@ npm run verify
 本次结果：
 
 ```text
-tests 103
-pass 103
+tests 109
+pass 109
 fail 0
 cancelled 0
 skipped 0
 todo 0
-包结构、DSH bundle、CLI 与 344 个发布文件检查通过
+包结构、DSH bundle、CLI 与 360 个发布文件检查通过
 ```
 
 ### 3.2 覆盖率

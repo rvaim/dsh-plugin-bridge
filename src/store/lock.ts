@@ -150,7 +150,6 @@ export async function withPluginLock<T>(
   }
 }
 
-
 export async function withSourceLock<T>(
   layout: CompatLayout,
   sourceId: string,

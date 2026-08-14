@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-import { createInterface } from 'node:readline/promises'
-import { stdin, stdout } from 'node:process'
+import { confirm } from '@clack/prompts'
 import {
   CompatManager,
   CompatibilityError,
@@ -22,7 +21,7 @@ import {
 } from './loading.js'
 import {
   isInteractiveTerminal,
-  PluginSelectionCancelledError,
+  PromptCancelledError,
   selectPluginsInteractively,
 } from './select-plugins.js'
 
@@ -77,14 +76,33 @@ function print(value: unknown, json: boolean, text: () => string): void {
 }
 
 async function confirmSharedUpdateInteractively(error: SharedSourceUpdateError): Promise<boolean> {
-  if (!stdin.isTTY || !stdout.isTTY) return false
-  console.log(error.message)
-  const readline = createInterface({ input: stdin, output: stdout })
+  const result = await confirm({
+    message: `整体更新共享 Source ${error.sourceId}（影响：${error.pluginIds.join(', ')}）？`,
+    active: '更新',
+    inactive: '取消',
+    initialValue: false,
+  })
+  if (typeof result === 'symbol') throw new PromptCancelledError()
+  return result
+}
+
+async function updatePluginWithConfirmation(
+  manager: CompatManager,
+  pluginId: string,
+  source: string | undefined,
+  confirmShared: boolean,
+  interactiveUi: boolean,
+  loading: LoadingIndicator,
+) {
+  const sourceOption = source === undefined ? {} : { source }
   try {
-    const answer = (await readline.question('确认整体更新该 Source 及以上全部 Plugin？[y/N] ')).trim().toLowerCase()
-    return answer === 'y' || answer === 'yes'
-  } finally {
-    readline.close()
+    return await manager.update(pluginId, { ...sourceOption, confirmShared })
+  } catch (error) {
+    if (!(error instanceof SharedSourceUpdateError) || confirmShared || !interactiveUi) throw error
+    loading.clear()
+    if (!await confirmSharedUpdateInteractively(error)) throw error
+    loading.start('正在获取并更新 Plugin Source')
+    return await manager.update(pluginId, { ...sourceOption, confirmShared: true })
   }
 }
 
@@ -98,13 +116,15 @@ async function handleSource(
   const action = required(positionals[0], 'Source 子命令')
   switch (action) {
     case 'add': {
+      const as = flagString(args, 'as')
+      const paths = flagStrings(args, 'path')
       const result = await runWithLoading(loading, {
         start: '正在获取并解析 Source',
         success: 'Source 已就绪',
         failure: 'Source 获取失败',
       }, () => manager.sourceAdd(required(positionals[1], 'Source 来源'), {
-        ...(flagString(args, 'as') === undefined ? {} : { as: flagString(args, 'as') }),
-        ...(flagStrings(args, 'path').length === 0 ? {} : { paths: flagStrings(args, 'path') }),
+        ...(as === undefined ? {} : { as }),
+        ...(paths.length === 0 ? {} : { paths }),
       }))
       print(result, json, () => formatSourceInspection(result))
       return
@@ -116,12 +136,13 @@ async function handleSource(
       return
     }
     case 'update': {
+      const source = flagString(args, 'source')
       const result = await runWithLoading(loading, {
         start: '正在获取并更新 Source',
         success: 'Source 更新完成',
         failure: 'Source 更新失败',
       }, () => manager.sourceUpdate(required(positionals[1], 'Source ID'), {
-        ...(flagString(args, 'source') === undefined ? {} : { source: flagString(args, 'source') }),
+        ...(source === undefined ? {} : { source }),
       }))
       print(result, json, () => formatSourceInspection(result.source))
       return
@@ -161,32 +182,32 @@ async function main(): Promise<void> {
     case 'install': {
       const priority = parsePriority(flagString(args, 'priority'))
       const disableAfterInstall = flagBoolean(args, 'no-enable')
-      loading.start('正在获取并解析 Plugin Source')
-      let result
-      try {
-        result = await manager.install(required(args.positionals[0], '安装来源或 Source ID'), {
-          ...(flagString(args, 'as') === undefined ? {} : { as: flagString(args, 'as') }),
-          ...(flagString(args, 'source-as') === undefined ? {} : { sourceAs: flagString(args, 'source-as') }),
-          ...(flagStrings(args, 'plugin').length === 0 ? {} : { plugins: flagStrings(args, 'plugin') }),
-          ...(flagStrings(args, 'path').length === 0 ? {} : { paths: flagStrings(args, 'path') }),
-          // 未传 --no-enable 时保留 Marketplace 的默认启用策略；不能由 CLI
-          // 无条件写成 true，否则会覆盖 Codex 的 AVAILABLE 等语义。
-          ...(disableAfterInstall ? { enable: false } : {}),
-          ...(priority === undefined ? {} : { priority }),
-          ...(!interactiveUi ? {} : {
-            selectPlugins: async plugins => {
-              loading.stop('Source 已解析')
-              const selected = await selectPluginsInteractively(plugins)
-              loading.start('正在安装所选 Plugin')
-              return selected
-            },
-          }),
-        })
-        loading.stop('Plugin 安装完成')
-      } catch (error) {
-        loading.error('Plugin 安装失败')
-        throw error
-      }
+      const as = flagString(args, 'as')
+      const sourceAs = flagString(args, 'source-as')
+      const plugins = flagStrings(args, 'plugin')
+      const paths = flagStrings(args, 'path')
+      const result = await runWithLoading(loading, {
+        start: '正在获取并解析 Plugin Source',
+        success: 'Plugin 安装完成',
+        failure: 'Plugin 安装失败',
+      }, () => manager.install(required(args.positionals[0], '安装来源或 Source ID'), {
+        ...(as === undefined ? {} : { as }),
+        ...(sourceAs === undefined ? {} : { sourceAs }),
+        ...(plugins.length === 0 ? {} : { plugins }),
+        ...(paths.length === 0 ? {} : { paths }),
+        // 未传 --no-enable 时保留 Marketplace 的默认启用策略；不能由 CLI
+        // 无条件写成 true，否则会覆盖 Codex 的 AVAILABLE 等语义。
+        ...(disableAfterInstall ? { enable: false } : {}),
+        ...(priority === undefined ? {} : { priority }),
+        ...(!interactiveUi ? {} : {
+          selectPlugins: async plugins => {
+            loading.stop('Source 已解析')
+            const selected = await selectPluginsInteractively(plugins)
+            loading.start('正在安装所选 Plugin')
+            return selected
+          },
+        }),
+      }))
       print(result, json, () => [
         `Source: ${result.source.source.id}`,
         ...result.plugins.map(item => `已安装 ${item.plugin.id}；启用状态：${item.enabled ? '待 DSH 加载' : '未启用'}`),
@@ -196,31 +217,19 @@ async function main(): Promise<void> {
     case 'update': {
       const pluginId = required(args.positionals[0], 'Plugin ID')
       const source = flagString(args, 'source')
-      let confirmShared = flagBoolean(args, 'yes')
-      let result
-      loading.start('正在获取并更新 Plugin Source')
-      try {
-        try {
-          result = await manager.update(pluginId, {
-            ...(source === undefined ? {} : { source }),
-            confirmShared,
-          })
-        } catch (error) {
-          if (!(error instanceof SharedSourceUpdateError) || confirmShared || json) throw error
-          loading.clear()
-          confirmShared = await confirmSharedUpdateInteractively(error)
-          if (!confirmShared) throw error
-          loading.start('正在获取并更新 Plugin Source')
-          result = await manager.update(pluginId, {
-            ...(source === undefined ? {} : { source }),
-            confirmShared: true,
-          })
-        }
-        loading.stop('Plugin 更新完成')
-      } catch (error) {
-        loading.error('Plugin 更新失败')
-        throw error
-      }
+      const confirmShared = flagBoolean(args, 'yes')
+      const result = await runWithLoading(loading, {
+        start: '正在获取并更新 Plugin Source',
+        success: 'Plugin 更新完成',
+        failure: 'Plugin 更新失败',
+      }, () => updatePluginWithConfirmation(
+        manager,
+        pluginId,
+        source,
+        confirmShared,
+        interactiveUi,
+        loading,
+      ))
       print(result, json, () => formatInspection(result))
       return
     }
@@ -256,7 +265,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  if (error instanceof PluginSelectionCancelledError) {
+  if (error instanceof PromptCancelledError) {
     process.exitCode = 130
     return
   }

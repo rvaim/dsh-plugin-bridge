@@ -1,13 +1,14 @@
-import { lstat, mkdir, realpath, rename, rm } from 'node:fs/promises'
+import { mkdir, realpath, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { acquireSource, cleanAcquisition, materializeExternalPlugin } from './acquire.js'
 import { findCapabilityConflicts, findCapabilityConflictsWithin, stripConflictDiagnostics } from './conflicts.js'
 import { PARSER_VERSION, parseCompatPlugin, withAdditionalDiagnostics } from '../parser/normalize.js'
+import { normalizeManagementId } from '../parser/shared/id.js'
 import { parseCompatSource, validateSourceDirectory } from '../parser/source/index.js'
 import type { SourceDiscovery, SourcePluginCandidate } from '../parser/source/types.js'
 import { SOURCE_PARSER_VERSION } from '../parser/version.js'
-import { normalizeManagementId } from '../parser/shared/id.js'
 import { copyPluginDirectory } from '../source/directory.js'
+import { pathExists } from '../source/filesystem.js'
 import { resolveInstallSource } from '../source/resolver.js'
 import { isPathInside } from '../source/safety.js'
 import { CompatLayout, isStorageId } from '../store/layout.js'
@@ -156,16 +157,6 @@ export class SharedSourceUpdateError extends Error {
   }
 }
 
-async function exists(path: string): Promise<boolean> {
-  try {
-    await lstat(path)
-    return true
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-    throw error
-  }
-}
-
 function scanOf(plugin: CompatPlugin, sourceRevision: string): ScanCache {
   return {
     schemaVersion: 1,
@@ -179,6 +170,11 @@ function scanOf(plugin: CompatPlugin, sourceRevision: string): ScanCache {
 function stateOf(enabled: boolean, priority = 0): PluginState {
   if (!Number.isInteger(priority)) throw new Error('priority 必须是整数')
   return { schemaVersion: 1, enabled, priority }
+}
+
+function compareInstalledPriority(left: InstalledPluginRecord, right: InstalledPluginRecord): number {
+  return left.state.priority - right.state.priority
+    || left.install.pluginId.localeCompare(right.install.pluginId)
 }
 
 function runtimeDisabled(pluginId: string): PluginRuntimeSnapshot {
@@ -468,15 +464,15 @@ export class CompatManager {
     try {
       await rename(sourceRoot, stagedSource)
       sourceMoved = true
-      if (await exists(externalRoot)) {
+      if (await pathExists(externalRoot)) {
         await rename(externalRoot, stagedExternal)
         externalMoved = true
       }
     } catch (error) {
       let rollbackError: unknown
       try {
-        if (externalMoved && !await exists(externalRoot)) await rename(stagedExternal, externalRoot)
-        if (sourceMoved && !await exists(sourceRoot)) await rename(stagedSource, sourceRoot)
+        if (externalMoved && !await pathExists(externalRoot)) await rename(stagedExternal, externalRoot)
+        if (sourceMoved && !await pathExists(sourceRoot)) await rename(stagedSource, sourceRoot)
       } catch (restoreFailure) {
         // 尚未恢复的 Source 或 external 仍位于事务目录。此时必须保留恢复
         // 材料，不能为了清理临时目录而把最后一份完整内容删掉。
@@ -557,7 +553,7 @@ export class CompatManager {
 
     const key = externalDirectoryName(candidate.id)
     const official = existingExternalRoot === undefined ? undefined : join(existingExternalRoot, key)
-    if (official !== undefined && await exists(join(official, 'package'))) {
+    if (official !== undefined && await pathExists(join(official, 'package'))) {
       const packageRoot = candidate.location.type === 'git'
         ? join(official, 'package')
         : resolve(official, 'package', candidate.location.path)
@@ -772,7 +768,7 @@ export class CompatManager {
         const created = await this.createSourceRecord(resolved, 'explicit', options, transaction)
         return await withSourceLock(this.layout, created.sourceId, async () => {
           const destination = this.layout.sourceRoot(created.sourceId)
-          if (await exists(destination)) throw new Error(`Source ${created.sourceId} 已存在；请使用 --as 指定其他 ID`)
+          if (await pathExists(destination)) throw new Error(`Source ${created.sourceId} 已存在；请使用 --as 指定其他 ID`)
           await commitDirectory(created.recordRoot, destination)
           return await this.inspectSourceUnlocked(created.sourceId)
         })
@@ -845,12 +841,12 @@ export class CompatManager {
     input: string,
     options: InstallOptions,
   ): Promise<{ sourceId?: string; forcedPlugin?: string; resolved?: ResolvedInstallSource }> {
-    if (isStorageId(input) && await exists(this.layout.sourceRoot(input))) return { sourceId: input }
+    if (isStorageId(input) && await pathExists(this.layout.sourceRoot(input))) return { sourceId: input }
     const separator = input.lastIndexOf('@')
     if (separator > 0) {
       const plugin = input.slice(0, separator)
       const sourceId = input.slice(separator + 1)
-      if (isStorageId(sourceId) && await exists(this.layout.sourceRoot(sourceId))) return { sourceId, forcedPlugin: plugin }
+      if (isStorageId(sourceId) && await pathExists(this.layout.sourceRoot(sourceId))) return { sourceId, forcedPlugin: plugin }
     }
     const resolved = await resolveInstallSource(input, options.cwd)
     const existing = await this.findSourceByOrigin(resolved.source)
@@ -900,7 +896,7 @@ export class CompatManager {
           discovery = created.discovery
           stagedSourceRoot = created.recordRoot
           newSource = true
-          if (await exists(this.layout.sourceRoot(sourceId))) {
+          if (await pathExists(this.layout.sourceRoot(sourceId))) {
             throw new Error(`Source ${sourceId} 已存在；请使用 --source-as 指定其他 ID`)
           }
         }
@@ -936,7 +932,7 @@ export class CompatManager {
         )
 
         for (const item of parsed) {
-          if (await exists(this.layout.pluginRoot(item.plugin.id))) {
+          if (await pathExists(this.layout.pluginRoot(item.plugin.id))) {
             throw new Error(`插件 ${item.plugin.id} 已安装；请使用 update`)
           }
         }
@@ -972,7 +968,7 @@ export class CompatManager {
                   externalDirectoryName(item.prepared.candidate.id),
                 )
                 await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
-                if (await exists(destination)) {
+                if (await pathExists(destination)) {
                   throw new Error(`外部插件缓存目录已存在但未被当前安装记录复用：${destination}`)
                 }
                 await commitDirectory(staged, destination)
@@ -1146,7 +1142,7 @@ export class CompatManager {
               record.install.sourceId,
               externalDirectoryName(record.install.sourcePluginId),
             )
-            if (!stillUsed && await exists(externalRoot)) {
+            if (!stillUsed && await pathExists(externalRoot)) {
               await removeDirectoryTransactionally(
                 this.layout,
                 externalRoot,
@@ -1283,7 +1279,7 @@ export class CompatManager {
         const materialized = item.prepared.newlyMaterializedExternal
         if (materialized === undefined) continue
         const destination = join(stagedExternal, externalDirectoryName(item.prepared.candidate.id))
-        if (await exists(destination)) {
+        if (await pathExists(destination)) {
           throw new Error(`Source ${sourceId} 的外部插件缓存键重复：${item.prepared.candidate.id}`)
         }
         await commitDirectory(materialized, destination)
@@ -1292,8 +1288,7 @@ export class CompatManager {
 
       for (const item of installed
         .filter(entry => entry.state.enabled)
-        .sort((left, right) => left.state.priority - right.state.priority
-          || left.install.pluginId.localeCompare(right.install.pluginId))) {
+        .sort(compareInstalledPriority)) {
         if (this.runtime !== undefined) {
           await this.runtime.stop(item.install.pluginId)
           stoppedOldPluginIds.add(item.install.pluginId)
@@ -1302,7 +1297,7 @@ export class CompatManager {
 
       await rename(officialSource, backupSource)
       oldSourceMoved = true
-      if (await exists(officialExternal)) {
+      if (await pathExists(officialExternal)) {
         await rename(officialExternal, backupExternal)
         oldExternalMoved = true
       }
@@ -1404,8 +1399,7 @@ export class CompatManager {
         if (this.runtime !== undefined) {
           for (const record of installed
             .filter(item => item.state.enabled && stoppedOldPluginIds.has(item.install.pluginId))
-            .sort((left, right) => left.state.priority - right.state.priority
-              || left.install.pluginId.localeCompare(right.install.pluginId))) {
+            .sort(compareInstalledPriority)) {
             const restored = await this.runtime.start(
               record.scan.plugin,
               await this.resolveInstalledPackageRoot(record.install),
@@ -1545,8 +1539,7 @@ export class CompatManager {
           }
         }
       }
-      records.sort((left, right) => left.state.priority - right.state.priority
-        || left.install.pluginId.localeCompare(right.install.pluginId))
+      records.sort(compareInstalledPriority)
 
       for (const record of records) {
         const plugin = record.scan.plugin

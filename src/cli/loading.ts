@@ -7,15 +7,13 @@ import {
 } from '@clack/prompts'
 
 export interface LoadingIndicator {
-  readonly active: boolean
   start(message: string): void
-  message(message: string): void
   stop(message: string): void
   error(message: string): void
   clear(): void
 }
 
-export type SpinnerFactory = (options?: SpinnerOptions) => SpinnerResult
+type SpinnerFactory = (options?: SpinnerOptions) => SpinnerResult
 
 export function createLoadingIndicator(
   enabled: boolean,
@@ -32,9 +30,6 @@ export function createLoadingIndicator(
   }) : undefined
 
   return {
-    get active() {
-      return active
-    },
     start(message) {
       if (activity === undefined) return
       if (active) {
@@ -43,9 +38,6 @@ export function createLoadingIndicator(
       }
       activity.start(message)
       active = true
-    },
-    message(message) {
-      if (active) activity?.message(message)
     },
     stop(message) {
       if (!active) return

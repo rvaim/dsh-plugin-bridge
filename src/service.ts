@@ -1,4 +1,4 @@
-import { Service } from '@deepseek-ai/cordis'
+import { Service, type Context as CordisContext } from '@deepseek-ai/cordis'
 import type { Config } from './config.js'
 import {
   CompatManager,
@@ -23,14 +23,14 @@ export class CompatService extends Service {
   readonly runtime: CompatRuntimeManager
   readonly manager: CompatManager
 
-  constructor(readonly ctx: DshContextLike, readonly config: Config = {}) {
-    super(ctx, 'compat')
+  constructor(ctx: DshContextLike, readonly config: Config = {}) {
+    super(ctx as unknown as CordisContext, 'compat')
     this.layout = new CompatLayout(config.harnessHome)
     this.runtime = new CompatRuntimeManager(ctx, this.layout, {
-      ...(config.workspaceRoot === undefined ? {} : { workspaceRoot: config.workspaceRoot }),
-      ...(config.hookDefaultTimeoutMs === undefined ? {} : { hookDefaultTimeoutMs: config.hookDefaultTimeoutMs }),
-      ...(config.hookStderrSummaryMaxChars === undefined ? {} : { hookStderrSummaryMaxChars: config.hookStderrSummaryMaxChars }),
-      ...(config.codexModel === undefined ? {} : { codexModel: config.codexModel }),
+      workspaceRoot: config.workspaceRoot,
+      hookDefaultTimeoutMs: config.hookDefaultTimeoutMs,
+      hookStderrSummaryMaxChars: config.hookStderrSummaryMaxChars,
+      codexModel: config.codexModel,
     })
     this.manager = new CompatManager(this.layout, this.runtime)
   }

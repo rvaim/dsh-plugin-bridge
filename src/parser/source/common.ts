@@ -7,13 +7,8 @@ import type { CompatPluginLocation } from '../../types/source.js'
 import { validateGitRef, validatePersistableGitUrl } from '../../source/resolver.js'
 import { isPathInside } from '../../source/safety.js'
 import { normalizeManagementId } from '../shared/id.js'
+import { asObject } from '../shared/object.js'
 import type { MarketplacePluginDefinition, SourcePluginCandidate } from './types.js'
-
-export function asObject(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : undefined
-}
 
 export function stringField(object: Record<string, unknown>, name: string): string | undefined {
   const value = object[name]
@@ -43,7 +38,6 @@ export function combinePluginRoot(pluginRoot: string | undefined, raw: string): 
   if (path === '.') return root
   return normalizeRelativeSourcePath(posix.join(root, path))
 }
-
 
 /**
  * 验证 Source 内插件目录，并返回基于 Source 真根目录的规范相对路径。
@@ -146,6 +140,15 @@ function optionalRef(value: unknown, field: string): string | undefined {
   return validateGitRef(value, field)
 }
 
+function gitRevision(object: Record<string, unknown>): { ref?: string; sha?: string } {
+  const ref = optionalRef(object.ref, 'ref')
+  const sha = fullSha(object.sha, 'sha')
+  return {
+    ...(ref === undefined ? {} : { ref }),
+    ...(sha === undefined ? {} : { sha }),
+  }
+}
+
 function githubUrl(repo: string): string {
   if (!/^[^/\s]+\/[^/\s]+$/.test(repo)) throw new Error(`GitHub repo 必须是 owner/repo：${repo}`)
   return `https://github.com/${repo.replace(/\.git$/i, '')}.git`
@@ -228,8 +231,7 @@ export async function parseMarketplaceLocation(options: {
       location = {
         type: 'git',
         url: githubUrl(repo),
-        ...(optionalRef(object.ref, 'ref') === undefined ? {} : { ref: optionalRef(object.ref, 'ref') }),
-        ...(fullSha(object.sha, 'sha') === undefined ? {} : { sha: fullSha(object.sha, 'sha') }),
+        ...gitRevision(object),
       }
       return { location, key: locationKey(location), diagnostics, installable: true }
     }
@@ -248,15 +250,13 @@ export async function parseMarketplaceLocation(options: {
           type: 'git-subdir',
           url: normalizeExternalGitUrl(url),
           path,
-          ...(optionalRef(object.ref, 'ref') === undefined ? {} : { ref: optionalRef(object.ref, 'ref') }),
-          ...(fullSha(object.sha, 'sha') === undefined ? {} : { sha: fullSha(object.sha, 'sha') }),
+          ...gitRevision(object),
         }
       } else {
         location = {
           type: 'git',
           url: normalizeExternalGitUrl(url),
-          ...(optionalRef(object.ref, 'ref') === undefined ? {} : { ref: optionalRef(object.ref, 'ref') }),
-          ...(fullSha(object.sha, 'sha') === undefined ? {} : { sha: fullSha(object.sha, 'sha') }),
+          ...gitRevision(object),
         }
       }
       return { location, key: locationKey(location), diagnostics, installable: true }
@@ -272,8 +272,7 @@ export async function parseMarketplaceLocation(options: {
         type: 'git-subdir',
         url: normalizeExternalGitUrl(url),
         path,
-        ...(optionalRef(object.ref, 'ref') === undefined ? {} : { ref: optionalRef(object.ref, 'ref') }),
-        ...(fullSha(object.sha, 'sha') === undefined ? {} : { sha: fullSha(object.sha, 'sha') }),
+        ...gitRevision(object),
       }
       return { location, key: locationKey(location), diagnostics, installable: true }
     }
@@ -281,11 +280,13 @@ export async function parseMarketplaceLocation(options: {
     if (type === 'npm') {
       const packageName = stringField(object, 'package')
       if (packageName === undefined) throw new Error('npm source 缺少 package')
+      const version = stringField(object, 'version')
+      const registry = stringField(object, 'registry')
       location = {
         type: 'npm',
         package: packageName,
-        ...(stringField(object, 'version') === undefined ? {} : { version: stringField(object, 'version') }),
-        ...(stringField(object, 'registry') === undefined ? {} : { registry: stringField(object, 'registry') }),
+        ...(version === undefined ? {} : { version }),
+        ...(registry === undefined ? {} : { registry }),
       }
       diagnostics.push(diagnostic('error', 'SOURCE_LOCATION_NPM_UNSUPPORTED', 'source', '为避免安装阶段执行 npm 生命周期脚本，第一版不自动安装 npm Marketplace 来源', marketplaceFile))
       return { location, key: locationKey(location), diagnostics, installable: false }
@@ -332,9 +333,19 @@ export function createCandidate(options: {
   fallbackId: string
 }): SourcePluginCandidate {
   const rawName = stringField(options.entry, 'name') ?? options.fallbackId
+  const textFields = {
+    displayName: stringField(options.entry, 'displayName'),
+    description: stringField(options.entry, 'description'),
+    version: stringField(options.entry, 'version'),
+  }
+  const normalizedTextFields = {
+    ...(textFields.displayName === undefined ? {} : { displayName: textFields.displayName }),
+    ...(textFields.description === undefined ? {} : { description: textFields.description }),
+    ...(textFields.version === undefined ? {} : { version: textFields.version }),
+  }
   const candidateDiagnostics = [...options.diagnostics]
   for (const field of ['displayName', 'description', 'version'] as const) {
-    if (options.entry[field] !== undefined && stringField(options.entry, field) === undefined) {
+    if (options.entry[field] !== undefined && textFields[field] === undefined) {
       candidateDiagnostics.push(diagnostic(
         'error',
         `SOURCE_PLUGIN_${field.replace(/[A-Z]/g, letter => `_${letter}`).toUpperCase()}_INVALID`,
@@ -367,9 +378,7 @@ export function createCandidate(options: {
     file: options.marketplaceFile,
     pointer: options.pointer,
     name: rawName,
-    ...(stringField(options.entry, 'displayName') === undefined ? {} : { displayName: stringField(options.entry, 'displayName') }),
-    ...(stringField(options.entry, 'description') === undefined ? {} : { description: stringField(options.entry, 'description') }),
-    ...(stringField(options.entry, 'version') === undefined ? {} : { version: stringField(options.entry, 'version') }),
+    ...normalizedTextFields,
     ...(strict === undefined ? {} : { strict }),
     sourcePathIsRoot: options.location.type === 'source-path' && options.location.path === '.',
     manifestFields,
@@ -384,9 +393,7 @@ export function createCandidate(options: {
   return {
     id,
     name: rawName,
-    ...(stringField(options.entry, 'displayName') === undefined ? {} : { displayName: stringField(options.entry, 'displayName') }),
-    ...(stringField(options.entry, 'description') === undefined ? {} : { description: stringField(options.entry, 'description') }),
-    ...(stringField(options.entry, 'version') === undefined ? {} : { version: stringField(options.entry, 'version') }),
+    ...normalizedTextFields,
     formats: [options.format],
     location: options.location,
     ...(typeof options.entry.defaultEnabled === 'boolean' ? { defaultEnabled: options.entry.defaultEnabled } : {}),

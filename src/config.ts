@@ -16,7 +16,7 @@ export interface Config {
 }
 
 /** 当前 DSH 插件约定使用 Schemastery 暴露配置模式和部署默认值。 */
-export const Config: any = z.object({
+export const Config = z.object({
   harnessHome: z.string(),
   workspaceRoot: z.string(),
   autoStart: z.boolean().default(true),

@@ -6,7 +6,6 @@ function stripGitSuffix(name: string): string {
   return name.replace(/\.git$/i, '')
 }
 
-
 export function validatePersistableGitUrl(value: string, input = value): void {
   if (/^git@[^:]+:.+/.test(value)) return
   let parsed: URL

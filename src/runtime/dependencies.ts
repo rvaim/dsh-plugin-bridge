@@ -1,52 +1,30 @@
+import type {
+  CommandHook,
+  DetachedRuns,
+  HookOutput,
+  MatcherMode,
+  MergedHookOutcome,
+  RunHookOptions,
+  RunHookResult,
+} from '@deepseek-ai/dsh-hook-protocol'
+
+export type HookOutputLike = HookOutput
+export type MergedHookOutcomeLike = MergedHookOutcome
+
 export interface HookProtocolLike {
   DEFAULT_HOOK_TIMEOUT_MS?: number
   DEFAULT_STDERR_SUMMARY_MAX_CHARS?: number
-  createDetachedRuns(): {
-    readonly signal: AbortSignal
-    track(run: Promise<unknown>): void
-    drain(): Promise<void>
-  }
+  createDetachedRuns(): DetachedRuns
   appendHookInvoked?(session: unknown, data: Record<string, unknown>): void
   appendHookResult?(session: unknown, data: Record<string, unknown>): void
   runHook(
     shell: unknown,
-    hook: { command: string; timeoutSec?: number },
-    options: {
-      payload: unknown
-      env?: Record<string, string>
-      cwd?: string
-      signal: AbortSignal
-      trailingNewline: boolean
-      defaultTimeoutMs: number
-      expectedEventName?: string
-    },
+    hook: CommandHook,
+    options: RunHookOptions,
     now: () => number,
-  ): Promise<{ output: HookOutputLike; durationMs: number }>
-  matchesMatcher(matcher: string | undefined, query: string, mode: 'claude-code' | 'codex'): boolean
+  ): Promise<RunHookResult>
+  matchesMatcher(matcher: string | undefined, query: string, mode: MatcherMode): boolean
   mergeHookOutputs(outputs: HookOutputLike[]): MergedHookOutcomeLike
-}
-
-export interface HookOutputLike {
-  exitCode?: number
-  stderr?: string
-  stdout?: string
-  hookEventName?: string
-  decision?: 'deny' | 'block' | 'ask' | 'approve' | 'allow'
-  reason?: string
-  continue?: boolean
-  stopReason?: string
-  additionalContext?: string
-  systemMessage?: string
-  updatedInput?: unknown
-}
-
-export interface MergedHookOutcomeLike {
-  decision: 'deny' | 'ask' | 'allow' | 'none'
-  reason?: string
-  stop: boolean
-  stopReason?: string
-  additionalContext: string[]
-  systemMessages: string[]
 }
 
 export interface RuntimeDependencies {

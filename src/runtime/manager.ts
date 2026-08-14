@@ -64,7 +64,6 @@ export class CompatRuntimeManager {
     return snapshot
   }
 
-
   noteFailure(pluginId: string, error: string): PluginRuntimeSnapshot {
     return this.update(pluginId, 'failed', this.get(pluginId).capabilities, error)
   }
@@ -90,9 +89,9 @@ export class CompatRuntimeManager {
         dataRoot: this.layout.dataDir(plugin.id),
         workspaceRoot: this.workspaceRoot,
         dependencies: this.dependencies,
-        ...(this.options.hookDefaultTimeoutMs === undefined ? {} : { hookDefaultTimeoutMs: this.options.hookDefaultTimeoutMs }),
-        ...(this.options.hookStderrSummaryMaxChars === undefined ? {} : { hookStderrSummaryMaxChars: this.options.hookStderrSummaryMaxChars }),
-        ...(this.options.codexModel === undefined ? {} : { codexModel: this.options.codexModel }),
+        hookDefaultTimeoutMs: this.options.hookDefaultTimeoutMs,
+        hookStderrSummaryMaxChars: this.options.hookStderrSummaryMaxChars,
+        codexModel: this.options.codexModel,
         report: (health: CapabilityRuntimeHealth[], status: PluginRuntimeStatus) => {
           reportedHealth = health
           reportedStatus = status

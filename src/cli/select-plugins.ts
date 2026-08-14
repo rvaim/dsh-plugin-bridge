@@ -17,21 +17,21 @@ interface TtyWritable extends Writable {
   isTTY?: boolean
 }
 
-export type PluginMultiSelect = (
+type PluginMultiSelect = (
   options: MultiSelectOptions<string>,
 ) => Promise<string[] | symbol>
 
-export interface PluginSelectionDependencies {
+interface PluginSelectionDependencies {
   input?: Readable
   output?: Writable
   prompt?: PluginMultiSelect
   ci?: boolean
 }
 
-export class PluginSelectionCancelledError extends Error {
+export class PromptCancelledError extends Error {
   constructor() {
-    super('已取消 Plugin 选择。')
-    this.name = 'PluginSelectionCancelledError'
+    super('已取消交互操作。')
+    this.name = 'PromptCancelledError'
   }
 }
 
@@ -86,6 +86,6 @@ export async function selectPluginsInteractively(
     required: true,
     showInstructions: false,
   })
-  if (typeof result === 'symbol') throw new PluginSelectionCancelledError()
+  if (typeof result === 'symbol') throw new PromptCancelledError()
   return result
 }

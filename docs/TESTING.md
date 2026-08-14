@@ -119,6 +119,8 @@ Adapter 测试直接构造统一结构，不依赖 Claude/Codex 原始 fixture�
 - `source add/list/inspect/remove/update`；
 - 单插件离线安装、检查和卸载；
 - 多插件无交互选择；
+- 多插件候选到 Clack 复选项的映射、禁用项、取消与无 TTY 回退；
+- 加载动画的开始、文案切换、暂停、恢复、成功与失败收尾；
 - Marketplace `defaultEnabled=false`；
 - 共享更新 `--yes`；
 - 参数顺序与未知参数；

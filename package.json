@@ -47,6 +47,7 @@
     "node": "^22.19.0 || >=24.0.0"
   },
   "dependencies": {
+    "@clack/prompts": "1.7.0",
     "@deepseek-ai/dsh-hook-protocol": "0.0.1-rc.5"
   },
   "peerDependencies": {

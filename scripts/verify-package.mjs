@@ -32,6 +32,9 @@ if (packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'] !== undefined
 if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== '0.0.1-rc.5') {
   throw new Error('Hook Protocol 必须作为与目标 DSH 对齐的运行依赖安装')
 }
+if (packageJson.dependencies?.['@clack/prompts'] !== '1.7.0') {
+  throw new Error('交互选择与加载动画必须使用已验证版本的 @clack/prompts')
+}
 if (packageJson.peerDependencies?.['@deepseek-ai/dsh-hook-protocol'] !== undefined
   || packageJson.peerDependenciesMeta?.['@deepseek-ai/dsh-hook-protocol'] !== undefined) {
   throw new Error('Hook Protocol 不能再声明为 peer/optional peer，否则 profile 安装后 Hook 无法注册')

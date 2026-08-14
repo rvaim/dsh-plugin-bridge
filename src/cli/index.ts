@@ -7,7 +7,6 @@ import {
   PluginSelectionRequiredError,
   SharedSourceUpdateError,
 } from '../manager/manager.js'
-import type { CompatSourcePlugin } from '../types/source.js'
 import { CompatLayout } from '../store/layout.js'
 import { flagBoolean, flagString, flagStrings, parseArguments } from './args.js'
 import {
@@ -16,6 +15,16 @@ import {
   formatSourceInspection,
   formatSourceList,
 } from './format.js'
+import {
+  createLoadingIndicator,
+  runWithLoading,
+  type LoadingIndicator,
+} from './loading.js'
+import {
+  isInteractiveTerminal,
+  PluginSelectionCancelledError,
+  selectPluginsInteractively,
+} from './select-plugins.js'
 
 const HELP = `dsh-compat：Claude Code / Codex 旧插件兼容管理器
 
@@ -43,8 +52,9 @@ const HELP = `dsh-compat：Claude Code / Codex 旧插件兼容管理器
   --help         显示帮助
 
 说明：
-  * Marketplace Source 不会默认安装全部 Plugin。交互终端会要求选择；CI 或无交互
-    环境必须重复传入 --plugin。
+  * Marketplace Source 不会默认安装全部 Plugin。交互终端使用 ↑/↓ 移动、Space
+    选中/反选、Enter 确认；CI、--json 或无交互环境必须重复传入 --plugin。
+  * 交互终端在获取、解析和更新 Source 时显示加载动画；--json 与管道输出保持纯净。
   * --path 只在 Source 没有 Claude/Codex Marketplace 时作为明确兜底，不递归猜目录。
   * 独立 CLI 采用离线管理模式。对正在运行的 DSH 执行 disable/update/uninstall 前，
     应通过 DSH 内的 dsh-compat 服务操作，或先停止该 DSH 进程。`
@@ -66,37 +76,6 @@ function print(value: unknown, json: boolean, text: () => string): void {
   console.log(json ? JSON.stringify(value, null, 2) : text())
 }
 
-async function selectPluginsInteractively(plugins: readonly CompatSourcePlugin[]): Promise<string[]> {
-  if (!stdin.isTTY || !stdout.isTTY) return []
-  console.log('Source 包含多个 Plugin，请选择一个或多个：')
-  for (const [index, plugin] of plugins.entries()) {
-    const notes = [
-      plugin.formats.join('/'),
-      plugin.installable ? undefined : '不可安装',
-      plugin.description,
-    ].filter((value): value is string => typeof value === 'string' && value !== '')
-    console.log(`  ${index + 1}. ${plugin.id}${plugin.displayName ? ` (${plugin.displayName})` : ''}${notes.length > 0 ? ` — ${notes.join('；')}` : ''}`)
-  }
-  const readline = createInterface({ input: stdin, output: stdout })
-  try {
-    const answer = (await readline.question('输入编号或 Plugin ID，多个值用逗号分隔（空输入取消）：')).trim()
-    if (answer === '') return []
-    const result: string[] = []
-    for (const token of answer.split(',').map(value => value.trim()).filter(Boolean)) {
-      if (/^\d+$/.test(token)) {
-        const item = plugins[Number(token) - 1]
-        if (item === undefined) throw new Error(`选择编号超出范围：${token}`)
-        result.push(item.id)
-      } else {
-        result.push(token)
-      }
-    }
-    return [...new Set(result)]
-  } finally {
-    readline.close()
-  }
-}
-
 async function confirmSharedUpdateInteractively(error: SharedSourceUpdateError): Promise<boolean> {
   if (!stdin.isTTY || !stdout.isTTY) return false
   console.log(error.message)
@@ -109,14 +88,24 @@ async function confirmSharedUpdateInteractively(error: SharedSourceUpdateError):
   }
 }
 
-async function handleSource(manager: CompatManager, positionals: string[], json: boolean, args: ReturnType<typeof parseArguments>): Promise<void> {
+async function handleSource(
+  manager: CompatManager,
+  positionals: string[],
+  json: boolean,
+  args: ReturnType<typeof parseArguments>,
+  loading: LoadingIndicator,
+): Promise<void> {
   const action = required(positionals[0], 'Source 子命令')
   switch (action) {
     case 'add': {
-      const result = await manager.sourceAdd(required(positionals[1], 'Source 来源'), {
+      const result = await runWithLoading(loading, {
+        start: '正在获取并解析 Source',
+        success: 'Source 已就绪',
+        failure: 'Source 获取失败',
+      }, () => manager.sourceAdd(required(positionals[1], 'Source 来源'), {
         ...(flagString(args, 'as') === undefined ? {} : { as: flagString(args, 'as') }),
         ...(flagStrings(args, 'path').length === 0 ? {} : { paths: flagStrings(args, 'path') }),
-      })
+      }))
       print(result, json, () => formatSourceInspection(result))
       return
     }
@@ -127,9 +116,13 @@ async function handleSource(manager: CompatManager, positionals: string[], json:
       return
     }
     case 'update': {
-      const result = await manager.sourceUpdate(required(positionals[1], 'Source ID'), {
+      const result = await runWithLoading(loading, {
+        start: '正在获取并更新 Source',
+        success: 'Source 更新完成',
+        failure: 'Source 更新失败',
+      }, () => manager.sourceUpdate(required(positionals[1], 'Source ID'), {
         ...(flagString(args, 'source') === undefined ? {} : { source: flagString(args, 'source') }),
-      })
+      }))
       print(result, json, () => formatSourceInspection(result.source))
       return
     }
@@ -158,25 +151,42 @@ async function main(): Promise<void> {
   const layout = new CompatLayout(flagString(args, 'home'))
   const manager = new CompatManager(layout)
   const json = flagBoolean(args, 'json')
+  const interactiveUi = !json && isInteractiveTerminal()
+  const loading = createLoadingIndicator(interactiveUi)
 
   switch (args.command) {
     case 'source':
-      await handleSource(manager, args.positionals, json, args)
+      await handleSource(manager, args.positionals, json, args, loading)
       return
     case 'install': {
       const priority = parsePriority(flagString(args, 'priority'))
       const disableAfterInstall = flagBoolean(args, 'no-enable')
-      const result = await manager.install(required(args.positionals[0], '安装来源或 Source ID'), {
-        ...(flagString(args, 'as') === undefined ? {} : { as: flagString(args, 'as') }),
-        ...(flagString(args, 'source-as') === undefined ? {} : { sourceAs: flagString(args, 'source-as') }),
-        ...(flagStrings(args, 'plugin').length === 0 ? {} : { plugins: flagStrings(args, 'plugin') }),
-        ...(flagStrings(args, 'path').length === 0 ? {} : { paths: flagStrings(args, 'path') }),
-        // 未传 --no-enable 时保留 Marketplace 的默认启用策略；不能由 CLI
-        // 无条件写成 true，否则会覆盖 Codex 的 AVAILABLE 等语义。
-        ...(disableAfterInstall ? { enable: false } : {}),
-        ...(priority === undefined ? {} : { priority }),
-        selectPlugins: selectPluginsInteractively,
-      })
+      loading.start('正在获取并解析 Plugin Source')
+      let result
+      try {
+        result = await manager.install(required(args.positionals[0], '安装来源或 Source ID'), {
+          ...(flagString(args, 'as') === undefined ? {} : { as: flagString(args, 'as') }),
+          ...(flagString(args, 'source-as') === undefined ? {} : { sourceAs: flagString(args, 'source-as') }),
+          ...(flagStrings(args, 'plugin').length === 0 ? {} : { plugins: flagStrings(args, 'plugin') }),
+          ...(flagStrings(args, 'path').length === 0 ? {} : { paths: flagStrings(args, 'path') }),
+          // 未传 --no-enable 时保留 Marketplace 的默认启用策略；不能由 CLI
+          // 无条件写成 true，否则会覆盖 Codex 的 AVAILABLE 等语义。
+          ...(disableAfterInstall ? { enable: false } : {}),
+          ...(priority === undefined ? {} : { priority }),
+          ...(!interactiveUi ? {} : {
+            selectPlugins: async plugins => {
+              loading.stop('Source 已解析')
+              const selected = await selectPluginsInteractively(plugins)
+              loading.start('正在安装所选 Plugin')
+              return selected
+            },
+          }),
+        })
+        loading.stop('Plugin 安装完成')
+      } catch (error) {
+        loading.error('Plugin 安装失败')
+        throw error
+      }
       print(result, json, () => [
         `Source: ${result.source.source.id}`,
         ...result.plugins.map(item => `已安装 ${item.plugin.id}；启用状态：${item.enabled ? '待 DSH 加载' : '未启用'}`),
@@ -188,19 +198,28 @@ async function main(): Promise<void> {
       const source = flagString(args, 'source')
       let confirmShared = flagBoolean(args, 'yes')
       let result
+      loading.start('正在获取并更新 Plugin Source')
       try {
-        result = await manager.update(pluginId, {
-          ...(source === undefined ? {} : { source }),
-          confirmShared,
-        })
+        try {
+          result = await manager.update(pluginId, {
+            ...(source === undefined ? {} : { source }),
+            confirmShared,
+          })
+        } catch (error) {
+          if (!(error instanceof SharedSourceUpdateError) || confirmShared || json) throw error
+          loading.clear()
+          confirmShared = await confirmSharedUpdateInteractively(error)
+          if (!confirmShared) throw error
+          loading.start('正在获取并更新 Plugin Source')
+          result = await manager.update(pluginId, {
+            ...(source === undefined ? {} : { source }),
+            confirmShared: true,
+          })
+        }
+        loading.stop('Plugin 更新完成')
       } catch (error) {
-        if (!(error instanceof SharedSourceUpdateError) || confirmShared || json) throw error
-        confirmShared = await confirmSharedUpdateInteractively(error)
-        if (!confirmShared) throw error
-        result = await manager.update(pluginId, {
-          ...(source === undefined ? {} : { source }),
-          confirmShared: true,
-        })
+        loading.error('Plugin 更新失败')
+        throw error
       }
       print(result, json, () => formatInspection(result))
       return
@@ -237,6 +256,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
+  if (error instanceof PluginSelectionCancelledError) {
+    process.exitCode = 130
+    return
+  }
   if (error instanceof CompatibilityError) {
     console.error(error.message)
     for (const item of error.diagnostics.filter(item => item.level === 'error')) {

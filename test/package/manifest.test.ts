@@ -13,6 +13,7 @@ test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', 
   assert.equal(packageJson.files.includes('dist/'), false)
   assert.equal(packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'], undefined)
   assert.equal(packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'], '0.0.1-rc.5')
+  assert.equal(packageJson.dependencies?.['@clack/prompts'], '1.7.0')
   assert.equal(packageJson.peerDependencies?.['@deepseek-ai/dsh-hook-protocol'], undefined)
   assert.equal(packageJson.peerDependenciesMeta?.['@deepseek-ai/dsh-hook-protocol'], undefined)
 

@@ -34,6 +34,8 @@ dsh-compat source add ./monorepo --as monorepo --path packages/a --path packages
 
 `source add` 只取得并扫描 Source，不会自动安装其全部 Plugin。
 
+获取、解析和更新 Source 时，交互终端会显示加载动画。`--json`、CI 与管道输出不会输出动画控制字符。
+
 ### 2.2 查看 Source
 
 ```bash
@@ -94,7 +96,7 @@ dsh-compat install github:owner/repo#v1.2.0
 dsh-compat install https://github.com/example/plugin-market.git
 ```
 
-系统列出 Marketplace 中准确的 Plugin，输入编号或 ID 选择一个或多个。
+检测到多个 Plugin 后会显示由 `@clack/prompts` 驱动的复选列表：↑/↓ 移动，Space 选中/反选，Enter 确认，Esc 或 Ctrl+C 取消；不可安装的条目会置灰且无法选中。加载动画也由同一库负责。
 
 CI/无交互环境：
 

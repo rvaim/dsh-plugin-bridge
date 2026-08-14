@@ -119,6 +119,8 @@ dsh-compat source remove example-market
 
 `source add` 创建显式 Source。显式 Source 在没有安装 Plugin 时仍会保留，只有用户主动删除才消失。
 
+交互终端执行 Source 获取、解析或更新时会显示加载动画；`--json`、CI 和管道输出不会插入动画字符。
+
 ### 从单插件 Source 安装
 
 ```bash
@@ -131,7 +133,7 @@ dsh-compat install github:owner/repo#v1.2.0
 
 ### 从多插件 Marketplace 安装
 
-交互终端会显示准确的 Plugin 列表并要求选择，不会默认全部安装。CI 或无交互环境必须显式选择：
+交互终端会显示由 `@clack/prompts` 提供的可勾选 Plugin 列表：使用 ↑/↓ 移动，Space 选中或反选，Enter 确认。不会默认全部安装；CI、`--json` 或无交互环境必须显式选择：
 
 ```bash
 dsh-compat install ./plugin-market \

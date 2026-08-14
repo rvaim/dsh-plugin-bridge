@@ -1,0 +1,33 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "danger|safe",
+        "hooks": [
+          { "type": "command", "command": "deny:危险工具已阻止", "timeout": 3 }
+        ]
+      },
+      {
+        "matcher": "confirm",
+        "hooks": [
+          { "type": "command", "command": "ask:需要人工确认" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "safe",
+        "hooks": [
+          { "type": "command", "command": "context:已完成安全检查" }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "context:会话初始化完成" }
+        ]
+      }
+    ]
+  }
+}

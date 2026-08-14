@@ -1,0 +1,58 @@
+#!/usr/bin/env node
+
+/**
+ * 在目标 DSH profile/checkout 已安装 peerDependencies 后运行。
+ * 该探针只核对当前发布包的关键导出契约；完整行为仍由 test/ 中的生命周期测试覆盖。
+ */
+const failures = []
+
+async function load(name) {
+  try {
+    return await import(name)
+  } catch (error) {
+    failures.push(`${name} 无法导入：${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
+}
+
+const [cordis, schemaModule, hookProtocol, mcpClient] = await Promise.all([
+  load('@deepseek-ai/cordis'),
+  load('@deepseek-ai/schemastery'),
+  load('@deepseek-ai/dsh-hook-protocol'),
+  load('@deepseek-ai/dsh-mcp-client'),
+])
+
+if (cordis !== undefined && typeof cordis.Service !== 'function') failures.push('@deepseek-ai/cordis 未导出 Service')
+const schema = schemaModule?.default ?? schemaModule
+if (schema !== undefined && typeof schema.object !== 'function') failures.push('@deepseek-ai/schemastery 未导出 object()')
+for (const name of ['runHook', 'matchesMatcher', 'mergeHookOutputs', 'createDetachedRuns']) {
+  if (hookProtocol !== undefined && typeof hookProtocol[name] !== 'function') {
+    failures.push(`@deepseek-ai/dsh-hook-protocol 未导出 ${name}()`)
+  }
+}
+if (mcpClient !== undefined) {
+  const plugin = mcpClient.default ?? mcpClient
+  if (typeof plugin !== 'function' && typeof plugin?.apply !== 'function') {
+    failures.push('@deepseek-ai/dsh-mcp-client 不是 Cordis 可挂载插件')
+  }
+}
+
+try {
+  const compat = await import('../dist/src/index.js')
+  if (typeof compat.apply !== 'function') failures.push('dsh-compat 未导出 apply()')
+  if (!Array.isArray(compat.inject) || !compat.inject.includes('skills') || !compat.inject.includes('shell')) {
+    failures.push('dsh-compat 的 inject 未声明 skills/shell')
+  }
+  if (compat.Config === undefined) failures.push('dsh-compat 未导出 Config schema')
+} catch (error) {
+  failures.push(`dsh-compat 构建入口无法导入：${error instanceof Error ? error.message : String(error)}`)
+}
+
+if (failures.length > 0) {
+  console.error('真实 DSH 契约探针失败：')
+  for (const failure of failures) console.error(`- ${failure}`)
+  console.error('\n请在安装了目标 DeepSeek Harness 依赖的 profile 或源码 checkout 中重试。')
+  process.exitCode = 1
+} else {
+  console.log('真实 DSH 关键导出契约检查通过')
+}

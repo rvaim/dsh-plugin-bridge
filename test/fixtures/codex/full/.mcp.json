@@ -1,0 +1,11 @@
+{
+  "mcp_servers": {
+    "search": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/scripts/search.js", "${PLUGIN_DATA}/cache.json"],
+      "cwd": "${PLUGIN_ROOT}",
+      "env_vars": ["SEARCH_KEY"],
+      "tool_timeout_sec": 12
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "hooks": {
+    "user_prompt_submit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "stdout:Codex 提示上下文" }
+        ]
+      }
+    ],
+    "pre_tool_use": [
+      {
+        "matcher": "^danger$",
+        "hooks": [
+          { "type": "command", "command": "ask:需要确认" }
+        ]
+      }
+    ],
+    "stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "deny:继续执行" }
+        ]
+      }
+    ]
+  }
+}

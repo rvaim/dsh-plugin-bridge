@@ -1,0 +1,87 @@
+{
+  "name": "dsh-compat",
+  "version": "0.2.2",
+  "description": "在 DeepSeek Harness 中按 Source/Plugin 模型整体管理并运行 Claude Code、Codex 旧插件",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./service": {
+      "types": "./dist/src/service.d.ts",
+      "import": "./dist/src/service.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "dsh-compat": "./dist/src/cli/index.js"
+  },
+  "files": [
+    "dist/src/",
+    "docs/",
+    "scripts/verify-real-dsh.mjs",
+    "cordis.patch.yml",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "build": "tsc -p tsconfig.json",
+    "prepare": "npm run build",
+    "test:compiled": "node --test --test-reporter=spec dist/test/**/*.test.js",
+    "test": "npm run clean && npm run build && npm run test:compiled",
+    "verify": "npm run test && node ./scripts/verify-package.mjs",
+    "verify:dsh": "node ./scripts/verify-real-dsh.mjs",
+    "pack:check": "npm pack --dry-run --json --ignore-scripts"
+  },
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-hook-protocol": "0.0.1-rc.5"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-llm": "*",
+    "@deepseek-ai/dsh-mcp-client": "*",
+    "@deepseek-ai/dsh-session": "*",
+    "@deepseek-ai/dsh-skill": "*",
+    "@deepseek-ai/dsh-tools": "*",
+    "@deepseek-ai/schemastery": "*"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-agent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-llm": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-mcp-client": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-session": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-skill": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-tools": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "typescript": "^5.8.3"
+  },
+  "license": "MIT"
+}

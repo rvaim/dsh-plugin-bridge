@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "github": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/server.js",
+      "args": ["--mode", "test"],
+      "cwd": "${CLAUDE_PLUGIN_ROOT}",
+      "env": {
+        "GITHUB_TOKEN": "${GITHUB_TOKEN}",
+        "INLINE_SECRET": "ghp_do_not_copy_to_scan"
+      }
+    },
+    "remote": {
+      "type": "streamable-http",
+      "url": "https://example.invalid/mcp?token=do_not_copy",
+      "headers": {
+        "Authorization": "Bearer plain-secret"
+      }
+    }
+  }
+}

@@ -130,6 +130,34 @@ test('多插件 Marketplace 只安装被选择项，共享 Source 只保存一�
   }
 })
 
+
+test('多插件 Source 未显式选择时拒绝安装，并列出全部候选 ID', async () => {
+  const temp = await temporaryDirectory()
+  try {
+    const source = resolve(temp.path, 'select-market')
+    await buildClaudePlugin(resolve(source, 'plugins/a'), { name: 'a' })
+    await buildClaudePlugin(resolve(source, 'plugins/b'), { name: 'b' })
+    await writeClaudeMarketplace(source, [
+      { name: 'a', source: './plugins/a' },
+      { name: 'b', source: './plugins/b' },
+    ], 'select-market')
+
+    const layout = new CompatLayout(resolve(temp.path, 'home'))
+    const manager = new CompatManager(layout)
+    await assert.rejects(
+      manager.install(source, { sourceAs: 'select-market', enable: false }),
+      /必须通过 plugins 显式选择：a, b/,
+    )
+
+    await layout.ensure()
+    assert.deepEqual(await readdir(layout.sources), [])
+    assert.deepEqual(await readdir(layout.installed), [])
+    assert.deepEqual(await readdir(layout.temp), [])
+  } finally {
+    await temp.cleanup()
+  }
+})
+
 test('显式 Source 在引用归零后保留，仍被 Plugin 引用时禁止删除', async () => {
   const temp = await temporaryDirectory()
   try {

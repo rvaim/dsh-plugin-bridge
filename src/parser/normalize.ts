@@ -254,7 +254,6 @@ export async function parseCompatPlugin(packageRoot: string, options: ParsePlugi
   )
 
   return {
-    schemaVersion: 1,
     id,
     name,
     ...(version === undefined ? {} : { version }),

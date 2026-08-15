@@ -1,5 +1,5 @@
 import { basename, extname, resolve } from 'node:path'
-import { lstat, readdir } from 'node:fs/promises'
+import { lstat } from 'node:fs/promises'
 import type { ResolvedInstallSource } from '../types/source.js'
 
 function stripGitSuffix(name: string): string {
@@ -107,12 +107,4 @@ export async function resolveInstallSource(input: string, cwd = process.cwd()): 
     return { source: { type: 'archive', path: localPath }, display: input, suggestedId: name }
   }
   throw new Error(`安装来源不是普通目录或文件：${localPath}`)
-}
-
-/** 常见仓库归档会额外包一层目录；仅在顶层只有该目录时去掉这一层。 */
-export async function selectExtractedPluginRoot(extractionRoot: string): Promise<string> {
-  const entries = await readdir(extractionRoot, { withFileTypes: true })
-  return entries.length === 1 && entries[0].isDirectory()
-    ? resolve(extractionRoot, entries[0].name)
-    : extractionRoot
 }

@@ -4,12 +4,6 @@ import type { InstalledSourceRecord, SourceMetadata, SourceScanCache } from '../
 import { CompatLayout } from './layout.js'
 import { readJsonFile, writeJsonAtomic } from './json.js'
 
-export const DEFAULT_PLUGIN_STATE: PluginState = {
-  schemaVersion: 1,
-  enabled: false,
-  priority: 0,
-}
-
 export async function readInstalledPlugin(layout: CompatLayout, pluginId: string): Promise<InstalledPluginRecord> {
   const [install, state, scan] = await Promise.all([
     readJsonFile<InstallMetadata>(layout.installFile(pluginId)),
@@ -20,7 +14,7 @@ export async function readInstalledPlugin(layout: CompatLayout, pluginId: string
 }
 
 /** 只读取 Source 引用关系，不要求 state.json/scan.json 完整。 */
-export async function readInstallMetadata(layout: CompatLayout, pluginId: string): Promise<InstallMetadata> {
+async function readInstallMetadata(layout: CompatLayout, pluginId: string): Promise<InstallMetadata> {
   return await readJsonFile<InstallMetadata>(layout.installFile(pluginId))
 }
 
@@ -69,23 +63,6 @@ export async function listPluginIds(layout: CompatLayout): Promise<string[]> {
 export async function listSourceIds(layout: CompatLayout): Promise<string[]> {
   await layout.ensure()
   return await listDirectories(layout.sources)
-}
-
-export async function listPluginRecordsForSource(
-  layout: CompatLayout,
-  sourceId: string,
-): Promise<InstalledPluginRecord[]> {
-  const records: InstalledPluginRecord[] = []
-  for (const pluginId of await listPluginIds(layout)) {
-    try {
-      const install = await readInstallMetadata(layout, pluginId)
-      if (install.sourceId !== sourceId) continue
-      records.push(await readInstalledPlugin(layout, pluginId))
-    } catch {
-      // 调用方可通过 scanPluginSourceReferences 做保守保护；这里仅返回完整记录。
-    }
-  }
-  return records
 }
 
 export interface PluginSourceReference {

@@ -71,7 +71,6 @@ test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () 
     get() { return undefined },
   }
   const plugin: CompatPlugin = {
-    schemaVersion: 1,
     id: 'real-protocol-hook',
     name: 'real-protocol-hook',
     sourceId: 'fixture-source',

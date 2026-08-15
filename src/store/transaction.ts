@@ -24,7 +24,3 @@ export async function removeDirectoryTransactionally(
   await rename(directory, deleting)
   await rm(deleting, { recursive: true, force: true })
 }
-
-export async function rollbackRemove(path: string): Promise<void> {
-  await rm(path, { recursive: true, force: true })
-}

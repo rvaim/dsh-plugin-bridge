@@ -41,7 +41,6 @@ export async function loadInstalledPluginForRuntime(
   const sourceRecord = await readInstalledSource(layout, record.install.sourceId)
   if (
     record.scan.parserVersion === PARSER_VERSION
-    && record.scan.schemaVersion === 1
     && record.scan.sourceRevision === sourceRecord.source.revision
   ) return record
 
@@ -62,7 +61,6 @@ export async function loadInstalledPluginForRuntime(
   // 这些诊断重新附加到统一结构，不能因 scan.json 失效而“恢复”为伪兼容。
   plugin = withAdditionalDiagnostics(plugin, candidate.diagnostics)
   const scan: ScanCache = {
-    schemaVersion: 1,
     parserVersion: PARSER_VERSION,
     sourceRevision: sourceRecord.source.revision,
     scannedAt: new Date().toISOString(),

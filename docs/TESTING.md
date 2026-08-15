@@ -11,7 +11,7 @@ npm run verify
 1. 清理旧编译产物；
 2. TypeScript strict 编译；
 3. Node.js 自动化测试；
-4. 发布文件、CLI、DSH bundle 和 `npm pack --dry-run` 检查。
+4. 发布文件、DSH bundle 和 `npm pack --dry-run` 检查。
 
 当前自动化测试数量和最终命令输出以 [VALIDATION-REPORT.md](VALIDATION-REPORT.md) 为准。
 
@@ -30,7 +30,7 @@ npm run verify
 - 外部 Git、git-subdir 与不支持位置；
 - 单插件 Source；
 - ZIP 单层包装目录；
-- `--path`；
+- `paths`；
 - Marketplace 之外的目录不会被递归猜测。
 
 ## 3. Plugin parser 测试
@@ -127,20 +127,13 @@ Adapter 测试直接构造统一结构，不依赖 Claude/Codex 原始 fixture�
 - Client bundle 使用 DSH `window.__ModuleLoader__` closure-factory，并进入 `dsh.client` 启动图；
 - 真实隔离 DSH Web 中验证设置导航、空状态、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题。
 
-## 8. CLI 与包测试
+## 8. 包测试
 
 覆盖：
 
-- `source add/list/inspect/remove/update`；
-- 单插件离线安装、检查和卸载；
-- 多插件无交互选择；
-- 多插件候选到 Clack 复选项的映射、禁用项、取消与无 TTY 回退；
-- 加载动画的开始、文案切换、暂停、恢复、成功与失败收尾；
-- Marketplace `defaultEnabled=false`；
-- 共享更新 `--yes`；
-- 参数顺序与未知参数；
-- JSON 输出；
-- `package.json`、`cordis.patch.yml`、bin 和 Node engines；
+- 多插件 Source 未显式选择时拒绝安装并列出候选 ID；
+- `package.json`、`cordis.patch.yml` 和 Node engines；
+- 包不再声明 `bin`，且不依赖已随 CLI 移除的 `@clack/prompts`；
 - npm 包只包含 `dist/src`、中文文档和 bundle 文件，不夹带 `src/`、`test/`、`dist/test/` 或 `node_modules/`。
 
 ## 9. 真实 DSH 契约探针

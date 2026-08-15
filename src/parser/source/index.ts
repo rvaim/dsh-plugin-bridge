@@ -21,7 +21,7 @@ export * from './codex.js'
 export { validateSourceDirectory } from './common.js'
 
 export interface ParseSourceOptions {
-  /** --path 兜底目录；只在没有 Marketplace 时生效。 */
+  /** paths 兜底目录；只在没有 Marketplace 时生效。 */
   paths?: string[]
   /** 仅归档来源允许剥离一层普通包装目录。 */
   allowSingleWrapper?: boolean
@@ -253,7 +253,7 @@ async function scanAtRoot(
         'warning',
         'SOURCE_MANUAL_PATHS_IGNORED',
         'source',
-        'Source 已包含受支持的 Marketplace；--path 仅作为无 Marketplace 时的兜底，因此本次未使用',
+        'Source 已包含受支持的 Marketplace；paths 仅作为无 Marketplace 时的兜底，因此本次未使用',
       ))
     }
     if (candidates.length === 0) {
@@ -278,7 +278,6 @@ async function scanAtRoot(
     ...candidates.flatMap(candidate => candidate.diagnostics),
   ])
   const scan: SourceScanCache = {
-    schemaVersion: 1,
     parserVersion: SOURCE_PARSER_VERSION,
     scannedAt: new Date().toISOString(),
     formats,

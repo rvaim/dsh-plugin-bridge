@@ -35,7 +35,7 @@ test('安装、禁用、启用和整体卸载完整旧插件', async () => {
     assert.equal(installed.plugin.id, 'legacy-full')
     assert.equal(installed.enabled, true)
     assert.equal(installed.runtime.status, 'running')
-    const packageRoot = resolve(layout.sourcePackageDir(installed.install.sourceId), installed.install.pluginPath ?? '.')
+    const packageRoot = resolve(layout.sourcePackageDir(installed.install.sourceId), installed.install.location.type === 'source-path' ? installed.install.location.path : '.')
     assert.equal(await readFile(resolve(packageRoot, 'skills/review/SKILL.md'), 'utf8').then(value => value.includes('代码审查')), true)
     await assert.rejects(readFile(resolve(layout.harnessHome, 'skills', 'review', 'SKILL.md')), /ENOENT/)
     await assert.rejects(readFile(resolve(layout.harnessHome, 'mcp.json')), /ENOENT/)

@@ -331,7 +331,7 @@ test('外部 Git、git-subdir 与 Codex url.path 被规范化但不在扫描阶�
   }
 })
 
-test('单插件根目录、归档单层包装目录与 --path 使用同一识别模型', async () => {
+test('单插件根目录、归档单层包装目录与 paths 使用同一识别模型', async () => {
   const temp = await temporaryDirectory()
   try {
     const single = resolve(temp.path, 'single')

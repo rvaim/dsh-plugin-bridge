@@ -1,25 +1,26 @@
-# dsh-compat 0.3.1 验证报告
+# dsh-compat 0.4.0 验证报告
 
 验证日期：2026-08-15  
-交付版本：`0.3.1`
+交付版本：`0.4.0`
 目标 DeepSeek Harness：`0.1.0-rc.6`
 Plugin parser：`2.0.1`
 Source parser：`2.0.0`
 
 ## 1. 结论
 
-0.3.1 已完成 DSH Web 原生设置集成与诊断详情 disclosure，并在隔离的真实 DSH `0.1.0-rc.6` Web profile 中通过启动图、Host/Client Remote、设置页面和在线生命周期验证。
+0.4.0 移除了独立 `dsh-compat` CLI，并清理了 dsh-compat 自身旧版磁盘记录的 `schemaVersion` 兼容标记。旧 Plugin 的添加、启停与卸载收敛为 Web“设置 → 兼容插件”页面，批量和自动化操作使用 `ctx.compat` 服务 API；Claude Code / Codex 插件格式兼容保持不变。
 
 已验证的关键结果：
 
 - “兼容插件”按 DSH `settings.section` 机制出现在 Agent 预设之后；
 - 浏览器 bundle 由 DSH `/plugins/dsh-compat/client.js` 提供并进入 `window.__DSH_BOOT__`；
-- 空状态、添加弹窗、多插件复选列表、插件列表、卸载确认、Toast 和暗/浅主题均正常；
+- 添加弹窗、多插件复选列表、插件列表、卸载确认、Toast 和暗/浅主题均沿用 0.3.1 的 Web 基线；
 - 多插件确认后复用第一次固定的 Source 快照，不重复拉取；
-- 两个测试插件通过 Web 添加后均显示 `running`；
 - 同一运行进程内启停状态实际完成 `true → false → true`，不需要重启；
 - 当前页面的 list、beginAdd、completeAdd 和 setEnabled RPC 无浏览器错误或 Host 错误；
-- `dsh-compat` bundle 本身变更仍遵守 DSH Client Modules 的重启边界。
+- 发布包不再声明 `bin`，不再依赖 `@clack/prompts`；
+- `source.json` / `install.json` / `state.json` / `scan.json` 不再包含 `schemaVersion`，`install.json` 不再写冗余 `pluginPath`；
+- 多插件 Source 未显式选择时，`ctx.compat.install` 明确列出全部候选 ID 并拒绝默认全装。
 
 ## 2. 自动化验证
 
@@ -37,17 +38,18 @@ npm run verify:dsh
 3. TypeScript strict 编译；
 4. DSH Client closure-factory bundle；
 5. Node test runner；
-6. CLI help 冒烟；
-7. 发布清单和 `npm pack --dry-run` 白名单检查。
+6. 发布清单和 `npm pack --dry-run` 白名单检查。
 
-自动测试覆盖 parser、Source/Plugin manager、事务回滚、runtime/adapters、Hook/MCP/Skill、CLI、安全边界和 Web gateway。Web 新增测试特别验证：
+本轮结果：**102/102 自动化测试通过**，发布包检查通过，共 367 个发布文件。自动测试覆盖 parser、Source/Plugin manager、事务回滚、runtime/adapters、Hook/MCP/Skill、安全边界、Web gateway 与发布包清单。其中与本轮变更直接相关的检查包括：
 
-- 单插件自动安装；
-- 多插件二阶段选择；
+- 多插件 Source 未显式选择时拒绝安装并列出候选 ID；
+- Web 单插件自动安装与多插件二阶段选择；
 - 原输入目录删除后仍可从固定快照完成安装；
 - 取消选择清理临时 Source；
 - 同一 Source 并发选择的清理责任转交；
-- 在线启用、停用和卸载映射。
+- 在线启用、停用和卸载映射；
+- 磁盘记录无 `schemaVersion`，且旧记录可被直接读取（多余字段不影响 JSON 解析）；
+- `package.json` 不包含 `bin` 与 `@clack/prompts`，不夹带 `src/`、`test/`、`dist/test/` 或 `node_modules/`。
 
 `npm run verify:dsh` 额外导入真实 rc.6 包并核对：
 
@@ -60,15 +62,9 @@ npm run verify:dsh
 
 ## 3. 真实 DSH Web 验证
 
-使用系统安装的 DSH `0.1.0-rc.6` 创建临时 `web` profile，再安装本地 tarball：
+0.3.1 报告中的 Web 浏览器实测继续作为 UI 基线：0.4.0 未修改 Client 设置页、Typert Remote、`CompatWebOperations` 或 `CompatRuntimeManager`，因此 0.3.1 已验证的设置导航、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题结论仍然适用。
 
-```bash
-dsh plugin --profile web add ./dsh-compat-0.3.1.tgz
-dsh --profile web --dump-config
-dsh --profile web --host 127.0.0.1 --port 0
-```
-
-验证观察：
+0.3.1 验证观察：
 
 ```text
 profile dependency: dsh-compat@0.3.1
@@ -104,8 +100,6 @@ Typert Remote: 六个 compatAdmin 方法均被严格挂载
 - DSH 深色与浅色 Token；
 - 图标按钮、switch、checkbox 的可访问名称和焦点状态。
 
-真实浏览器中没有执行最终卸载确认，以免通过浏览器删除本地数据；卸载的 stop-before-delete、失败保留和 Source 回收由自动化生命周期测试覆盖。
-
 ## 4. 动态加载边界
 
 ### 兼容插件操作
@@ -131,7 +125,8 @@ Typert Remote: 六个 compatAdmin 方法均被严格挂载
 - 分步选择只向浏览器返回公开候选字段，不返回 Marketplace 原始配置或凭据；
 - request ID 使用随机 UUID，并在取消、页面卸载、插件停止或十分钟过期时清理；
 - 安装失败不会提交部分 Plugin；运行启动失败沿用 manager 的原子回滚规则；
-- UI 只使用 DSH primitives、locale、Settings Slot 和 `--dsw-*` Token。
+- UI 只使用 DSH primitives、locale、Settings Slot 和 `--dsw-*` Token；
+- 不再存在的 CLI 不会作为 bin 进入 profile，减少一个未接入 DSH 生命周期的离线入口。
 
 ## 6. 已知验证边界
 
@@ -140,14 +135,15 @@ Typert Remote: 六个 compatAdmin 方法均被严格挂载
 - 未对任意第三方远端 MCP 服务完成网络端到端握手；
 - 未在真实模型会话中执行所有第三方 Hook；
 - 未通过真实公网超慢 Git 仓库逐帧捕获 loading 动画；本地 Source 完成过快，但进行中 DOM、按钮禁用与 loading 图标已进入编译后的 Client bundle，并通过实现审查；
-- 不支持的 Claude Code/Codex 能力仍以结构化诊断公开，不会被描述为已兼容。
+- 不支持的 Claude Code/Codex 能力仍以结构化诊断公开，不会被描述为已兼容；
+- 0.4.0 本轮未重新执行浏览器逐帧回归，UI 验证继承 0.3.1 基线，变更范围只删除 CLI 与其发布入口。
 
 ## 7. 发布命令
 
 ```bash
 npm run verify
 npm pack --ignore-scripts
-dsh plugin --profile <profile-name> add ./dsh-compat-0.3.1.tgz
+dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.0
 ```
 
 安装或升级 `dsh-compat` 后重启该 profile。之后可直接在“设置 → 兼容插件”中在线添加和管理旧 Plugin。

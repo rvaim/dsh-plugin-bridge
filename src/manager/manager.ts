@@ -1,4 +1,4 @@
-import { mkdir, realpath, rename, rm } from 'node:fs/promises'
+import { mkdir, rename, rm } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { acquireSource, cleanAcquisition, materializeExternalPlugin } from './acquire.js'
 import { findCapabilityConflicts, findCapabilityConflictsWithin, stripConflictDiagnostics } from './conflicts.js'
@@ -10,7 +10,6 @@ import { SOURCE_PARSER_VERSION } from '../parser/version.js'
 import { copyPluginDirectory } from '../source/directory.js'
 import { pathExists } from '../source/filesystem.js'
 import { resolveInstallSource } from '../source/resolver.js'
-import { isPathInside } from '../source/safety.js'
 import { CompatLayout, isStorageId } from '../store/layout.js'
 import { withPluginLock, withPluginLocks, withRepositoryLock, withSourceLock } from '../store/lock.js'
 import {
@@ -46,6 +45,7 @@ import type {
   SourceOwnership,
 } from '../types/source.js'
 import type { CompatRuntimeManager } from '../runtime/manager.js'
+import { resolveInstalledPluginPackageRoot } from '../runtime/loader.js'
 
 export interface InstallOptions {
   cwd?: string
@@ -59,8 +59,6 @@ export interface InstallOptions {
   paths?: string[]
   enable?: boolean
   priority?: number
-  /** 交互前端只接收无原始 Marketplace 定义的公开候选。 */
-  selectPlugins?: (plugins: readonly CompatSourcePlugin[]) => Promise<string[]>
 }
 
 export interface SourceAddOptions {
@@ -152,13 +150,6 @@ export class CompatibilityError extends Error {
   }
 }
 
-export class PluginSelectionRequiredError extends Error {
-  constructor(readonly sourceId: string, readonly plugins: readonly CompatSourcePlugin[]) {
-    super(`Source ${sourceId} 包含多个插件，必须显式选择一个或多个 --plugin`)
-    this.name = 'PluginSelectionRequiredError'
-  }
-}
-
 export class SharedSourceUpdateError extends Error {
   constructor(readonly sourceId: string, readonly pluginIds: readonly string[]) {
     super(`更新该插件实际会更新共享 Source ${sourceId}；同时受影响：${pluginIds.join(', ')}`)
@@ -168,7 +159,6 @@ export class SharedSourceUpdateError extends Error {
 
 function scanOf(plugin: CompatPlugin, sourceRevision: string): ScanCache {
   return {
-    schemaVersion: 1,
     parserVersion: PARSER_VERSION,
     sourceRevision,
     scannedAt: new Date().toISOString(),
@@ -178,7 +168,7 @@ function scanOf(plugin: CompatPlugin, sourceRevision: string): ScanCache {
 
 function stateOf(enabled: boolean, priority = 0): PluginState {
   if (!Number.isInteger(priority)) throw new Error('priority 必须是整数')
-  return { schemaVersion: 1, enabled, priority }
+  return { enabled, priority }
 }
 
 function compareInstalledPriority(left: InstalledPluginRecord, right: InstalledPluginRecord): number {
@@ -224,11 +214,6 @@ function asCompatSource(record: InstalledSourceRecord): CompatSource {
     marketplaceFiles: record.scan.marketplaceFiles,
     discovery: record.scan.discovery,
   }
-}
-
-function publicCandidate(candidate: SourcePluginCandidate): CompatSourcePlugin {
-  const { definitions: _definitions, locationKey: _locationKey, ...value } = candidate
-  return value
 }
 
 function candidateBySelector(
@@ -315,42 +300,11 @@ export class CompatManager {
 
   private async readCurrentSourceRecord(sourceId: string): Promise<InstalledSourceRecord> {
     const record = await readInstalledSource(this.layout, sourceId)
-    if (record.scan.schemaVersion === 1 && record.scan.parserVersion === SOURCE_PARSER_VERSION) return record
+    if (record.scan.parserVersion === SOURCE_PARSER_VERSION) return record
 
     const discovery = await this.parseStoredSource(sourceId, record)
-    const source = record.source.name === undefined && discovery.name !== undefined
-      ? { ...record.source, name: discovery.name }
-      : record.source
-    await Promise.all([
-      writeJsonAtomic(this.layout.sourceScanFile(sourceId), discovery.scan),
-      source === record.source ? Promise.resolve() : writeJsonAtomic(this.layout.sourceFile(sourceId), source),
-    ])
-    return { source, scan: discovery.scan }
-  }
-
-  private async resolveInstalledPackageRoot(install: InstallMetadata): Promise<string> {
-    if (install.location.type === 'source-path') {
-      const canonical = await validateSourceDirectory(
-        this.layout.sourcePackageDir(install.sourceId),
-        install.pluginPath ?? install.location.path,
-      )
-      return resolve(this.layout.sourcePackageDir(install.sourceId), canonical)
-    }
-
-    if (install.location.type === 'git' || install.location.type === 'git-subdir') {
-      const repositoryRoot = this.layout.sourceExternalPackageDir(
-        install.sourceId,
-        externalDirectoryName(install.sourcePluginId),
-      )
-      const target = install.location.type === 'git'
-        ? repositoryRoot
-        : resolve(repositoryRoot, install.location.path)
-      const [rootReal, targetReal] = await Promise.all([realpath(repositoryRoot), realpath(target)])
-      if (!isPathInside(rootReal, targetReal)) throw new Error(`外部插件路径逃逸缓存目录：${install.pluginId}`)
-      return targetReal
-    }
-
-    throw new Error(`插件 ${install.pluginId} 的来源类型 ${install.location.type} 当前不能运行`)
+    await writeJsonAtomic(this.layout.sourceScanFile(sourceId), discovery.scan)
+    return { source: record.source, scan: discovery.scan }
   }
 
   private async parseAndCheck(
@@ -384,7 +338,7 @@ export class CompatManager {
     if (candidate === undefined) {
       throw new Error(`Source ${record.install.sourceId} 中已找不到已安装插件 ${record.install.sourcePluginId}`)
     }
-    const packageRoot = await this.resolveInstalledPackageRoot(record.install)
+    const packageRoot = await resolveInstalledPluginPackageRoot(this.layout, record.install)
     let plugin = await this.parseAndCheck(
       packageRoot,
       record.install.sourceId,
@@ -408,8 +362,7 @@ export class CompatManager {
     const record = await readInstalledPlugin(this.layout, pluginId)
     const source = await this.readCurrentSourceRecord(record.install.sourceId)
     if (
-      record.scan.schemaVersion === 1
-      && record.scan.parserVersion === PARSER_VERSION
+      record.scan.parserVersion === PARSER_VERSION
       && record.scan.sourceRevision === source.source.revision
     ) return record
 
@@ -508,20 +461,18 @@ export class CompatManager {
     }
   }
 
-  private async chooseCandidates(
+  private chooseCandidates(
     sourceId: string,
     candidates: readonly SourcePluginCandidate[],
     selectors: readonly string[],
-    selectPlugins?: InstallOptions['selectPlugins'],
-  ): Promise<SourcePluginCandidate[]> {
+  ): SourcePluginCandidate[] {
     if (candidates.length === 0) throw new Error(`Source ${sourceId} 没有可定位的插件`)
     let requested = [...selectors]
     if (requested.length === 0 && candidates.length === 1) requested = [candidates[0].id]
-    if (requested.length === 0 && selectPlugins !== undefined) {
-      requested = await selectPlugins(candidates.map(publicCandidate))
-    }
     if (requested.length === 0) {
-      throw new PluginSelectionRequiredError(sourceId, candidates.map(publicCandidate))
+      throw new Error(
+        `Source ${sourceId} 包含多个插件，必须通过 plugins 显式选择：${candidates.map(item => item.id).join(', ')}`,
+      )
     }
 
     const selected: SourcePluginCandidate[] = []
@@ -618,11 +569,9 @@ export class CompatManager {
       )
       plugin = withAdditionalDiagnostics(plugin, candidate.diagnostics)
       const install: InstallMetadata = {
-        schemaVersion: 1,
         pluginId: plugin.id,
         sourceId,
         sourcePluginId: candidate.id,
-        ...(prepared.location.type === 'source-path' ? { pluginPath: prepared.location.path } : {}),
         location: prepared.location,
         ...(prepared.materialization === undefined ? {} : { materialization: prepared.materialization }),
         installedAt: new Date().toISOString(),
@@ -673,7 +622,7 @@ export class CompatManager {
           runtime = this.runtimeSnapshot(item.plugin.id, true)
         } else {
           try {
-            runtime = await this.runtime.start(item.plugin, await this.resolveInstalledPackageRoot(item.install))
+            runtime = await this.runtime.start(item.plugin, await resolveInstalledPluginPackageRoot(this.layout, item.install))
           } catch (error) {
             runtime = this.runtime.noteFailure(item.plugin.id, `插件父实例启动异常：${String(error)}`)
           }
@@ -729,7 +678,6 @@ export class CompatManager {
     ])
     await copyPluginDirectory(discovery.root, join(recordRoot, 'package'))
     const source: SourceMetadata = {
-      schemaVersion: 1,
       id: sourceId,
       ...(discovery.name === undefined ? {} : { name: discovery.name }),
       origin: acquired.origin,
@@ -762,7 +710,7 @@ export class CompatManager {
           const oldPaths = [...(existing.scan.manualPaths ?? [])].sort()
           const newPaths = [...new Set(options.paths)].sort()
           if (JSON.stringify(oldPaths) !== JSON.stringify(newPaths)) {
-            throw new Error('该来源已登记，不能用不同 --path 重新定义；请先移除 Source')
+            throw new Error('该来源已登记，不能用不同 paths 重新定义；请先移除 Source')
           }
         }
         if (ownership === 'explicit' && existing.source.ownership === 'implicit') {
@@ -916,7 +864,7 @@ export class CompatManager {
             const oldPaths = [...(sourceRecord.scan.manualPaths ?? [])].sort()
             const newPaths = [...new Set(options.paths)].sort()
             if (JSON.stringify(oldPaths) !== JSON.stringify(newPaths)) {
-              throw new Error('已有 Source 的 --path 定义不能在 install 时改变；请更新或重新添加 Source')
+              throw new Error('已有 Source 的 paths 定义不能在 install 时改变；请更新或重新添加 Source')
             }
           }
         } else {
@@ -937,7 +885,7 @@ export class CompatManager {
         const selectors = reference.forcedPlugin === undefined
           ? options.plugins ?? []
           : [reference.forcedPlugin, ...(options.plugins ?? [])]
-        const selected = await this.chooseCandidates(sourceId, discovery.candidates, selectors, options.selectPlugins)
+        const selected = this.chooseCandidates(sourceId, discovery.candidates, selectors)
         const referenceScan = await scanPluginSourceReferences(this.layout)
         if (referenceScan.unreadablePluginIds.length > 0) {
           throw new Error(
@@ -1137,7 +1085,7 @@ export class CompatManager {
           return {
             ...record,
             state,
-            packageRoot: await this.resolveInstalledPackageRoot(record.install),
+            packageRoot: await resolveInstalledPluginPackageRoot(this.layout, record.install),
             runtime,
           }
         }))
@@ -1272,9 +1220,7 @@ export class CompatManager {
         const install: InstallMetadata = {
           ...old.install,
           sourcePluginId: candidate.id,
-          ...(prepared.location.type === 'source-path'
-            ? { pluginPath: prepared.location.path }
-            : { pluginPath: undefined }),
+
           location: prepared.location,
           ...(prepared.materialization === undefined
             ? { materialization: undefined }
@@ -1357,7 +1303,7 @@ export class CompatManager {
         attemptedNewPluginIds.add(item.install.pluginId)
         const runtime = await this.runtime.start(
           item.plugin,
-          await this.resolveInstalledPackageRoot(item.install),
+          await resolveInstalledPluginPackageRoot(this.layout, item.install),
         )
         if (runtime.status !== 'running' && runtime.status !== 'degraded') {
           throw new Error(`新版插件 ${item.plugin.id} 运行实例启动失败：${runtime.error ?? '未知错误'}`)
@@ -1435,7 +1381,7 @@ export class CompatManager {
             .sort(compareInstalledPriority)) {
             const restored = await this.runtime.start(
               record.scan.plugin,
-              await this.resolveInstalledPackageRoot(record.install),
+              await resolveInstalledPluginPackageRoot(this.layout, record.install),
             )
             if (restored.status !== 'running' && restored.status !== 'degraded') {
               throw new Error(
@@ -1562,7 +1508,7 @@ export class CompatManager {
     const record = await this.readCurrentRecord(pluginId)
     return {
       ...record,
-      packageRoot: await this.resolveInstalledPackageRoot(record.install),
+      packageRoot: await resolveInstalledPluginPackageRoot(this.layout, record.install),
       runtime: this.runtimeSnapshot(pluginId, record.state.enabled),
     }
   }
@@ -1599,7 +1545,7 @@ export class CompatManager {
           continue
         }
         if (this.runtime !== undefined) {
-          const result = await this.runtime.start(plugin, await this.resolveInstalledPackageRoot(record.install))
+          const result = await this.runtime.start(plugin, await resolveInstalledPluginPackageRoot(this.layout, record.install))
           if (result.status !== 'running' && result.status !== 'degraded') {
             this.runtime.noteFailure(plugin.id, result.error ?? '启动失败')
           }

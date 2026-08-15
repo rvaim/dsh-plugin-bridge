@@ -12,7 +12,7 @@ dsh-compat 让 DeepSeek Harness 用户在不改写旧插件的前提下，把 Cl
 
 ## 当前产品能力
 
-- 通过 CLI 或 `ctx.compat` 管理 Source 与 Plugin。
+- 通过 Web 设置页或 `ctx.compat` 管理 Source 与 Plugin；不再提供独立 CLI。
 - 安装、启用、停用和卸载操作在在线服务中直接驱动 `CompatRuntimeManager`，无需重启当前 DSH 进程。
 - Web 设置页管理当前运行 profile 中由 dsh-compat 托管的插件；不跨 profile 修改其他部署。
 - dsh-compat 包本身首次加入 profile 或升级时会改变 DSH Host/Client 启动组合，需要重新启动该 profile 并重新载入页面。之后在设置页添加的兼容插件不改变 DSH Client 启动图。

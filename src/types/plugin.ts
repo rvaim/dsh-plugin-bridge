@@ -10,7 +10,6 @@ export type CompatFormat = 'claude-code' | 'codex'
 
 /** parser 产出的统一插件结构；不携带 Claude Code/Codex 原始配置。 */
 export interface CompatPlugin {
-  schemaVersion: 1
   id: string
   name: string
   version?: string
@@ -33,12 +32,9 @@ export interface PluginMaterialization {
 
 /** installed/<pluginId>/install.json。 */
 export interface InstallMetadata {
-  schemaVersion: 1
   pluginId: string
   sourceId: string
   sourcePluginId: string
-  /** Source package/ 内的规范化插件路径；主要用于 source-path。 */
-  pluginPath?: string
   location: CompatPluginLocation
   materialization?: PluginMaterialization
   installedAt: string
@@ -46,13 +42,11 @@ export interface InstallMetadata {
 }
 
 export interface PluginState {
-  schemaVersion: 1
   enabled: boolean
   priority: number
 }
 
 export interface ScanCache {
-  schemaVersion: 1
   parserVersion: string
   /** 生成本缓存时对应的 Source 内容版本。 */
   sourceRevision: string

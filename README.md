@@ -11,7 +11,7 @@ Plugin = Source 中的一个具体旧插件；负责安装、启用、禁用、�
 
 一个 Source 可以包含一个或多个 Plugin。Skill、MCP、Hook、Agent、Command 都只是 Plugin 内部能力，不会成为独立安装项，也不会被复制到 DSH 的全局目录。
 
-> 当前交付版本：`0.3.1`。Plugin parser 版本为 `2.0.1`，Source parser 版本为 `2.0.0`，内部缓存结构 `schemaVersion` 为 `1`。实现按 2026-08-15 可取得的 DSH `0.1.0-rc.6` 源码与公开接口核对。
+> 当前交付版本：`0.4.0`。Plugin parser 版本为 `2.0.1`，Source parser 版本为 `2.0.0`。实现按 2026-08-15 可取得的 DSH `0.1.0-rc.6` 源码与公开接口核对。
 
 ## 核心边界
 
@@ -21,7 +21,7 @@ Git / Directory / ZIP / TAR / TGZ
           │
           ▼
 parser/source
-Claude Marketplace / Codex Marketplace / 单插件识别 / --path
+Claude Marketplace / Codex Marketplace / 单插件识别 / paths 兜底
           │
           ▼
 Source 中的 1..N Plugin
@@ -54,7 +54,7 @@ DSH
 - 同名同真实目录条目合并；同名不同目录或语义冲突明确报错。
 - 无 Marketplace 时识别 Source 根目录中的单插件。
 - 压缩包仅允许去掉一层唯一包装目录。
-- `--path` 作为非标准目录结构的显式兜底，不递归猜测。
+- `paths` 作为非标准目录结构的显式兜底，不递归猜测。
 - 显式 Source 与隐式 Source、引用计数、共享 Source 生命周期。
 - 共享 Source 整体更新、全部受影响 Plugin 重新解析、原子切换与整体回滚。
 - Marketplace 外部 Git/git-subdir Plugin 归 Source 所有并使用 Source 专属缓存。
@@ -91,12 +91,16 @@ DSH
 发布包是 DSH bundle，`package.json` 声明 `dsh.bundle.patch`，并包含 `cordis.patch.yml`：
 
 ```bash
-dsh plugin --profile <profile-name> add ./dsh-compat-0.3.1.tgz
+dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.0
 ```
+
+> 从 GitHub 安装会运行包内 `prepare` 构建；如果 pnpm 阻止该构建，请按提示把 `dsh-compat` 加入 profile 的 `pnpm-workspace.yaml` `allowBuilds` 后重试。
 
 启动该 profile 后，插件会在 `ctx.compat` 暴露服务，并按稳定顺序恢复已启用 Plugin。
 
 Web profile 还会通过 DSH Client module 向原生 `settings.section` Slot 注册“兼容插件”页面，并经 Typert Remote 调用当前进程的 `ctx.compat`。页面中新增、启停和卸载旧 Plugin 都无需重启；多插件 Source 会先拉取并固定一份快照，再从同一 Source 中安装用户勾选的 Plugin，不会二次拉取。但首次把 `dsh-compat` 本身加入 profile 或升级本 bundle 会改变 DSH 的 Host/Client 插件图，需要重启 profile 并重新加载页面。页面使用 DSH 原生 UI primitives 和 `--dsw-*` 主题 Token。
+
+本包不再提供独立 `dsh-compat` CLI：旧 Plugin 的添加、启停和卸载统一通过 Web 设置页完成；批量和自动化场景使用下方的 `ctx.compat` 服务 API。
 
 从源码构建：
 
@@ -104,72 +108,6 @@ Web profile 还会通过 DSH Client module 向原生 `settings.section` Slot 注
 npm run verify
 npm pack --ignore-scripts
 ```
-
-## 独立管理 CLI
-
-本项目不修改 DSH 启动器，因此独立命令是 `dsh-compat`，不是伪造的 `dsh compat`。
-
-### 管理 Source
-
-```bash
-dsh-compat source add https://github.com/example/plugins.git --as example-market
-dsh-compat source list
-dsh-compat source inspect example-market
-dsh-compat source update example-market
-dsh-compat source remove example-market
-```
-
-`source add` 创建显式 Source。显式 Source 在没有安装 Plugin 时仍会保留，只有用户主动删除才消失。
-
-交互终端执行 Source 获取、解析或更新时会显示加载动画；`--json`、CI 和管道输出不会插入动画字符。
-
-### 从单插件 Source 安装
-
-```bash
-dsh-compat install ./legacy-plugin
-dsh-compat install ./legacy-plugin.zip
-dsh-compat install github:owner/repo#v1.2.0
-```
-
-直接 `install` 会创建隐式 Source。最后一个引用该隐式 Source 的 Plugin 卸载后，Source 自动删除。
-
-### 从多插件 Marketplace 安装
-
-交互终端会显示由 `@clack/prompts` 提供的可勾选 Plugin 列表：使用 ↑/↓ 移动，Space 选中或反选，Enter 确认。不会默认全部安装；CI、`--json` 或无交互环境必须显式选择：
-
-```bash
-dsh-compat install ./plugin-market \
-  --plugin plugin-a \
-  --plugin plugin-c
-```
-
-也可以先添加 Source，再按 `plugin@source` 安装：
-
-```bash
-dsh-compat source add ./plugin-market --as official
-dsh-compat install plugin-a@official
-```
-
-非标准目录只能显式使用 `--path`，且 Source 中不能已有受支持 Marketplace：
-
-```bash
-dsh-compat install ./monorepo --path packages/plugin-a --path packages/plugin-b
-```
-
-### 管理 Plugin
-
-```bash
-dsh-compat list
-dsh-compat inspect plugin-a
-dsh-compat disable plugin-a
-dsh-compat enable plugin-a
-dsh-compat update plugin-a --yes
-dsh-compat uninstall plugin-a
-```
-
-如果 Plugin 与其他已安装 Plugin 共用 Source，`update plugin-a` 实际会更新整个 Source。交互 CLI 会显示受影响 Plugin；无交互环境必须传入 `--yes`。
-
-独立 CLI 是离线管理器，不连接已经运行的 DSH 进程。正在运行的 profile 应优先通过 `ctx.compat` 操作，或者先停止 DSH 再用 CLI 修改启用状态、更新或卸载。
 
 ## DSH 服务 API
 
@@ -222,7 +160,7 @@ $DSH_HOME/dsh-compat/
 │       └── cache/
 ├── installed/
 │   └── <pluginId>/
-│       ├── install.json      # sourceId + sourcePluginId + pluginPath/location
+│       ├── install.json      # sourceId + sourcePluginId + location
 │       ├── state.json        # 整个 Plugin 的 enabled / priority
 │       ├── scan.json         # CompatPlugin 缓存
 │       ├── data/             # 更新时保留，卸载时删除
@@ -265,7 +203,7 @@ Web 设置页会把 `error` / `warning` 数量显示为可展开的诊断入口�
 npm run verify
 ```
 
-执行严格 TypeScript 编译、全部自动化测试、CLI 冒烟、DSH bundle 清单和 `npm pack --dry-run` 发布白名单检查。
+执行严格 TypeScript 编译、全部自动化测试、DSH bundle 清单和 `npm pack --dry-run` 发布白名单检查。
 
 在已安装目标 DSH peerDependencies 的 profile 或源码 checkout 中运行：
 

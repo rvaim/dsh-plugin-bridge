@@ -8,7 +8,7 @@ Git / Directory / Archive
         │
         ▼
 第二层：parser/source
-Marketplace、单插件识别、--path、Plugin 位置
+Marketplace、单插件识别、paths 兜底、Plugin 位置
         │
         ▼
 第三层：Plugin parser
@@ -49,8 +49,8 @@ Source 是内容获取与更新单位。Plugin 是安装、启用、禁用、运
 
 Source 的 `ownership`：
 
-- `explicit`：由 `source add` 创建，引用归零仍保留。
-- `implicit`：由直接 `install <source>` 创建，引用归零自动回收。
+- `explicit`：由 `sourceAdd()` 创建，引用归零仍保留。
+- `implicit`：由 `install(input)` / `prepareInstall(input)` 创建，引用归零自动回收。
 
 ### 2.2 Plugin 位置
 
@@ -93,11 +93,9 @@ $DSH_HOME/dsh-compat/
 
 ```ts
 {
-  schemaVersion: 1,
   pluginId,
   sourceId,
   sourcePluginId,
-  pluginPath?,
   location,
   materialization?,
   installedAt,
@@ -109,7 +107,6 @@ $DSH_HOME/dsh-compat/
 
 ```ts
 {
-  schemaVersion: 1,
   enabled: boolean,
   priority: number
 }
@@ -134,8 +131,8 @@ $DSH_HOME/dsh-compat/
        │                           │
        └─ 均不存在                 ┘
               │
-              ├─ 有 --path：逐项验证
-              └─ 无 --path：只检查根目录是否为单插件
+              ├─ 有 paths：逐项验证
+              └─ 无 paths：只检查根目录是否为单插件
 ```
 
 存在 Marketplace 时不会递归猜测未列出的目录，也不会自动安装全部候选。混合 Marketplace 只有在同一规范化 ID、同一真实目录且关键语义一致时才能合并。
@@ -155,7 +152,6 @@ Plugin parser 是兼容编译层，负责：
 
 ```ts
 interface CompatPlugin {
-  schemaVersion: 1
   id: string
   name: string
   version?: string
@@ -206,7 +202,7 @@ parser/source 定位候选
 
 ### 6.1 Web 两阶段选择
 
-Web 不能像 TUI 一样在一次同步调用中阻塞等待用户勾选，因此使用分步但不重复拉取的流程：
+Web 无法在一次同步调用中阻塞等待用户勾选，因此使用分步但不重复拉取的流程：
 
 ```text
 beginAdd(source)
@@ -271,7 +267,7 @@ Web 页面不是独立应用，而是 DSH Client 插件：
 
 新 Marketplace 出现的 Plugin 只进入可安装列表，不会自动安装。已安装 Plugin 消失时默认拒绝更新，不猜测改名或迁移。
 
-`update <pluginId>` 对独占隐式 Source 可直接执行；对共享 Source 必须由调用方显式确认影响范围。
+`update(pluginId)` 对独占隐式 Source 可直接执行；对共享 Source 必须由调用方显式确认影响范围。
 
 ## 9. 运行实例与 adapters
 

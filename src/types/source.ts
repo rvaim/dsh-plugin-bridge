@@ -70,7 +70,6 @@ export interface CompatSourcePlugin {
 
 /** source.json：只记录来源身份、归属、获取位置和当前内容版本。 */
 export interface SourceMetadata {
-  schemaVersion: 1
   id: string
   name?: string
   origin: InstallSource
@@ -83,7 +82,6 @@ export interface SourceMetadata {
 
 /** scan.json：Source parser 的可重建缓存。 */
 export interface SourceScanCache {
-  schemaVersion: 1
   parserVersion: string
   scannedAt: string
   formats: CompatFormat[]
@@ -91,7 +89,7 @@ export interface SourceScanCache {
   diagnostics: CompatDiagnostic[]
   marketplaceFiles: string[]
   discovery: 'marketplace' | 'single-plugin' | 'manual-paths'
-  /** 无 Marketplace 时用户显式提供的 --path；用于更新时重放相同定位规则。 */
+  /** 无 Marketplace 时用户显式提供的 paths；用于更新时重放相同定位规则。 */
   manualPaths?: string[]
 }
 

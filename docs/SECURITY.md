@@ -53,7 +53,7 @@ ZIP/TAR/TGZ 解压前后检查：
 - Source ID、Plugin ID 和外部缓存目录名必须通过存储 ID 校验。
 - Marketplace `source-path` 必须规范化为 Source 内路径。
 - 对符号链接使用真实路径判断，最终目标必须位于 Source 内且是目录。
-- `--path` 逐项经过同样校验。
+- `paths` 逐项经过同样校验。
 - 不允许通过路径名访问 `dsh-compat` 根目录外内容。
 
 ## 5. 凭据与延迟配置

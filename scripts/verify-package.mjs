@@ -4,7 +4,6 @@ import { spawnSync } from 'node:child_process'
 const root = new URL('../', import.meta.url)
 for (const file of [
   'dist/src/index.js',
-  'dist/src/cli/index.js',
   'dist/client.js',
   'dist/client.js.map',
   'dist/typert.host.js',
@@ -27,8 +26,8 @@ for (const file of [
 
 const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 if (packageJson.name !== 'dsh-compat') throw new Error('包名必须为 dsh-compat')
-if (packageJson.version !== '0.3.1') throw new Error('交付版本必须为 0.3.1')
-if (packageJson.bin?.['dsh-compat'] !== './dist/src/cli/index.js') throw new Error('bin 配置错误')
+if (packageJson.version !== '0.4.0') throw new Error('交付版本必须为 0.4.0')
+if (packageJson.bin !== undefined) throw new Error('独立 CLI 已移除，package.json 不得再配置 bin')
 if (packageJson.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('dsh.bundle.patch 配置错误')
 if (packageJson.dsh?.client?.platform !== 'web') throw new Error('dsh.client.platform 必须为 web')
 for (const dependency of [
@@ -59,8 +58,8 @@ if (packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'] !== undefined
 if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== '0.1.0-rc.6') {
   throw new Error('Hook Protocol 必须作为与目标 DSH 对齐的运行依赖安装')
 }
-if (packageJson.dependencies?.['@clack/prompts'] !== '1.7.0') {
-  throw new Error('交互选择与加载动画必须使用已验证版本的 @clack/prompts')
+if (packageJson.dependencies?.['@clack/prompts'] !== undefined) {
+  throw new Error('独立 CLI 已移除，@clack/prompts 不得再作为运行依赖')
 }
 if (packageJson.peerDependencies?.['@deepseek-ai/dsh-hook-protocol'] !== undefined
   || packageJson.peerDependenciesMeta?.['@deepseek-ai/dsh-hook-protocol'] !== undefined) {
@@ -81,14 +80,6 @@ for (const method of ['beginAdd', 'cancelAdd', 'completeAdd', 'list', 'setEnable
     throw new Error(`Typert Host/Remote 缺少 compatAdmin/${method}`)
   }
 }
-
-const help = spawnSync(process.execPath, [new URL('dist/src/cli/index.js', root).pathname, 'help'], { encoding: 'utf8' })
-if (
-  help.status !== 0
-  || !help.stdout.includes('dsh-compat')
-  || !help.stdout.includes('source add')
-  || !help.stdout.includes('--plugin')
-) throw new Error('CLI help 冒烟测试失败')
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const packed = spawnSync(npm, ['pack', '--dry-run', '--json', '--ignore-scripts'], {
@@ -112,6 +103,7 @@ for (const required of [
   if (!files.has(required)) throw new Error(`npm 包缺少 ${required}`)
 }
 if ([...files].some(path => path.startsWith('dist/test/'))) throw new Error('npm 包意外包含 dist/test/')
+if ([...files].some(path => path.startsWith('dist/src/cli/'))) throw new Error('npm 包不得再包含已移除的 CLI 产物')
 if ([...files].some(path => path.startsWith('test/') || path.startsWith('src/') || path.startsWith('node_modules/'))) {
   throw new Error('npm 包意外包含源码、测试或 node_modules')
 }
@@ -119,4 +111,4 @@ for (const required of ['CHANGELOG.md', 'docs/USAGE.md']) {
   if (!files.has(required)) throw new Error(`npm 包缺少 ${required}`)
 }
 
-console.log(`包结构、DSH bundle、CLI 与 ${files.size} 个发布文件检查通过`)
+console.log(`包结构、DSH bundle 与 ${files.size} 个发布文件检查通过`)

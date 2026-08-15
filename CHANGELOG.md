@@ -1,5 +1,13 @@
 # 更新日志
 
+## 0.4.0
+
+- 移除独立 `dsh-compat` CLI 及 `@clack/prompts` 依赖：旧 Plugin 的添加、启停和卸载统一通过“设置 → 兼容插件”页面或 `ctx.compat` 服务 API 完成。
+- 移除仅供 CLI 交互选择使用的 `InstallOptions.selectPlugins` 与 `PluginSelectionRequiredError`；多插件 Source 直接通过 `plugins` 显式选择，Web 二阶段流程继续使用 `prepareInstall/completeAdd`。
+- 发布包不再声明 `bin`。
+- 移除 dsh-compat 自身旧版磁盘兼容标记：`source.json`、`install.json`、`state.json` 与 `scan.json` 不再写入 `schemaVersion`，`install.json` 不再写冗余 `pluginPath` 字段，并去掉相关旧版本校验与旧 `source.json` 缺失 `name` 的回填逻辑；删除无调用者的 `DEFAULT_PLUGIN_STATE`、`listPluginRecordsForSource`、`selectExtractedPluginRoot`、`rollbackRemove`。
+- 合并重复的已安装插件根目录解析逻辑，统一走 `resolveInstalledPluginPackageRoot()`。
+
 ## 0.3.1
 
 - 兼容插件列表中的错误与警告数量支持原位展开，显示诊断说明、稳定代码、能力类型和关联文件。

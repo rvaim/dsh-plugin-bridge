@@ -8,7 +8,7 @@
 | 一个 Source 多 Plugin | 支持 | 支持 | 必须选择，不默认全装 |
 | 混合 Marketplace | 支持 | 支持 | 同目录同语义合并，否则诊断冲突 |
 | 无 Marketplace 根插件 | 支持 | 支持 | 只检查根目录 |
-| `--path` | 支持 | 支持 | 无 Marketplace 时显式兜底 |
+| `paths` | 支持 | 支持 | 无 Marketplace 时显式兜底 |
 | Source 内目录 | 相对路径 | `local.path` | 支持，校验真实路径 |
 | 外部 Git | 支持 | 支持 | 支持 Git 与 git-subdir |
 | npm/archive 远端位置 | 可识别 | 可识别 | 明确诊断，当前版本不安装 |

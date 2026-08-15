@@ -22,7 +22,7 @@
     "resolveJsonModule": true,
     "baseUrl": ".",
     "paths": {
-      "dsh-compat/types": ["./src/types/index.ts"]
+      "@rvaim/dsh-compat/types": ["./src/types/index.ts"]
     },
     "types": ["node"]
   },

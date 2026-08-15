@@ -1,24 +1,24 @@
-# dsh-compat 0.4.2 验证报告
+# @rvaim/dsh-compat 0.4.3 验证报告
 
 验证日期：2026-08-15  
-交付版本：`0.4.2`
+交付版本：`0.4.3`
 目标 DeepSeek Harness：`0.1.0-rc.6`
 Plugin parser：`2.0.1`
 Source parser：`2.0.0`
 
 ## 1. 结论
 
-0.4.2 是 0.4.0 之后的补丁版本，仅更新版本号并完善 GitHub 安装的 `allowBuilds` 指引。0.4.0 已移除独立 `dsh-compat` CLI，并清理了 dsh-compat 自身旧版磁盘记录的 `schemaVersion` 兼容标记。旧 Plugin 的添加、启停与卸载收敛为 Web“设置 → 兼容插件”页面，批量和自动化操作使用 `ctx.compat` 服务 API；Claude Code / Codex 插件格式兼容保持不变。
+0.4.3 首次以公开 npm 组织包 `@rvaim/dsh-compat` 交付。包清单、Cordis resolver、浏览器 ModuleLoader 与 Typert 生成目标均使用同一个 scoped 包名；内部 Cordis 行 ID、服务名和 `$DSH_HOME/dsh-compat/` 数据目录保持稳定。README 将 npm 安装与 Web 使用流程移至最前，并随包发布设置页截图。Claude Code / Codex 旧插件解析与运行语义未改变。
 
 已验证的关键结果：
 
 - “兼容插件”按 DSH `settings.section` 机制出现在 Agent 预设之后；
-- 浏览器 bundle 由 DSH `/plugins/dsh-compat/client.js` 提供并进入 `window.__DSH_BOOT__`；
+- 浏览器 bundle 由 DSH `/plugins/@rvaim/dsh-compat/client.js` 提供，并以 `@rvaim/dsh-compat` 进入 `window.__DSH_BOOT__`；
 - 添加弹窗、多插件复选列表、插件列表、卸载确认、Toast 和暗/浅主题均沿用 0.3.1 的 Web 基线；
 - 多插件确认后复用第一次固定的 Source 快照，不重复拉取；
 - 同一运行进程内启停状态实际完成 `true → false → true`，不需要重启；
 - 当前页面的 list、beginAdd、completeAdd 和 setEnabled RPC 无浏览器错误或 Host 错误；
-- 发布包不再声明 `bin`，不再依赖 `@clack/prompts`；
+- 发布包不声明 `bin`，不依赖 `@clack/prompts`，并包含 npm/GitHub 元数据与 README 截图；
 - `source.json` / `install.json` / `state.json` / `scan.json` 不再包含 `schemaVersion`，`install.json` 不再写冗余 `pluginPath`；
 - 多插件 Source 未显式选择时，`ctx.compat.install` 明确列出全部候选 ID 并拒绝默认全装。
 
@@ -40,7 +40,7 @@ npm run verify:dsh
 5. Node test runner；
 6. 发布清单和 `npm pack --dry-run` 白名单检查。
 
-本轮结果：**102/102 自动化测试通过**，发布包检查通过，共 367 个发布文件。自动测试覆盖 parser、Source/Plugin manager、事务回滚、runtime/adapters、Hook/MCP/Skill、安全边界、Web gateway 与发布包清单。其中与本轮变更直接相关的检查包括：
+本轮结果：**102/102 自动化测试通过**，发布包检查通过，共 368 个发布文件。自动测试覆盖 parser、Source/Plugin manager、事务回滚、runtime/adapters、Hook/MCP/Skill、安全边界、Web gateway 与发布包清单。其中与本轮变更直接相关的检查包括：
 
 - 多插件 Source 未显式选择时拒绝安装并列出候选 ID；
 - Web 单插件自动安装与多插件二阶段选择；
@@ -49,7 +49,9 @@ npm run verify:dsh
 - 同一 Source 并发选择的清理责任转交；
 - 在线启用、停用和卸载映射；
 - 磁盘记录无 `schemaVersion`，且旧记录可被直接读取（多余字段不影响 JSON 解析）；
-- `package.json` 不包含 `bin` 与 `@clack/prompts`，不夹带 `src/`、`test/`、`dist/test/` 或 `node_modules/`。
+- `package.json` 的包名、版本、公开 registry 与 GitHub repository 元数据正确；
+- Cordis patch、Client ModuleLoader 与 Typert artifact 使用 scoped 包名；
+- 发布包包含 `docs/assets/compat-settings.png`，且不包含 `bin`、`@clack/prompts`、`src/`、`test/`、`dist/test/` 或 `node_modules/`。
 
 `npm run verify:dsh` 额外导入真实 rc.6 包并核对：
 
@@ -62,7 +64,20 @@ npm run verify:dsh
 
 ## 3. 真实 DSH Web 验证
 
-0.3.1 报告中的 Web 浏览器实测继续作为 UI 基线：0.4.0 / 0.4.1 / 0.4.2 未修改 Client 设置页、Typert Remote、`CompatWebOperations` 或 `CompatRuntimeManager`，因此 0.3.1 已验证的设置导航、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题结论仍然适用。
+使用 `npm pack --ignore-scripts` 生成 `@rvaim/dsh-compat@0.4.3` tarball，并安装到全新的隔离 `DSH_HOME` / `web` profile。实际启动 DSH Web 后得到：
+
+```text
+profile dependency: @rvaim/dsh-compat@0.4.3
+dump-config: Cordis id=dsh-compat, name=@rvaim/dsh-compat
+boot manifest: id=@rvaim/dsh-compat
+client URL: /plugins/@rvaim/dsh-compat/client.js?rev=<revision>
+client route: HTTP 200, content-type=text/javascript
+bundle handoff: window.__ModuleLoader__.load({ id: "@rvaim/dsh-compat", ... })
+```
+
+这证明 scope 中的 `/` 能被当前 DSH Client Modules 正确路由，且 Host patch、boot manifest、URL 与浏览器注册 ID 没有分叉。
+
+0.3.1 报告中的交互式浏览器实测继续作为 UI 行为基线：0.4.3 未修改 `CompatSettingsSection`、Typert Remote schema、`CompatWebOperations` 或 `CompatRuntimeManager`，因此设置导航、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题结论仍然适用。
 
 0.3.1 验证观察：
 
@@ -113,9 +128,9 @@ Typert Remote: 六个 compatAdmin 方法均被严格挂载
 
 这些操作不修改 DSH Client 启动图，所以不需要重启。
 
-### dsh-compat bundle 操作
+### @rvaim/dsh-compat bundle 操作
 
-首次安装、升级或删除 `dsh-compat` 本身会改变 profile 的 Host Loader 条目与 `dsh.client` 图。DSH Typert Loader 和 Client Modules 都缓存包级判定，因此这类变化需要重启 profile，并让 Web 页面重新加载新的 boot manifest。
+首次安装、升级或删除 `@rvaim/dsh-compat` 本身会改变 profile 的 Host Loader 条目与 `dsh.client` 图。DSH Typert Loader 和 Client Modules 都缓存包级判定，因此这类变化需要重启 profile，并让 Web 页面重新加载新的 boot manifest。
 
 ## 5. 安全与一致性
 
@@ -136,14 +151,15 @@ Typert Remote: 六个 compatAdmin 方法均被严格挂载
 - 未在真实模型会话中执行所有第三方 Hook；
 - 未通过真实公网超慢 Git 仓库逐帧捕获 loading 动画；本地 Source 完成过快，但进行中 DOM、按钮禁用与 loading 图标已进入编译后的 Client bundle，并通过实现审查；
 - 不支持的 Claude Code/Codex 能力仍以结构化诊断公开，不会被描述为已兼容；
-- 0.4.2 本轮未重新执行浏览器逐帧回归，UI 验证继承 0.3.1 基线；0.4.2 相对 0.4.1 仅更新版本号与安装指引。
+- 0.4.3 已重新执行隔离 tarball 安装、DSH Web 启动、boot manifest 与 scoped Client 路由验证，但未重复执行设置页逐项点击回归；UI 行为验证继承 0.3.1 基线。
 
 ## 7. 发布命令
 
 ```bash
 npm run verify
+npm run verify:dsh
 npm pack --ignore-scripts
-dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.2
+dsh plugin --profile <profile-name> add @rvaim/dsh-compat@latest
 ```
 
-安装或升级 `dsh-compat` 后重启该 profile。之后可直接在“设置 → 兼容插件”中在线添加和管理旧 Plugin。
+安装或升级 `@rvaim/dsh-compat` 后重启该 profile。之后可直接在“设置 → 兼容插件”中在线添加和管理旧 Plugin。

@@ -20,13 +20,19 @@ for (const file of [
   'docs/TESTING.md',
   'docs/USAGE.md',
   'docs/VALIDATION-REPORT.md',
+  'docs/assets/compat-settings.png',
 ]) {
   await access(new URL(file, root))
 }
 
 const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
-if (packageJson.name !== 'dsh-compat') throw new Error('包名必须为 dsh-compat')
-if (packageJson.version !== '0.4.2') throw new Error('交付版本必须为 0.4.2')
+if (packageJson.name !== '@rvaim/dsh-compat') throw new Error('包名必须为 @rvaim/dsh-compat')
+if (packageJson.version !== '0.4.3') throw new Error('交付版本必须为 0.4.3')
+if (packageJson.publishConfig?.access !== 'public') throw new Error('npm 组织包必须公开发布')
+if (packageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error('npm 发布 registry 配置错误')
+if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-compat.git') {
+  throw new Error('npm 包缺少正确的 GitHub repository')
+}
 if (packageJson.bin !== undefined) throw new Error('独立 CLI 已移除，package.json 不得再配置 bin')
 if (packageJson.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('dsh.bundle.patch 配置错误')
 if (packageJson.dsh?.client?.platform !== 'web') throw new Error('dsh.client.platform 必须为 web')
@@ -70,6 +76,9 @@ const clientBundle = await readFile(new URL('dist/client.js', root), 'utf8')
 if (!clientBundle.startsWith('window.__ModuleLoader__.load({')) {
   throw new Error('Web client 不是 DSH ModuleLoader closure-factory 产物')
 }
+if (!clientBundle.includes('id: "@rvaim/dsh-compat"')) {
+  throw new Error('Web client 的 ModuleLoader id 必须与 npm 包名一致')
+}
 for (const marker of ['compat-plugins', 'compatAdmin.beginAdd', 'compatAdmin.completeAdd']) {
   if (!clientBundle.includes(marker)) throw new Error(`Web client 缺少 ${marker}`)
 }
@@ -107,7 +116,7 @@ if ([...files].some(path => path.startsWith('dist/src/cli/'))) throw new Error('
 if ([...files].some(path => path.startsWith('test/') || path.startsWith('src/') || path.startsWith('node_modules/'))) {
   throw new Error('npm 包意外包含源码、测试或 node_modules')
 }
-for (const required of ['CHANGELOG.md', 'docs/USAGE.md']) {
+for (const required of ['CHANGELOG.md', 'docs/USAGE.md', 'docs/assets/compat-settings.png']) {
   if (!files.has(required)) throw new Error(`npm 包缺少 ${required}`)
 }
 

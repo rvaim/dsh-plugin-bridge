@@ -3,7 +3,7 @@ import { basename, dirname, resolve } from 'node:path'
 import { defineConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
-const PACKAGE_ID = 'dsh-compat'
+const PACKAGE_ID = '@rvaim/dsh-compat'
 const CSS_PREFIX = '\0dsh-compat-css:'
 const CSS_SUFFIX = '.mjs'
 const PLATFORM_MODULES = [

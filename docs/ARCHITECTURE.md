@@ -228,7 +228,7 @@ Web 页面不是独立应用，而是 DSH Client 插件：
 - Host 侧 `CompatWebGateway` 继承 `TypertRemoteService`，生成 `./typert` 与 `./remote` 严格 schema 产物；
 - Client 动态挂载本包 Remote contribution，通过 `/api` 调用当前进程中的 `CompatService`。
 
-`dsh-compat` 本身的安装、升级和删除会改变 Host/Client 插件图，按 DSH Client Modules 的缓存边界需要重启 profile。设置页中添加、启停和卸载的旧 Plugin 只改变 `CompatRuntimeManager` 的子生命周期，不改变 Client 插件图，因此在当前进程中立即生效。
+`@rvaim/dsh-compat` 本身的安装、升级和删除会改变 Host/Client 插件图，按 DSH Client Modules 的缓存边界需要重启 profile。设置页中添加、启停和卸载的旧 Plugin 只改变 `CompatRuntimeManager` 的子生命周期，不改变 Client 插件图，因此在当前进程中立即生效。
 
 ## 8. 共享 Source 更新
 

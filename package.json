@@ -1,7 +1,27 @@
 {
-  "name": "dsh-compat",
-  "version": "0.4.2",
+  "name": "@rvaim/dsh-compat",
+  "version": "0.4.3",
   "description": "在 DeepSeek Harness 中按 Source/Plugin 模型整体管理并运行 Claude Code、Codex 旧插件",
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "claude-code",
+    "codex",
+    "plugin",
+    "compatibility"
+  ],
+  "homepage": "https://github.com/rvaim/dsh-compat#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rvaim/dsh-compat.git"
+  },
+  "bugs": {
+    "url": "https://github.com/rvaim/dsh-compat/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "type": "module",
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",

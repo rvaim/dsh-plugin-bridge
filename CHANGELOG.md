@@ -1,5 +1,11 @@
 # 更新日志
 
+## 0.4.3
+
+- npm 包名改为公开组织包 `@rvaim/dsh-compat`，并统一 Cordis resolver、Web Client ModuleLoader 与 Typert 的包级标识。
+- README 将 npm 安装和 Web 使用流程移至最前，加入兼容插件设置页截图与旧 GitHub 依赖替换说明。
+- 发布清单增加 npm registry、GitHub repository 元数据和截图校验。
+
 ## 0.4.2
 
 - 补丁版本：完善 GitHub 安装说明，给出稳定的 `allowBuilds` 仓库级 key，避免 pnpm 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。

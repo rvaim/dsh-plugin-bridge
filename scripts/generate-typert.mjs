@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { WorkspaceTypertGenerator } from '@deepseek-ai/dsh-typert-generator'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
+const packageName = '@rvaim/dsh-compat'
 const temporaryRoot = await mkdtemp(join(tmpdir(), 'dsh-compat-typert-'))
 const packageRoot = join(temporaryRoot, 'packages', 'dsh-compat')
 const protocolRoot = join(temporaryRoot, 'packages', 'typert-protocol')
@@ -87,10 +88,10 @@ try {
   }, null, 2)}\n`)
 
   const artifacts = new WorkspaceTypertGenerator(temporaryRoot)
-    .generate(['dsh-compat'], ['host'])
-  const artifact = artifacts.find(item => item.package === 'dsh-compat' && item.face === 'host')
+    .generate([packageName], ['host'])
+  const artifact = artifacts.find(item => item.package === packageName && item.face === 'host')
   if (artifact === undefined || artifact.remote === undefined) {
-    throw new Error('Typert 未生成 dsh-compat Host/Remote 产物')
+    throw new Error(`Typert 未生成 ${packageName} Host/Remote 产物`)
   }
 
   const output = join(root, 'dist')

@@ -5,8 +5,11 @@ import test from 'node:test'
 
 test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', async () => {
   const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as any
-  assert.equal(packageJson.name, 'dsh-compat')
-  assert.equal(packageJson.version, '0.4.2')
+  assert.equal(packageJson.name, '@rvaim/dsh-compat')
+  assert.equal(packageJson.version, '0.4.3')
+  assert.equal(packageJson.publishConfig.access, 'public')
+  assert.equal(packageJson.publishConfig.registry, 'https://registry.npmjs.org/')
+  assert.equal(packageJson.repository.url, 'git+https://github.com/rvaim/dsh-compat.git')
   assert.equal(packageJson.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(packageJson.bin, undefined)
   assert(packageJson.files.includes('dist/src/'))
@@ -32,7 +35,7 @@ test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', 
 
   const patch = await readFile(resolve('cordis.patch.yml'), 'utf8')
   assert.match(patch, /id:\s*dsh-compat/)
-  assert.match(patch, /name:\s*dsh-compat/)
+  assert.match(patch, /name:\s*['"]@rvaim\/dsh-compat['"]/)
   for (const file of [
     'README.md',
     'CHANGELOG.md',
@@ -41,6 +44,7 @@ test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', 
     'docs/SECURITY.md',
     'docs/TESTING.md',
     'docs/USAGE.md',
+    'docs/assets/compat-settings.png',
   ]) {
     await access(resolve(file))
   }

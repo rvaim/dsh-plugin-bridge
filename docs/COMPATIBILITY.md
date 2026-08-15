@@ -148,7 +148,7 @@ mcp__<serverName>__<rawName>
 
 Hook 执行优先复用 `@deepseek-ai/dsh-hook-protocol` 与 `ctx.shell`，不建立第二套平行协议运行框架。
 
-`@deepseek-ai/dsh-hook-protocol` 是发布包的必装运行依赖，而不是 optional peer。DSH profile 使用 `pnpm` 安装 `dsh-compat` 时会同时安装该库；否则 Hook adapter 会在运行时动态导入失败。上游 `dsh-hooks-claude-code` / `dsh-hooks-codex` 只接受单个进程级 `configPath`，不能直接消费本项目已归一化的多文件、Marketplace 内联配置与延迟凭据，因此本项目复用其共享 Protocol，由自己的 Plugin 级 adapter 完成方言映射。
+`@deepseek-ai/dsh-hook-protocol` 是发布包的必装运行依赖，而不是 optional peer。DSH profile 使用 `pnpm` 安装 `@rvaim/dsh-compat` 时会同时安装该库；否则 Hook adapter 会在运行时动态导入失败。上游 `dsh-hooks-claude-code` / `dsh-hooks-codex` 只接受单个进程级 `configPath`，不能直接消费本项目已归一化的多文件、Marketplace 内联配置与延迟凭据，因此本项目复用其共享 Protocol，由自己的 Plugin 级 adapter 完成方言映射。
 
 ## 6. Command 与 Agent
 

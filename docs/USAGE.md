@@ -3,15 +3,12 @@
 ## 1. 安装 bundle
 
 ```bash
-dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.2
+dsh plugin --profile <profile-name> add @rvaim/dsh-compat@latest
 ```
 
-> 从 GitHub 安装会运行包内 `prepare` 构建。如果 pnpm 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`，请在 profile 的 `pnpm-workspace.yaml` 增加以下内容后重试：
->
-> ```yaml
-> allowBuilds:
->   dsh-compat@git+https://github.com/rvaim/dsh-compat.git: true
-> ```
+公开包地址：[npm：@rvaim/dsh-compat](https://www.npmjs.com/package/@rvaim/dsh-compat)。把 `<profile-name>` 换成实际 profile；首次安装或升级后重启该 profile 并刷新 Web 页面。
+
+如果之前通过 GitHub 安装过未加 scope 的 `dsh-compat`，先运行 `dsh plugin --profile <profile-name> remove dsh-compat`，再安装 `@rvaim/dsh-compat@latest`。替换 bundle 依赖不会删除 `$DSH_HOME/dsh-compat/` 中的旧插件数据。
 
 按原方式启动 profile。`dsh-compat` 插件会提供 `ctx.compat` 服务，并在 `autoStart=true` 时恢复已启用 Plugin。
 
@@ -25,7 +22,7 @@ dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.2
 - 单插件 Source 直接安装，多插件 Source 会显示可勾选列表；确认后复用同一份已固定快照，不会再次拉取；
 - 插件行中的错误或警告数量可以展开；错误会阻止启用，警告表示插件仍可运行但部分兼容行为可能不同。详情包含诊断说明、稳定代码、能力类型和关联文件。
 
-这些操作都通过当前 DSH 进程执行，不要求重启。只有首次安装、升级或删除 `dsh-compat` 这个 DSH bundle 本身时，Host/Client 插件图发生变化，需要重启 profile 并刷新 Web 页面。
+这些操作都通过当前 DSH 进程执行，不要求重启。只有首次安装、升级或删除 `@rvaim/dsh-compat` 这个 DSH bundle 本身时，Host/Client 插件图发生变化，需要重启 profile 并刷新 Web 页面。
 
 本包不提供独立 CLI。Web 页面负责常用的添加、启停和卸载；Source 维护、批量操作和自动化应使用下方的 `ctx.compat` 服务 API。
 

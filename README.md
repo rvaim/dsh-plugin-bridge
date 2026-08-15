@@ -1,128 +1,55 @@
-# dsh-compat
+# @rvaim/dsh-compat
 
-`dsh-compat` 是 DeepSeek Harness（DSH）的旧插件兼容层。它让原本面向 Claude Code、Codex 的插件尽量保持原目录与语义运行，而不是把每个插件重新迁移成 DSH 原生插件。
+[![npm version](https://img.shields.io/npm/v/%40rvaim%2Fdsh-compat.svg)](https://www.npmjs.com/package/@rvaim/dsh-compat)
+[![license](https://img.shields.io/npm/l/%40rvaim%2Fdsh-compat.svg)](LICENSE)
 
-项目坚持两个独立的管理概念：
+DeepSeek Harness（DSH）的 Claude Code / Codex 旧插件兼容层。它把一个旧插件作为完整生命周期单元接入 DSH，让 Skill、MCP 与 Hook 尽量保持原目录和原语义运行。
 
-```text
-Source = Git 仓库、本地目录或压缩包；负责获取、缓存和整体更新内容
-Plugin = Source 中的一个具体旧插件；负责安装、启用、禁用、运行和卸载
-```
+> 当前版本：`0.4.3`。目标 DSH：`0.1.0-rc.6`。Plugin parser：`2.0.1`，Source parser：`2.0.0`。
 
-一个 Source 可以包含一个或多个 Plugin。Skill、MCP、Hook、Agent、Command 都只是 Plugin 内部能力，不会成为独立安装项，也不会被复制到 DSH 的全局目录。
+![DSH Web 设置中的兼容插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-compat/main/docs/assets/compat-settings.png)
 
-> 当前交付版本：`0.4.2`。Plugin parser 版本为 `2.0.1`，Source parser 版本为 `2.0.0`。实现按 2026-08-15 可取得的 DSH `0.1.0-rc.6` 源码与公开接口核对。
+## 安装
 
-## 核心边界
+要求 Node.js `^22.19.0` 或 `>=24.0.0`；使用 Git 来源时还需要 Git。
 
-```text
-来源获取层
-Git / Directory / ZIP / TAR / TGZ
-          │
-          ▼
-parser/source
-Claude Marketplace / Codex Marketplace / 单插件识别 / paths 兜底
-          │
-          ▼
-Source 中的 1..N Plugin
-          │
-          ▼
-Plugin parser
-Claude Code / Codex 的 Skill、MCP、Hook、路径和配置语义
-          │
-          ▼
-CompatPlugin
-          │
-          ▼
-runtime + adapters
-Skill Provider / dsh-mcp-client / dsh-hook-protocol / Cordis 生命周期
-          │
-          ▼
-DSH
-```
-
-`adapters` 和 `runtime` 不读取 Claude Code/Codex 原始配置。生态差异必须先由 `parser` 转换为统一结构。
-
-## 已实现功能
-
-### Source
-
-- Git URL、`github:owner/repo#ref`、本地目录、ZIP、TAR、TGZ/TAR.GZ。
-- Claude Code `.claude-plugin/marketplace.json`。
-- Codex `.agents/plugins/marketplace.json`。
-- 同一个 Source 同时存在两种 Marketplace。
-- 同名同真实目录条目合并；同名不同目录或语义冲突明确报错。
-- 无 Marketplace 时识别 Source 根目录中的单插件。
-- 压缩包仅允许去掉一层唯一包装目录。
-- `paths` 作为非标准目录结构的显式兜底，不递归猜测。
-- 显式 Source 与隐式 Source、引用计数、共享 Source 生命周期。
-- 共享 Source 整体更新、全部受影响 Plugin 重新解析、原子切换与整体回滚。
-- Marketplace 外部 Git/git-subdir Plugin 归 Source 所有并使用 Source 专属缓存。
-
-### Plugin
-
-- 一次选择一个或多个 Plugin 原子安装；任一目标失败则全部不提交。
-- Plugin 整体启用、禁用、更新、检查、列表和卸载。
-- `state.json` 只控制整个 Plugin 的 `enabled` 与 `priority`。
-- 一个 Plugin 对应一个父 Cordis 运行实例，内部能力随父实例一起释放。
-- 安装成功与启用成功分离；有静态 `error` 时保留安装记录并保持禁用。
-- MCP、Skill、Command 等名称冲突明确诊断，不自动改名或静默覆盖。
-
-### 运行能力
-
-- Claude Code / Codex Skill 发现、frontmatter 解析、动态 Skill Provider、正文和资源按需读取。
-- MCP stdio 与 streamable-http，通过 DSH 的 `dsh-mcp-client` 子插件接入。
-- Claude Code / Codex Hook parser、`command + args` 参数边界、DSH 事件映射、matcher、超时、取消、stdout/退出码处理与结果合并。
-- Codex Stop payload 从当前 DSH turn 的最后一条 `assistant/message` 提取 `last_assistant_message`；无文本时才传 `null`。
-- Command / Agent 可识别并产生明确 warning；当前版本不执行。
-- Claude Code Workflow、Output Style、LSP、Theme、Monitor、Channel、userConfig、插件依赖等未可靠适配能力均有结构化诊断。
-- Codex 现行顶层 `skills`、`hooks`、`mcpServers`、`apps` 与 Marketplace 扁平 manifest 回退。
-- Codex 自定义 Skill、Hook、MCP 路径按当前规范补充默认发现；多个 Marketplace Plugin 共用 Source 根目录时，以条目显式路径作为 Plugin 边界。
-- 未定义的 `paths` 包装字段明确报错，不会被误当成当前 Codex 插件 JSON 规范。
-
-## 环境要求
-
-- Node.js：`^22.19.0` 或 `>=24.0.0`。
-- DeepSeek Harness：本版本按 `0.1.0-rc.6` 的源码与公开接口核对。
-- Git：仅 Git Source 或 Marketplace 外部 Git Plugin 需要。
-
-## 安装到 DSH profile
-
-发布包是 DSH bundle，`package.json` 声明 `dsh.bundle.patch`，并包含 `cordis.patch.yml`：
+从 [npm：@rvaim/dsh-compat](https://www.npmjs.com/package/@rvaim/dsh-compat) 安装到目标 profile：
 
 ```bash
-dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.2
+dsh plugin --profile web add @rvaim/dsh-compat@latest
 ```
 
-> 从 GitHub 安装会运行包内 `prepare` 构建。如果 pnpm 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`，请在 profile 的 `pnpm-workspace.yaml` 增加以下内容后重试：
->
-> ```yaml
-> allowBuilds:
->   dsh-compat@git+https://github.com/rvaim/dsh-compat.git: true
-> ```
+把 `web` 换成实际 profile 名称即可。首次安装或升级 `@rvaim/dsh-compat` 后，需要重启该 profile 并重新加载 Web 页面，因为 DSH 的 Host/Client 插件图发生了变化。
 
-启动该 profile 后，插件会在 `ctx.compat` 暴露服务，并按稳定顺序恢复已启用 Plugin。
-
-Web profile 还会通过 DSH Client module 向原生 `settings.section` Slot 注册“兼容插件”页面，并经 Typert Remote 调用当前进程的 `ctx.compat`。页面中新增、启停和卸载旧 Plugin 都无需重启；多插件 Source 会先拉取并固定一份快照，再从同一 Source 中安装用户勾选的 Plugin，不会二次拉取。但首次把 `dsh-compat` 本身加入 profile 或升级本 bundle 会改变 DSH 的 Host/Client 插件图，需要重启 profile 并重新加载页面。页面使用 DSH 原生 UI primitives 和 `--dsw-*` 主题 Token。
-
-本包不再提供独立 `dsh-compat` CLI：旧 Plugin 的添加、启停和卸载统一通过 Web 设置页完成；批量和自动化场景使用下方的 `ctx.compat` 服务 API。
-
-从源码构建：
+如果 profile 之前通过 GitHub 安装过未加 scope 的 `dsh-compat`，先移除旧依赖再安装 npm 组织包：
 
 ```bash
-npm run verify
-npm pack --ignore-scripts
+dsh plugin --profile web remove dsh-compat
+dsh plugin --profile web add @rvaim/dsh-compat@latest
 ```
 
-## DSH 服务 API
+这只替换 DSH bundle 依赖，不会删除 `$DSH_HOME/dsh-compat/` 中已安装旧插件的数据。
 
-其他插件可声明：
+## 使用
+
+1. 启动 profile，在 DSH Web 中打开“设置 → 兼容插件”。
+2. 点击“添加”，输入 Git URL、`github:owner/repo#ref`、本地目录或 ZIP/TAR/TGZ 归档。
+3. 单插件来源会直接安装；多插件来源会显示复选列表，确认后从同一份固定快照安装所选插件，不会再次拉取。
+4. 使用开关在线启用或停用整个插件；使用删除按钮卸载。错误或警告数量可以展开查看说明、诊断代码、能力类型与关联文件。
+
+旧插件的添加、启用、停用和卸载会立即作用于当前 DSH 进程，通常无需重启。只有安装、升级或删除 `@rvaim/dsh-compat` 本体时需要重启 profile。
+
+本包不提供独立 CLI。常用操作在 Web 设置页完成；批量与自动化场景使用 `ctx.compat` 服务 API。
+
+## 服务 API
+
+其他 DSH 插件可以声明：
 
 ```ts
 export const inject = ['compat']
 ```
 
-然后使用：
+然后调用：
 
 ```ts
 ctx.compat.sourceAdd(source, options?)
@@ -131,6 +58,7 @@ ctx.compat.sourceUpdate(sourceId, options?)
 ctx.compat.sourceList()
 ctx.compat.sourceInspect(sourceId)
 
+ctx.compat.prepareInstall(source, options?)
 ctx.compat.install(sourceOrSourceId, options?)
 ctx.compat.update(pluginId, options?)
 ctx.compat.enable(pluginId)
@@ -140,7 +68,70 @@ ctx.compat.list()
 ctx.compat.inspect(pluginId)
 ```
 
-服务 API 会直接通知运行管理器，适合对正在运行的 DSH 实例执行生命周期操作。
+服务 API 直接通知运行管理器，适合对正在运行的 DSH 实例执行生命周期操作。
+
+## Source 与 Plugin
+
+项目区分两个管理概念：
+
+```text
+Source = Git 仓库、本地目录或压缩包；负责获取、缓存和整体更新内容
+Plugin = Source 中的一个具体旧插件；负责安装、启用、禁用、运行和卸载
+```
+
+一个 Source 可以包含一个或多个 Plugin。Skill、MCP、Hook、Agent、Command 都只是 Plugin 内部能力，不会成为独立安装项，也不会被复制到 DSH 的全局目录。
+
+```text
+Git / Directory / ZIP / TAR / TGZ
+                 │
+                 ▼
+             Source parser
+ Claude Marketplace / Codex Marketplace / 单插件 / paths
+                 │
+                 ▼
+          Source 中的 1..N Plugin
+                 │
+                 ▼
+             Plugin parser
+       Skill / MCP / Hook / 路径与配置语义
+                 │
+                 ▼
+             CompatPlugin
+                 │
+                 ▼
+ Skill Provider / MCP Client / Hook Protocol / Cordis 生命周期
+                 │
+                 ▼
+                 DSH
+```
+
+`adapters` 与 `runtime` 不直接读取 Claude Code / Codex 原始配置；生态差异先由 parser 转换为统一结构。
+
+## 能力范围
+
+### Source
+
+- 支持 Git URL、`github:` 简写、本地目录和 ZIP/TAR/TGZ。
+- 支持 Claude Code `.claude-plugin/marketplace.json`、Codex `.agents/plugins/marketplace.json` 及混合 Marketplace。
+- 无 Marketplace 时识别 Source 根目录中的单插件；`paths` 可显式处理非标准目录，不递归猜测。
+- 支持显式/隐式 Source、引用计数、共享 Source 整体更新、原子切换和整体回滚。
+- 外部 Git/git-subdir Plugin 仍归所属 Source 管理并使用 Source 专属缓存。
+
+### Plugin
+
+- 一次原子安装一个或多个 Plugin；任一目标失败则全部不提交。
+- 整体启用、禁用、更新、检查和卸载；一个 Plugin 对应一个父 Cordis 运行实例。
+- 安装成功与启用成功分离；静态 `error` 会保留安装记录并阻止启用。
+- MCP、Skill、Command 等名称冲突会产生明确诊断，不自动改名或静默覆盖。
+
+### 运行能力
+
+- Claude Code / Codex Skill 发现、frontmatter、动态 Skill Provider，以及正文和资源按需读取。
+- MCP stdio 与 streamable-http，通过 DSH `dsh-mcp-client` 接入。
+- Claude Code / Codex Hook parser、参数边界、事件映射、matcher、超时、取消、stdout/退出码和结果合并。
+- Codex Stop Hook 会提取当前 turn 最后一条 `assistant/message` 作为 `last_assistant_message`。
+- Command / Agent 可识别并产生 warning，但当前版本不执行。
+- Workflow、Output Style、LSP、Theme、Monitor、Channel、userConfig、插件依赖等未可靠适配能力会产生结构化诊断。
 
 ## 配置
 
@@ -157,66 +148,53 @@ ctx.compat.inspect(pluginId)
 
 ```text
 $DSH_HOME/dsh-compat/
-├── sources/
-│   └── <sourceId>/
-│       ├── source.json       # 来源、ownership、revision、Git commit/归档哈希
-│       ├── scan.json         # Marketplace/Source parser 缓存
-│       ├── package/          # 完整 Source，只保存一份
-│       └── cache/
-├── installed/
-│   └── <pluginId>/
-│       ├── install.json      # sourceId + sourcePluginId + location
-│       ├── state.json        # 整个 Plugin 的 enabled / priority
-│       ├── scan.json         # CompatPlugin 缓存
-│       ├── data/             # 更新时保留，卸载时删除
-│       └── cache/            # 可重建
-├── external/
-│   └── <sourceId>/           # Marketplace 外部 Git Plugin，仍由 Source 所有
+├── sources/<sourceId>/
+│   ├── source.json       # 来源、ownership、revision、commit/归档哈希
+│   ├── scan.json         # Source parser 缓存
+│   ├── package/          # 完整 Source，只保存一份
+│   └── cache/
+├── installed/<pluginId>/
+│   ├── install.json      # sourceId + sourcePluginId + location
+│   ├── state.json        # 整个 Plugin 的 enabled / priority
+│   ├── scan.json         # CompatPlugin 缓存
+│   ├── data/             # 更新时保留，卸载时删除
+│   └── cache/            # 可重建
+├── external/<sourceId>/  # Marketplace 外部 Git Plugin
 ├── temp/
 └── locks/
 ```
 
-Plugin 安装不会把源码复制到 `installed/<pluginId>/package/`。事实真源始终是 Source 中的原始 Plugin 文件。
+Plugin 安装不会把源码复制到 `installed/<pluginId>/package/`；事实真源始终是 Source 中的原始文件。
 
-## 诊断与运行状态
+## 诊断与状态
 
-- `error`：Plugin 可以安装和检查，但不能自动启用。
-- `warning`：可以运行，但存在必须公开的兼容差异。
-- `info`：发现和规范化信息。
+- `error`：可以安装和检查，但不能自动启用。
+- `warning`：可以运行，但存在公开的兼容差异。
+- `info`：发现和规范化信息，仅保留在 Host 侧。
 
-Web 设置页会把 `error` / `warning` 数量显示为可展开的诊断入口，直接展示说明、稳定代码、能力类型和关联文件；`info` 与内部 `details` 不发送到浏览器。
-
-运行状态：`disabled`、`starting`、`running`、`degraded`、`failed`、`stopping`。
-
-`degraded` 表示部分能力失败，Plugin 仍是一个整体；不会因此把失败能力拆成独立管理项。如果全部可运行能力失败，父运行实例会被释放，避免残留部分注册。
+运行状态包括 `disabled`、`starting`、`running`、`degraded`、`failed`、`stopping`。`degraded` 表示部分能力失败，但 Plugin 仍作为整体管理；全部可运行能力失败时会释放父运行实例。
 
 ## 安全模型
 
-- 安装阶段默认只允许 clone、copy、extract、read、parse、validate。
-- 不执行 `npm install`、`pnpm install`、`prepare`、`postinstall`、`setup.sh` 或插件自带安装脚本。
+- 安装阶段只 clone、copy、extract、read、parse、validate，不执行来源中的安装或构建脚本。
 - Git 通过对象导出取得内容，不创建工作树，不触发 checkout 或 smudge/filter。
-- 归档检查路径穿越、绝对路径、Windows 盘符、符号链接、CRC、成员数量与体积预算。
+- 归档检查路径穿越、绝对路径、Windows 盘符、符号链接、CRC、成员数量和体积预算。
 - Git URL 不允许内嵌凭据、查询参数或 fragment。
-- Token、API Key、Header 和敏感配置按引用/延迟指针保存，不写入 scan、日志或 inspect 输出。
+- Token、API Key、Header 等敏感配置使用引用或延迟指针，不写入 scan、日志或 inspect 输出。
 - Source 与 Plugin 操作使用文件锁、临时目录和原子重命名；共享更新失败时整体回滚。
 
 详见 [安全模型](docs/SECURITY.md)。
 
-## 验证
+## 开发与验证
 
 ```bash
+npm install
 npm run verify
-```
-
-执行严格 TypeScript 编译、全部自动化测试、DSH bundle 清单和 `npm pack --dry-run` 发布白名单检查。
-
-在已安装目标 DSH peerDependencies 的 profile 或源码 checkout 中运行：
-
-```bash
 npm run verify:dsh
+npm pack --ignore-scripts
 ```
 
-该探针核对 Cordis、Schemastery、Hook Protocol、MCP Client 和 `dsh-compat` 入口的关键导出契约。当前容器是否具备这些真实依赖，以 [验证报告](docs/VALIDATION-REPORT.md) 的实际输出为准。
+`npm run verify` 执行严格 TypeScript 编译、自动化测试、DSH Client/Typert 构建，以及发布白名单检查。`npm run verify:dsh` 额外核对已安装 DSH `0.1.0-rc.6` 真实依赖的关键导出契约。
 
 ## 文档
 
@@ -229,8 +207,8 @@ npm run verify:dsh
 
 ## 明确边界
 
-当前版本不重新实现 Claude Code 或 Codex Runtime，不修改原插件源码，不自动重命名能力，不递归扫描整个仓库猜插件，不自动安装 Marketplace 新增 Plugin，不把 Bash 猜测翻译为 PowerShell，也不执行 Command/Agent。无法可靠兼容的行为必须通过诊断公开。
+本项目不重新实现 Claude Code 或 Codex Runtime，不修改旧插件源码，不自动重命名能力，不递归扫描整个仓库猜测插件，不自动安装 Marketplace 新增 Plugin，不把 Bash 猜测翻译为 PowerShell，也不执行 Command / Agent。无法可靠兼容的行为会通过诊断公开。
 
 ## 许可证
 
-MIT
+[MIT](LICENSE)

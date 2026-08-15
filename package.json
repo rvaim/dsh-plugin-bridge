@@ -1,6 +1,6 @@
 {
   "name": "@rvaim/dsh-compat",
-  "version": "0.4.3",
+  "version": "0.4.4",
   "description": "在 DeepSeek Harness 中按 Source/Plugin 模型整体管理并运行 Claude Code、Codex 旧插件",
   "keywords": [
     "deepseek-harness",

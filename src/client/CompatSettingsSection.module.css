@@ -80,6 +80,16 @@
   opacity: 0.45;
 }
 
+.updateButton {
+  flex: none;
+  min-width: 48px;
+}
+
+.updateButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .loadingState,
 .errorState,
 .emptyState {

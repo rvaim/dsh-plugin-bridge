@@ -15,11 +15,14 @@ import type {
   CompatWebAddResult,
   CompatWebCancelAddResult,
   CompatWebCandidate,
+  CompatWebCheckUpdatesResult,
   CompatWebDiagnostic,
   CompatWebListResult,
   CompatWebPlugin,
   CompatWebSetEnabledResult,
   CompatWebUninstallResult,
+  CompatWebUpdateInfo,
+  CompatWebUpdateResult,
 } from '../types/web.js'
 import type { CompatSettingsLocaleKey } from './locales.js'
 import css from './CompatSettingsSection.module.css'
@@ -27,6 +30,8 @@ import css from './CompatSettingsSection.module.css'
 /** Browser operations supplied by the plugin registration. */
 export interface CompatSettingsInjected {
   list: () => Promise<CompatWebListResult>
+  checkUpdates: () => Promise<CompatWebCheckUpdatesResult>
+  update: (pluginId: string, confirmShared: boolean) => Promise<CompatWebUpdateResult>
   beginAdd: (source: string) => Promise<CompatWebAddResult>
   completeAdd: (requestId: string, plugins: string[]) => Promise<CompatWebAddResult>
   cancelAdd: (requestId: string) => Promise<CompatWebCancelAddResult>
@@ -44,7 +49,7 @@ type ViewState =
   | { status: 'error'; message: string }
   | { status: 'ready'; plugins: CompatWebPlugin[] }
 
-type PendingAction = { pluginId: string; kind: 'toggle' | 'uninstall' } | null
+type PendingAction = { pluginId: string; kind: 'toggle' | 'uninstall' | 'update' } | null
 
 type AddPendingAction = 'fetch' | 'install' | 'cancel' | null
 
@@ -93,6 +98,8 @@ function failureMessage(error: unknown): string {
 /** Native DSH settings section for compatibility-plugin lifecycle management. */
 export function CompatSettingsSection({
   list,
+  checkUpdates,
+  update,
   beginAdd,
   completeAdd,
   cancelAdd,
@@ -105,6 +112,7 @@ export function CompatSettingsSection({
   const selectionRequest = useRef<string | null>(null)
   const dialogTrigger = useRef<HTMLButtonElement | null>(null)
   const [view, setView] = useState<ViewState>({ status: 'loading' })
+  const [updateState, setUpdateState] = useState<Record<string, CompatWebUpdateInfo>>({})
   const [refreshing, setRefreshing] = useState(false)
   const [pending, setPending] = useState<PendingAction>(null)
   const [toast, setToast] = useState<ToastState>(null)
@@ -143,11 +151,20 @@ export function CompatSettingsSection({
     if (preserve) setRefreshing(true)
     else setView({ status: 'loading' })
     try {
-      const result = await list()
+      const [result, updates] = await Promise.all([
+        list(),
+        checkUpdates().catch((error): CompatWebCheckUpdatesResult => ({
+          kind: 'error',
+          message: failureMessage(error),
+        })),
+      ])
       if (request !== generation.current) return
       if (result.kind === 'ready') setView({ status: 'ready', plugins: result.plugins })
       else if (preserve) showToast(t('operationFailed', { message: result.message }))
       else setView({ status: 'error', message: result.message })
+      setUpdateState(updates.kind === 'ready'
+        ? Object.fromEntries(updates.updates.map(item => [item.pluginId, item]))
+        : {})
     } catch (error) {
       if (request !== generation.current) return
       const message = failureMessage(error)
@@ -156,7 +173,7 @@ export function CompatSettingsSection({
     } finally {
       if (request === generation.current) setRefreshing(false)
     }
-  }, [list, showToast, t])
+  }, [list, checkUpdates, showToast, t])
 
   useEffect(() => {
     void load(false)
@@ -315,6 +332,37 @@ export function CompatSettingsSection({
     }
   }
 
+  const updatePlugin = async (plugin: CompatWebPlugin) => {
+    const info = updateState[plugin.id]
+    if (info === undefined || !info.available) return
+    invalidateLoad()
+    setPending({ pluginId: plugin.id, kind: 'update' })
+    try {
+      const result = await update(plugin.id, true)
+      if (result.kind === 'error') {
+        showToast(t('operationFailed', { message: result.message }))
+        return
+      }
+      setView(current => current.status === 'ready'
+        ? { status: 'ready', plugins: mergePlugins(current.plugins, result.plugins) }
+        : { status: 'ready', plugins: result.plugins })
+      setUpdateState(current => {
+        const next = { ...current }
+        for (const pluginId of result.affectedPluginIds) {
+          const existing = next[pluginId]
+          if (existing === undefined) continue
+          next[pluginId] = { ...existing, available: false, affectedPluginIds: [] }
+        }
+        return next
+      })
+      showToast(t('updatedToast', { name: displayName(plugin) }))
+    } catch (error) {
+      showToast(t('operationFailed', { message: failureMessage(error) }))
+    } finally {
+      setPending(null)
+    }
+  }
+
   const removePlugin = async () => {
     if (removeTarget === null) return
     invalidateLoad()
@@ -422,6 +470,7 @@ export function CompatSettingsSection({
           {view.plugins.map((plugin) => {
             const name = displayName(plugin)
             const rowPending = pending?.pluginId === plugin.id
+            const updateInfo = updateState[plugin.id]
             const controlsBusy = pending !== null || refreshing
             const diagnosticsOpen = expandedDiagnostics === plugin.id
             const diagnosticsId = `dsh-compat-diagnostics-${encodeURIComponent(plugin.id)}`
@@ -480,6 +529,24 @@ export function CompatSettingsSection({
                         : <span className={css.statusDot} aria-hidden="true" />}
                       <span>{t(STATUS_KEYS[plugin.runtimeStatus])}</span>
                     </span>
+                    {updateInfo?.available === true ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className={css.updateButton}
+                        aria-label={t('updateTitle', { name })}
+                        title={updateInfo.sharedSource
+                          ? t('updateSharedTitle', { name, count: updateInfo.affectedPluginIds.length })
+                          : t('updateTitle', { name })}
+                        disabled={controlsBusy}
+                        icon={rowPending && pending?.kind === 'update'
+                          ? <IconLoadingOutline16 className={css.spinner} size={14} />
+                          : undefined}
+                        onClick={() => { void updatePlugin(plugin) }}
+                      >
+                        {t(rowPending && pending?.kind === 'update' ? 'updating' : 'updateAction')}
+                      </Button>
+                    ) : null}
                     <button
                       type="button"
                       className={css.switch}

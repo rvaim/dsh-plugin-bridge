@@ -27,7 +27,7 @@ for (const file of [
 
 const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 if (packageJson.name !== '@rvaim/dsh-compat') throw new Error('包名必须为 @rvaim/dsh-compat')
-if (packageJson.version !== '0.4.3') throw new Error('交付版本必须为 0.4.3')
+if (packageJson.version !== '0.4.4') throw new Error('交付版本必须为 0.4.4')
 if (packageJson.publishConfig?.access !== 'public') throw new Error('npm 组织包必须公开发布')
 if (packageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error('npm 发布 registry 配置错误')
 if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-compat.git') {
@@ -79,12 +79,12 @@ if (!clientBundle.startsWith('window.__ModuleLoader__.load({')) {
 if (!clientBundle.includes('id: "@rvaim/dsh-compat"')) {
   throw new Error('Web client 的 ModuleLoader id 必须与 npm 包名一致')
 }
-for (const marker of ['compat-plugins', 'compatAdmin.beginAdd', 'compatAdmin.completeAdd']) {
+for (const marker of ['compat-plugins', 'compatAdmin.beginAdd', 'compatAdmin.checkUpdates', 'compatAdmin.update']) {
   if (!clientBundle.includes(marker)) throw new Error(`Web client 缺少 ${marker}`)
 }
 const hostTypert = await readFile(new URL('dist/typert.host.js', root), 'utf8')
 const remoteTypert = await readFile(new URL('dist/typert.remote-client.js', root), 'utf8')
-for (const method of ['beginAdd', 'cancelAdd', 'completeAdd', 'list', 'setEnabled', 'uninstall']) {
+for (const method of ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'list', 'setEnabled', 'uninstall', 'update']) {
   if (!hostTypert.includes(`compatAdmin/${method}`) || !remoteTypert.includes(`compatAdmin/${method}`)) {
     throw new Error(`Typert Host/Remote 缺少 compatAdmin/${method}`)
   }

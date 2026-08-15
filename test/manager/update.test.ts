@@ -91,3 +91,32 @@ test('新版静态解析有 error 时不停止旧实例、不交换目录', asyn
     await temp.cleanup()
   }
 })
+
+
+test('checkUpdates 探测目录 Source 的 revision 变化，并在更新后收敛', async () => {
+  const temp = await temporaryDirectory()
+  try {
+    const source = resolve(temp.path, 'source')
+    await buildClaudePlugin(source, { name: 'updatable-check', version: '1.0.0', marker: 'v1' })
+    const layout = new CompatLayout(resolve(temp.path, 'home'))
+    const manager = new CompatManager(layout)
+    await manager.install(source)
+
+    const before = await manager.checkUpdates()
+    assert.equal(before.length, 1)
+    assert.equal(before[0].updateAvailable, false)
+    assert.deepEqual(before[0].affectedPluginIds, ['updatable-check'])
+
+    await writeFile(resolve(source, 'marker.txt'), 'v2')
+    const changed = await manager.checkUpdates()
+    assert.equal(changed[0].updateAvailable, true)
+    assert.notEqual(changed[0].latestRevision, changed[0].currentRevision)
+
+    await manager.update('updatable-check')
+    const after = await manager.checkUpdates()
+    assert.equal(after[0].updateAvailable, false)
+    assert.equal(await readFile(resolve((await manager.inspect('updatable-check')).packageRoot, 'marker.txt'), 'utf8'), 'v2')
+  } finally {
+    await temp.cleanup()
+  }
+})

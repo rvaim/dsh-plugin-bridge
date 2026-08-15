@@ -15,16 +15,19 @@ import type {
   CompatWebAddResult,
   CompatWebCancelAddResult,
   CompatWebCandidate,
+  CompatWebCheckUpdatesResult,
   CompatWebDiagnostic,
   CompatWebListResult,
   CompatWebPlugin,
   CompatWebSetEnabledResult,
   CompatWebUninstallResult,
+  CompatWebUpdateInfo,
+  CompatWebUpdateResult,
 } from '../types/web.js'
 
 type CompatAdminTarget = Pick<
   CompatService,
-  'disable' | 'enable' | 'install' | 'list' | 'prepareInstall' | 'sourceRemove' | 'uninstall'
+  'checkUpdates' | 'disable' | 'enable' | 'install' | 'list' | 'prepareInstall' | 'sourceRemove' | 'uninstall' | 'update'
 >
 
 interface PendingAdd {
@@ -120,6 +123,42 @@ export class CompatWebOperations {
   async list(): Promise<CompatWebListResult> {
     try {
       return { kind: 'ready', plugins: (await this.compat.list()).map(webPlugin) }
+    } catch (error) {
+      return { kind: 'error', message: messageOf(error) }
+    }
+  }
+
+  /** 探测每个已安装插件所属 Source 是否有新 revision。 */
+  async checkUpdates(): Promise<CompatWebCheckUpdatesResult> {
+    try {
+      const checks = await this.compat.checkUpdates()
+      const updates: CompatWebUpdateInfo[] = checks.flatMap(source =>
+        source.affectedPluginIds.map(pluginId => ({
+          pluginId,
+          sourceId: source.sourceId,
+          available: source.updateAvailable,
+          sharedSource: source.affectedPluginIds.length > 1,
+          affectedPluginIds: source.affectedPluginIds,
+          ...(source.error === undefined ? {} : { error: source.error }),
+        })))
+      return { kind: 'ready', updates, checkedAt: new Date().toISOString() }
+    } catch (error) {
+      return { kind: 'error', message: messageOf(error) }
+    }
+  }
+
+  /** 更新一个兼容插件；共享 Source 需要调用方确认。 */
+  async update(pluginId: string, confirmShared: boolean): Promise<CompatWebUpdateResult> {
+    try {
+      await this.compat.update(pluginId, { confirmShared })
+      const plugins = (await this.compat.list()).map(webPlugin)
+      const updated = plugins.find(item => item.id === pluginId)
+      if (updated === undefined) throw new Error(`插件 ${pluginId} 更新后未出现在列表中`)
+      const affectedPluginIds = plugins
+        .filter(item => item.sourceId === updated.sourceId)
+        .map(item => item.id)
+        .sort()
+      return { kind: 'updated', plugins, affectedPluginIds }
     } catch (error) {
       return { kind: 'error', message: messageOf(error) }
     }
@@ -264,6 +303,22 @@ export class CompatWebGateway extends TypertRemoteService {
   @Remote('list')
   list(): Promise<CompatWebListResult> {
     return this.operations.list()
+  }
+
+  /** @returns 每个已安装插件所属 Source 的更新检查结果。 */
+  @Remote('checkUpdates')
+  checkUpdates(): Promise<CompatWebCheckUpdatesResult> {
+    return this.operations.checkUpdates()
+  }
+
+  /**
+   * @param pluginId - dsh-compat 管理 ID。
+   * @param confirmShared - 共享 Source 是否确认整体更新。
+   * @returns 更新后的插件列表或可展示错误。
+   */
+  @Remote('update')
+  update(pluginId: string, confirmShared: boolean): Promise<CompatWebUpdateResult> {
+    return this.operations.update(pluginId, confirmShared)
   }
 
   /** @param source - Git URL、github 简写、本地目录或归档位置。 */

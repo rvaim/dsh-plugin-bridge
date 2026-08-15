@@ -85,6 +85,7 @@ Adapter 测试直接构造统一结构，不依赖 Claude/Codex 原始 fixture�
 - Source 只保存一份完整内容；
 - Source 引用归零策略；
 - 共享 Source 整体更新；
+- `checkUpdates()` 探测目录/归档/Git Source 的 revision 变化；
 - 新候选不自动安装；
 - 已安装 Plugin 消失时拒绝更新；
 - 第二个新版 Plugin 启动失败时整体恢复；
@@ -122,6 +123,7 @@ Adapter 测试直接构造统一结构，不依赖 Claude/Codex 原始 fixture�
 - 取消选择回收无引用的隐式 Source；
 - 同一 Source 并发选择时正确转交清理责任；
 - Web list、启用、停用和卸载映射到 manager 生命周期；
+- Web 更新检测会标记共享 Source 的全部插件，`update` RPC 复用原子更新事务；
 - Web list 与安装结果只传输 error/warning 的公开诊断字段，并保留说明、代码、能力和文件；
 - Typert Host/Remote 生成产物包含全部严格 RPC descriptor；
 - Client bundle 使用 DSH `window.__ModuleLoader__` closure-factory，并进入 `dsh.client` 启动图；

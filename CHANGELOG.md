@@ -1,5 +1,11 @@
 # 更新日志
 
+## 0.4.4
+
+- Web 设置页新增更新检测：刷新时探测每个已安装插件所属 Source 的最新 revision，有更新时显示“更新”按钮。
+- 新增 `compatAdmin/checkUpdates` 与 `compatAdmin/update` RPC，并暴露 `ctx.compat.checkUpdates()` 服务 API。
+- 更新按钮直接复用现有原子更新事务；共享 Source 会整体更新并返回全部受影响插件。
+
 ## 0.4.3
 
 - npm 包名改为公开组织包 `@rvaim/dsh-compat`，并统一 Cordis resolver、Web Client ModuleLoader 与 Typert 的包级标识。

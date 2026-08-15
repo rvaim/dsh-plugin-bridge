@@ -35,6 +35,8 @@ function operations(manager: CompatManager): CompatWebOperations {
     sourceRemove: sourceId => manager.sourceRemove(sourceId),
     install: (source, options) => manager.install(source, options),
     list: () => manager.list(),
+    checkUpdates: () => manager.checkUpdates(),
+    update: (pluginId, options) => manager.update(pluginId, options),
     enable: pluginId => manager.enable(pluginId),
     disable: pluginId => manager.disable(pluginId),
     uninstall: pluginId => manager.uninstall(pluginId),
@@ -156,6 +158,48 @@ test('Web 单插件来源在第一次拉取后直接安装', async () => {
     if (listed.kind === 'ready') {
       assert.equal(listed.plugins[0]?.diagnostics[0]?.message,
         '插件包含 Claude Code bin/ 可执行目录；当前不会修改 DSH Shell 的 PATH')
+    }
+  } finally {
+    await temp.cleanup()
+  }
+})
+
+
+test('Web 检查更新会标记共享 Source 的全部插件，并可在线更新', async () => {
+  const temp = await temporaryDirectory()
+  try {
+    const source = resolve(temp.path, 'market')
+    await buildMarketplace(source)
+    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')))
+    const web = operations(manager)
+    const first = await web.beginAdd(source)
+    assert.equal(first.kind, 'selection')
+    if (first.kind !== 'selection') return
+    await web.completeAdd(first.requestId, ['alpha'])
+    const second = await web.beginAdd(source)
+    assert.equal(second.kind, 'selection')
+    if (second.kind !== 'selection') return
+    await web.completeAdd(second.requestId, ['beta'])
+
+    const before = await web.checkUpdates()
+    assert.equal(before.kind, 'ready')
+    if (before.kind === 'ready') {
+      assert.deepEqual(before.updates.map(item => item.available), [false, false])
+      assert.deepEqual(before.updates.map(item => item.sharedSource), [true, true])
+    }
+
+    await writeFile(resolve(source, 'plugins/alpha', 'marker.txt'), 'updated')
+    const changed = await web.checkUpdates()
+    assert.equal(changed.kind, 'ready')
+    if (changed.kind === 'ready') {
+      assert.deepEqual(changed.updates.map(item => item.available), [true, true])
+    }
+
+    const updated = await web.update('alpha', true)
+    assert.equal(updated.kind, 'updated')
+    if (updated.kind === 'updated') {
+      assert.deepEqual(updated.affectedPluginIds, ['alpha', 'beta'])
+      assert.deepEqual(updated.plugins.map(item => item.id), ['alpha', 'beta'])
     }
   } finally {
     await temp.cleanup()

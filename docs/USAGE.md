@@ -20,7 +20,8 @@ dsh plugin --profile <profile-name> add @rvaim/dsh-compat@latest
 - 卸载会先停止运行实例，再删除安装记录，并按 Source 引用规则回收内容；
 - “添加”支持 Git URL、`github:` 简写、本地目录和归档；拉取期间显示进度；
 - 单插件 Source 直接安装，多插件 Source 会显示可勾选列表；确认后复用同一份已固定快照，不会再次拉取；
-- 插件行中的错误或警告数量可以展开；错误会阻止启用，警告表示插件仍可运行但部分兼容行为可能不同。详情包含诊断说明、稳定代码、能力类型和关联文件。
+- 插件行中的错误或警告数量可以展开；错误会阻止启用，警告表示插件仍可运行但部分兼容行为可能不同。详情包含诊断说明、稳定代码、能力类型和关联文件；
+- 点击刷新会重新读取插件状态并检查各 Source 的最新 revision；检测到更新时插件行显示“更新”按钮，确认后在线更新整个 Source 并重启受影响插件。
 
 这些操作都通过当前 DSH 进程执行，不要求重启。只有首次安装、升级或删除 `@rvaim/dsh-compat` 这个 DSH bundle 本身时，Host/Client 插件图发生变化，需要重启 profile 并刷新 Web 页面。
 
@@ -179,6 +180,15 @@ await ctx.compat.uninstall('plugin-a')
 `inspect` 显示安装记录、Source、统一能力、诊断与运行快照。
 
 ### 4.1 更新
+
+Web 设置页刷新后会自动检查更新；检测到新 revision 时点击“更新”按钮即可。共享 Source 的更新会整体影响该 Source 下的全部插件。
+
+服务 API 先检查再更新：
+
+```ts
+const updates = await ctx.compat.checkUpdates()
+// updates: SourceUpdateCheck[]，updateAvailable=true 时再执行更新
+```
 
 独占隐式 Source：
 

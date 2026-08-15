@@ -5,7 +5,7 @@
 
 DeepSeek Harness（DSH）的 Claude Code / Codex 旧插件兼容层。它把一个旧插件作为完整生命周期单元接入 DSH，让 Skill、MCP 与 Hook 尽量保持原目录和原语义运行。
 
-> 当前版本：`0.4.3`。目标 DSH：`0.1.0-rc.6`。Plugin parser：`2.0.1`，Source parser：`2.0.0`。
+> 当前版本：`0.4.4`。目标 DSH：`0.1.0-rc.6`。Plugin parser：`2.0.1`，Source parser：`2.0.0`。
 
 ![DSH Web 设置中的兼容插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-compat/main/docs/assets/compat-settings.png)
 
@@ -36,6 +36,7 @@ dsh plugin --profile web add @rvaim/dsh-compat@latest
 2. 点击“添加”，输入 Git URL、`github:owner/repo#ref`、本地目录或 ZIP/TAR/TGZ 归档。
 3. 单插件来源会直接安装；多插件来源会显示复选列表，确认后从同一份固定快照安装所选插件，不会再次拉取。
 4. 使用开关在线启用或停用整个插件；使用删除按钮卸载。错误或警告数量可以展开查看说明、诊断代码、能力类型与关联文件。
+5. 点击刷新会检查每个已安装插件所属 Source 的最新 revision；有更新时插件行会显示“更新”按钮，点击后在当前进程中更新并重启该插件。
 
 旧插件的添加、启用、停用和卸载会立即作用于当前 DSH 进程，通常无需重启。只有安装、升级或删除 `@rvaim/dsh-compat` 本体时需要重启 profile。
 
@@ -60,6 +61,7 @@ ctx.compat.sourceInspect(sourceId)
 
 ctx.compat.prepareInstall(source, options?)
 ctx.compat.install(sourceOrSourceId, options?)
+ctx.compat.checkUpdates()
 ctx.compat.update(pluginId, options?)
 ctx.compat.enable(pluginId)
 ctx.compat.disable(pluginId)

@@ -7,9 +7,12 @@ import { normalizeManagementId } from '../parser/shared/id.js'
 import { parseCompatSource, validateSourceDirectory } from '../parser/source/index.js'
 import type { SourceDiscovery, SourcePluginCandidate } from '../parser/source/types.js'
 import { SOURCE_PARSER_VERSION } from '../parser/version.js'
+import { sha256File } from '../source/archive.js'
 import { copyPluginDirectory } from '../source/directory.js'
 import { pathExists } from '../source/filesystem.js'
+import { probeGitSource } from '../source/git.js'
 import { resolveInstallSource } from '../source/resolver.js'
+import { hashDirectory } from '../source/snapshot.js'
 import { CompatLayout, isStorageId } from '../store/layout.js'
 import { withPluginLock, withPluginLocks, withRepositoryLock, withSourceLock } from '../store/lock.js'
 import {
@@ -82,6 +85,16 @@ export interface SourceUpdateOptions {
 export interface UpdateOptions extends SourceUpdateOptions {
   /** 共享 Source 更新需要调用方显式确认影响范围。 */
   confirmShared?: boolean
+}
+
+export interface SourceUpdateCheck {
+  sourceId: string
+  updateAvailable: boolean
+  currentRevision: string
+  latestRevision?: string
+  /** 引用该 Source 的全部已安装 Plugin；任一更新都会整体更新 Source。 */
+  affectedPluginIds: string[]
+  error?: string
 }
 
 export interface PluginInstallResult {
@@ -192,6 +205,18 @@ function resolvedFromStored(source: InstallSource): ResolvedInstallSource {
     display: source.url,
     suggestedId: source.url.replace(/\.git$/i, '').split('/').at(-1),
   }
+}
+
+/** 用安装阶段相同的 revision 规则探测来源当前版本，不下载完整 Source 内容。 */
+async function latestRevisionFor(resolved: ResolvedInstallSource): Promise<string> {
+  if (resolved.source.type === 'directory') {
+    return `directory:${await hashDirectory(resolved.source.path)}`
+  }
+  if (resolved.source.type === 'archive') {
+    return `archive:${await sha256File(resolved.source.path)}`
+  }
+  const probed = await probeGitSource(resolved.source.url, resolved.source.ref)
+  return `git:${probed.commit ?? ''}`
 }
 
 function originMatches(left: InstallSource, right: InstallSource): boolean {
@@ -1440,6 +1465,43 @@ export class CompatManager {
           return await this.inspectUnlocked(pluginId)
         },
       ))
+    })
+  }
+
+  /** 探测每个已安装 Plugin 的 Source 远端/本地来源是否有新 revision。 */
+  async checkUpdates(): Promise<SourceUpdateCheck[]> {
+    return await this.withManagedRepository( async () => {
+      const referenceScan = await scanPluginSourceReferences(this.layout)
+      const checks: SourceUpdateCheck[] = []
+      for (const sourceId of await listSourceIds(this.layout)) {
+        const affectedPluginIds = referenceScan.references
+          .filter(item => item.sourceId === sourceId)
+          .map(item => item.pluginId)
+          .sort()
+        if (affectedPluginIds.length === 0) continue
+
+        try {
+          const record = await readInstalledSource(this.layout, sourceId)
+          const currentRevision = record.source.revision
+          const latestRevision = await latestRevisionFor(resolvedFromStored(record.source.origin))
+          checks.push({
+            sourceId,
+            currentRevision,
+            latestRevision,
+            updateAvailable: latestRevision !== currentRevision,
+            affectedPluginIds,
+          })
+        } catch (error) {
+          checks.push({
+            sourceId,
+            updateAvailable: false,
+            currentRevision: '',
+            affectedPluginIds,
+            error: error instanceof Error ? error.message : String(error),
+          })
+        }
+      }
+      return checks.sort((left, right) => left.sourceId.localeCompare(right.sourceId))
     })
   }
 

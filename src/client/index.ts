@@ -36,6 +36,11 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     const t = ctx.locale.bind(NS)
     const injected: CompatSettingsInjected = {
       list: async () => unwrap(await compatAdmin.list(), 'compatAdmin.list'),
+      checkUpdates: async () => unwrap(await compatAdmin.checkUpdates(), 'compatAdmin.checkUpdates'),
+      update: async (pluginId, confirmShared) => unwrap(
+        await compatAdmin.update(pluginId, confirmShared),
+        'compatAdmin.update',
+      ),
       beginAdd: async source => unwrap(
         await compatAdmin.beginAdd(source),
         'compatAdmin.beginAdd',

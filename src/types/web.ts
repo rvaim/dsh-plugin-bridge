@@ -65,3 +65,24 @@ export type CompatWebSetEnabledResult =
 export type CompatWebUninstallResult =
   | { kind: 'removed'; pluginId: string }
   | { kind: 'error'; message: string }
+
+
+/** 单个已安装插件所属 Source 的更新检查结果。 */
+export interface CompatWebUpdateInfo {
+  pluginId: string
+  sourceId: string
+  available: boolean
+  sharedSource: boolean
+  affectedPluginIds: string[]
+  error?: string
+}
+
+/** 检查更新 RPC 的业务结果。 */
+export type CompatWebCheckUpdatesResult =
+  | { kind: 'ready'; updates: CompatWebUpdateInfo[]; checkedAt: string }
+  | { kind: 'error'; message: string }
+
+/** 更新插件 RPC 的业务结果。 */
+export type CompatWebUpdateResult =
+  | { kind: 'updated'; plugins: CompatWebPlugin[]; affectedPluginIds: string[] }
+  | { kind: 'error'; message: string }

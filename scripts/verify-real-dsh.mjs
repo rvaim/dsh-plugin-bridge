@@ -48,6 +48,9 @@ try {
   if (typeof compat.CompatManager?.prototype?.prepareInstall !== 'function') {
     failures.push('CompatManager 未导出分步 Web 安装的 prepareInstall()')
   }
+  if (typeof compat.CompatManager?.prototype?.checkUpdates !== 'function') {
+    failures.push('CompatManager 未导出 Web 更新检测的 checkUpdates()')
+  }
 } catch (error) {
   failures.push(`dsh-compat 构建入口无法导入：${error instanceof Error ? error.message : String(error)}`)
 }
@@ -59,7 +62,7 @@ try {
   ])
   const hostMethods = new Set(TYPERT?.invocations?.map(item => `${item.namespace}/${item.method}`) ?? [])
   const remoteMethods = new Set(remote?.descriptors?.map(item => `${item.namespace}/${item.method}`) ?? [])
-  for (const method of ['beginAdd', 'cancelAdd', 'completeAdd', 'list', 'setEnabled', 'uninstall']) {
+  for (const method of ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'list', 'setEnabled', 'uninstall', 'update']) {
     const endpoint = `compatAdmin/${method}`
     if (!hostMethods.has(endpoint)) failures.push(`Typert Host 缺少 ${endpoint}`)
     if (!remoteMethods.has(endpoint)) failures.push(`Typert Remote 缺少 ${endpoint}`)

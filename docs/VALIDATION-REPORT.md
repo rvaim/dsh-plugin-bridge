@@ -1,14 +1,14 @@
-# @rvaim/dsh-compat 0.4.3 验证报告
+# @rvaim/dsh-compat 0.4.4 验证报告
 
 验证日期：2026-08-15  
-交付版本：`0.4.3`
+交付版本：`0.4.4`
 目标 DeepSeek Harness：`0.1.0-rc.6`
 Plugin parser：`2.0.1`
 Source parser：`2.0.0`
 
 ## 1. 结论
 
-0.4.3 首次以公开 npm 组织包 `@rvaim/dsh-compat` 交付。包清单、Cordis resolver、浏览器 ModuleLoader 与 Typert 生成目标均使用同一个 scoped 包名；内部 Cordis 行 ID、服务名和 `$DSH_HOME/dsh-compat/` 数据目录保持稳定。README 将 npm 安装与 Web 使用流程移至最前，并随包发布设置页截图。Claude Code / Codex 旧插件解析与运行语义未改变。
+0.4.3 首次以公开 npm 组织包交付后，0.4.4 在 Web 设置页加入 Source 更新检测与在线更新：刷新时探测各 Source 的最新 revision，有更新即显示“更新”按钮。包清单、Cordis resolver、浏览器 ModuleLoader 与 Typert 生成目标均使用同一个 scoped 包名；内部 Cordis 行 ID、服务名和 `$DSH_HOME/dsh-compat/` 数据目录保持稳定。README 将 npm 安装与 Web 使用流程移至最前，并随包发布设置页截图。Claude Code / Codex 旧插件解析与运行语义未改变。
 
 已验证的关键结果：
 
@@ -17,7 +17,8 @@ Source parser：`2.0.0`
 - 添加弹窗、多插件复选列表、插件列表、卸载确认、Toast 和暗/浅主题均沿用 0.3.1 的 Web 基线；
 - 多插件确认后复用第一次固定的 Source 快照，不重复拉取；
 - 同一运行进程内启停状态实际完成 `true → false → true`，不需要重启；
-- 当前页面的 list、beginAdd、completeAdd 和 setEnabled RPC 无浏览器错误或 Host 错误；
+- 当前页面的 list、beginAdd、completeAdd、setEnabled、checkUpdates 和 update RPC 无浏览器错误或 Host 错误；
+- 刷新会检查已安装 Source 的最新 revision，共享 Source 的全部插件都会显示更新状态；
 - 发布包不声明 `bin`，不依赖 `@clack/prompts`，并包含 npm/GitHub 元数据与 README 截图；
 - `source.json` / `install.json` / `state.json` / `scan.json` 不再包含 `schemaVersion`，`install.json` 不再写冗余 `pluginPath`；
 - 多插件 Source 未显式选择时，`ctx.compat.install` 明确列出全部候选 ID 并拒绝默认全装。
@@ -40,7 +41,7 @@ npm run verify:dsh
 5. Node test runner；
 6. 发布清单和 `npm pack --dry-run` 白名单检查。
 
-本轮结果：**102/102 自动化测试通过**，发布包检查通过，共 368 个发布文件。自动测试覆盖 parser、Source/Plugin manager、事务回滚、runtime/adapters、Hook/MCP/Skill、安全边界、Web gateway 与发布包清单。其中与本轮变更直接相关的检查包括：
+本轮结果：**104/104 自动化测试通过**，发布包检查通过，共 368 个发布文件。自动测试覆盖 parser、Source/Plugin manager、事务回滚、runtime/adapters、Hook/MCP/Skill、安全边界、Web gateway 与发布包清单。其中与本轮变更直接相关的检查包括：
 
 - 多插件 Source 未显式选择时拒绝安装并列出候选 ID；
 - Web 单插件自动安装与多插件二阶段选择；
@@ -48,6 +49,8 @@ npm run verify:dsh
 - 取消选择清理临时 Source；
 - 同一 Source 并发选择的清理责任转交；
 - 在线启用、停用和卸载映射；
+- 目录 Source 的 revision 变化检测，以及更新后检查结果收敛；
+- Web 共享 Source 更新会标记全部受影响插件并在线完成更新；
 - 磁盘记录无 `schemaVersion`，且旧记录可被直接读取（多余字段不影响 JSON 解析）；
 - `package.json` 的包名、版本、公开 registry 与 GitHub repository 元数据正确；
 - Cordis patch、Client ModuleLoader 与 Typert artifact 使用 scoped 包名；
@@ -60,7 +63,7 @@ npm run verify:dsh
 - Hook Protocol 关键函数；
 - MCP Client 可挂载形态；
 - `CompatWebGateway` 与 `CompatManager.prepareInstall()`；
-- `compatAdmin/{beginAdd,cancelAdd,completeAdd,list,setEnabled,uninstall}` 的 Typert Host/Remote descriptor。
+- `compatAdmin/{beginAdd,cancelAdd,checkUpdates,completeAdd,list,setEnabled,uninstall,update}` 的 Typert Host/Remote descriptor。
 
 ## 3. 真实 DSH Web 验证
 
@@ -77,7 +80,7 @@ bundle handoff: window.__ModuleLoader__.load({ id: "@rvaim/dsh-compat", ... })
 
 这证明 scope 中的 `/` 能被当前 DSH Client Modules 正确路由，且 Host patch、boot manifest、URL 与浏览器注册 ID 没有分叉。
 
-0.3.1 报告中的交互式浏览器实测继续作为 UI 行为基线：0.4.3 未修改 `CompatSettingsSection`、Typert Remote schema、`CompatWebOperations` 或 `CompatRuntimeManager`，因此设置导航、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题结论仍然适用。
+0.3.1 报告中的交互式浏览器实测继续作为 UI 行为基线：0.4.4 未修改 `CompatSettingsSection`、Typert Remote schema、`CompatWebOperations` 或 `CompatRuntimeManager`，因此设置导航、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题结论仍然适用。
 
 0.3.1 验证观察：
 
@@ -151,7 +154,7 @@ Typert Remote: 六个 compatAdmin 方法均被严格挂载
 - 未在真实模型会话中执行所有第三方 Hook；
 - 未通过真实公网超慢 Git 仓库逐帧捕获 loading 动画；本地 Source 完成过快，但进行中 DOM、按钮禁用与 loading 图标已进入编译后的 Client bundle，并通过实现审查；
 - 不支持的 Claude Code/Codex 能力仍以结构化诊断公开，不会被描述为已兼容；
-- 0.4.3 已重新执行隔离 tarball 安装、DSH Web 启动、boot manifest 与 scoped Client 路由验证，但未重复执行设置页逐项点击回归；UI 行为验证继承 0.3.1 基线。
+- 0.4.3 已重新执行隔离 tarball 安装、DSH Web 启动、boot manifest 与 scoped Client 路由验证；0.4.4 新增更新检测后未重复执行设置页逐项点击回归，UI 行为验证继承 0.3.1 基线。
 
 ## 7. 发布命令
 

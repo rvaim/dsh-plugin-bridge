@@ -10,6 +10,7 @@ import {
   type SourceAddOptions,
   type SourceInspection,
   type SourceListEntry,
+  type SourceUpdateCheck,
   type SourceUpdateOptions,
   type SourceUpdateResult,
   type UpdateOptions,
@@ -75,6 +76,10 @@ export class CompatService extends Service {
 
   update(pluginId: string, options?: UpdateOptions): Promise<PluginInspection> {
     return this.manager.update(pluginId, options)
+  }
+
+  checkUpdates(): Promise<SourceUpdateCheck[]> {
+    return this.manager.checkUpdates()
   }
 
   enable(pluginId: string): Promise<PluginInspection> {

@@ -129,6 +129,33 @@ async function exportCommittedTree(repository: string, destination: string, revi
   await verifyExtractedTree(destination)
 }
 
+
+/**
+ * 只解析远端 Git ref 的当前提交 SHA，不导出工作树。
+ * 供面板刷新时快速判断 Source 是否有更新。
+ */
+export async function probeGitSource(
+  url: string,
+  ref?: string,
+): Promise<Extract<InstallSource, { type: 'git' }>> {
+  const safeRef = ref === undefined ? undefined : validateGitRef(ref)
+  const wanted = safeRef ?? 'HEAD'
+  const result = await runProcess('git', ['ls-remote', '--', url, wanted], { timeoutMs: 120_000 })
+  let commit: string | undefined
+  for (const line of result.stdout.trim().split('\n')) {
+    const [sha, name] = line.trim().split(/\s+/, 2)
+    if (sha === undefined || name === undefined || !/^[0-9a-f]{40,64}$/i.test(sha)) continue
+    if (safeRef === undefined) {
+      if (name === 'HEAD') commit = sha
+      continue
+    }
+    if (name === `${safeRef}^{}`) { commit = sha; break }
+    if (name === safeRef || name === `refs/heads/${safeRef}` || name === `refs/tags/${safeRef}`) commit = sha
+  }
+  if (commit === undefined) throw new Error(`Git 来源未解析到提交 SHA：${wanted}`)
+  return { type: 'git', url, ...(safeRef === undefined ? {} : { ref: safeRef }), commit }
+}
+
 /** Git 获取只读取已提交内容，不运行 npm、构建脚本或仓库 checkout 过滤器。 */
 export async function cloneGitPlugin(
   url: string,

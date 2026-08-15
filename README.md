@@ -11,7 +11,7 @@ Plugin = Source 中的一个具体旧插件；负责安装、启用、禁用、�
 
 一个 Source 可以包含一个或多个 Plugin。Skill、MCP、Hook、Agent、Command 都只是 Plugin 内部能力，不会成为独立安装项，也不会被复制到 DSH 的全局目录。
 
-> 当前交付版本：`0.4.0`。Plugin parser 版本为 `2.0.1`，Source parser 版本为 `2.0.0`。实现按 2026-08-15 可取得的 DSH `0.1.0-rc.6` 源码与公开接口核对。
+> 当前交付版本：`0.4.1`。Plugin parser 版本为 `2.0.1`，Source parser 版本为 `2.0.0`。实现按 2026-08-15 可取得的 DSH `0.1.0-rc.6` 源码与公开接口核对。
 
 ## 核心边界
 
@@ -91,7 +91,7 @@ DSH
 发布包是 DSH bundle，`package.json` 声明 `dsh.bundle.patch`，并包含 `cordis.patch.yml`：
 
 ```bash
-dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.0
+dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.1
 ```
 
 > 从 GitHub 安装会运行包内 `prepare` 构建；如果 pnpm 阻止该构建，请按提示把 `dsh-compat` 加入 profile 的 `pnpm-workspace.yaml` `allowBuilds` 后重试。

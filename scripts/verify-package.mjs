@@ -26,7 +26,7 @@ for (const file of [
 
 const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 if (packageJson.name !== 'dsh-compat') throw new Error('包名必须为 dsh-compat')
-if (packageJson.version !== '0.4.0') throw new Error('交付版本必须为 0.4.0')
+if (packageJson.version !== '0.4.1') throw new Error('交付版本必须为 0.4.1')
 if (packageJson.bin !== undefined) throw new Error('独立 CLI 已移除，package.json 不得再配置 bin')
 if (packageJson.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('dsh.bundle.patch 配置错误')
 if (packageJson.dsh?.client?.platform !== 'web') throw new Error('dsh.client.platform 必须为 web')

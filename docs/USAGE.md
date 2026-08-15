@@ -3,7 +3,7 @@
 ## 1. 安装 bundle
 
 ```bash
-dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.0
+dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.1
 ```
 
 > 从 GitHub 安装会运行包内 `prepare` 构建；如果 pnpm 阻止该构建，请按提示把 `dsh-compat` 加入 profile 的 `pnpm-workspace.yaml` `allowBuilds` 后重试。

@@ -1,5 +1,9 @@
 # 更新日志
 
+## 0.4.1
+
+- 补丁版本：版本号更新为 `0.4.1`，README、使用文档与验证报告改用 GitHub 仓库 tag `v0.4.1` 安装。
+
 ## 0.4.0
 
 - 移除独立 `dsh-compat` CLI 及 `@clack/prompts` 依赖：旧 Plugin 的添加、启停和卸载统一通过“设置 → 兼容插件”页面或 `ctx.compat` 服务 API 完成。

@@ -1,0 +1,18 @@
+{
+  "name": "web-settings-fixture",
+  "owner": {
+    "name": "dsh-compat tests"
+  },
+  "plugins": [
+    {
+      "name": "web-alpha",
+      "description": "用于验证 Web 多插件选择的 Alpha 插件",
+      "source": "./plugins/alpha"
+    },
+    {
+      "name": "web-beta",
+      "description": "用于验证 Web 多插件选择的 Beta 插件",
+      "source": "./plugins/beta"
+    }
+  ]
+}

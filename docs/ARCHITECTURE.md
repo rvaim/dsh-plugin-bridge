@@ -59,7 +59,7 @@ Source 的 `ownership`：
 - `source-path`：Source `package/` 内的相对路径；
 - `git`：Marketplace 指向外部 Git；
 - `git-subdir`：外部 Git 的子目录；
-- `npm`、`archive`、`unsupported`：当前可被识别并诊断，0.2.x 不会伪装成已支持。
+- `npm`、`archive`、`unsupported`：当前可被识别并诊断，不会伪装成已支持。
 
 外部 Git Plugin 放在 `external/<sourceId>/`，仍属于 Source 的版本和更新事务。
 
@@ -204,7 +204,37 @@ parser/source 定位候选
 
 一次安装多个 Plugin 时，静态阶段整体成功或整体失败。不会产生只安装了一部分的状态。
 
-## 7. 共享 Source 更新
+### 6.1 Web 两阶段选择
+
+Web 不能像 TUI 一样在一次同步调用中阻塞等待用户勾选，因此使用分步但不重复拉取的流程：
+
+```text
+beginAdd(source)
+  ↓
+获取、解析并固定 implicit Source 快照
+  ├─ 单插件：直接 install(sourceId)
+  └─ 多插件：返回 requestId + candidates
+                    ↓
+             用户勾选 / 取消
+              ├─ completeAdd：从同一 sourceId 安装
+              └─ cancelAdd：回收无引用临时 Source
+```
+
+请求 ID 只保存在 Host 内存中，默认十分钟过期；页面卸载和插件停止也会触发清理。同一 Source 出现并发选择时，临时 Source 的清理责任会转交给最后一个请求，避免一个页面取消后破坏另一个页面仍在使用的快照。
+
+## 7. Web 设置与 Remote 边界
+
+Web 页面不是独立应用，而是 DSH Client 插件：
+
+- `package.json#dsh.client` 把浏览器 bundle 加入 DSH Client 启动图；
+- `settings.section` Slot 注册“兼容插件”，沿用设置 Shell 的导航与内容容器；
+- `Modal`、`Input`、`Button`、`Toast`、图标、locale 与 `--dsw-*` Token 全部来自 DSH Client；
+- Host 侧 `CompatWebGateway` 继承 `TypertRemoteService`，生成 `./typert` 与 `./remote` 严格 schema 产物；
+- Client 动态挂载本包 Remote contribution，通过 `/api` 调用当前进程中的 `CompatService`。
+
+`dsh-compat` 本身的安装、升级和删除会改变 Host/Client 插件图，按 DSH Client Modules 的缓存边界需要重启 profile。设置页中添加、启停和卸载的旧 Plugin 只改变 `CompatRuntimeManager` 的子生命周期，不改变 Client 插件图，因此在当前进程中立即生效。
+
+## 8. 共享 Source 更新
 
 共享 Source 更新是单个事务：
 
@@ -243,7 +273,7 @@ parser/source 定位候选
 
 `update <pluginId>` 对独占隐式 Source 可直接执行；对共享 Source 必须由调用方显式确认影响范围。
 
-## 8. 运行实例与 adapters
+## 9. 运行实例与 adapters
 
 每个启用 Plugin 创建一个父 Cordis 运行实例：
 
@@ -252,8 +282,8 @@ Plugin 父实例
 ├── Skill Provider
 ├── MCP 子插件 1..N
 ├── Hook 监听与运行集合
-├── Command adapter（0.2.x 不执行）
-└── Agent adapter（0.2.x 不执行）
+├── Command adapter（当前版本不执行）
+└── Agent adapter（当前版本不执行）
 ```
 
 父实例停止时：
@@ -265,7 +295,7 @@ Plugin 父实例
 
 如果部分能力失败，状态可为 `degraded`；如果全部可运行能力失败，父实例被立即 dispose，避免部分注册残留。
 
-## 9. 冲突与稳定顺序
+## 10. 冲突与稳定顺序
 
 启用前检查活动 Plugin 的全局能力名，包括 MCP `serverName`、Skill 名称及已实现的其他可见名称。冲突产生 `error`，不会自动加前缀或覆盖。
 
@@ -275,7 +305,7 @@ Plugin 父实例
 priority 升序 → pluginId 字典序
 ```
 
-## 10. 卸载与 Source 回收
+## 11. 卸载与 Source 回收
 
 ```text
 锁 Plugin

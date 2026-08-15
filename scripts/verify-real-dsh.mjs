@@ -44,8 +44,28 @@ try {
     failures.push('dsh-compat 的 inject 未声明 skills/shell')
   }
   if (compat.Config === undefined) failures.push('dsh-compat 未导出 Config schema')
+  if (typeof compat.CompatWebGateway !== 'function') failures.push('dsh-compat 未导出 CompatWebGateway')
+  if (typeof compat.CompatManager?.prototype?.prepareInstall !== 'function') {
+    failures.push('CompatManager 未导出分步 Web 安装的 prepareInstall()')
+  }
 } catch (error) {
   failures.push(`dsh-compat 构建入口无法导入：${error instanceof Error ? error.message : String(error)}`)
+}
+
+try {
+  const [{ TYPERT }, { default: remote }] = await Promise.all([
+    import('../dist/typert.host.js'),
+    import('../dist/typert.remote-client.js'),
+  ])
+  const hostMethods = new Set(TYPERT?.invocations?.map(item => `${item.namespace}/${item.method}`) ?? [])
+  const remoteMethods = new Set(remote?.descriptors?.map(item => `${item.namespace}/${item.method}`) ?? [])
+  for (const method of ['beginAdd', 'cancelAdd', 'completeAdd', 'list', 'setEnabled', 'uninstall']) {
+    const endpoint = `compatAdmin/${method}`
+    if (!hostMethods.has(endpoint)) failures.push(`Typert Host 缺少 ${endpoint}`)
+    if (!remoteMethods.has(endpoint)) failures.push(`Typert Remote 缺少 ${endpoint}`)
+  }
+} catch (error) {
+  failures.push(`dsh-compat Typert 产物无法导入：${error instanceof Error ? error.message : String(error)}`)
 }
 
 if (failures.length > 0) {

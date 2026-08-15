@@ -69,6 +69,13 @@ export interface SourceAddOptions {
   paths?: string[]
 }
 
+/** Web 等分步前端完成选择前持有的一份已固定 Source 快照。 */
+export interface InstallPreparation {
+  sourceId: string
+  sourceCreated: boolean
+  plugins: CompatSourcePlugin[]
+}
+
 export interface SourceUpdateOptions {
   source?: string
   cwd?: string
@@ -105,6 +112,8 @@ export interface PluginListEntry {
   hooks: number
   errors: number
   warnings: number
+  /** 列表前端可按需展开的 error/warning；info 不进入摘要。 */
+  diagnostics: CompatDiagnostic[]
 }
 
 export interface PluginInspection extends InstalledPluginRecord {
@@ -737,43 +746,67 @@ export class CompatManager {
     }
   }
 
-  async sourceAdd(input: string, options: SourceAddOptions = {}): Promise<SourceInspection> {
-    return await this.withManagedRepository( async () => {
-      const resolved = await resolveInstallSource(input, options.cwd)
-      const existing = await this.findSourceByOrigin(resolved.source)
-      if (existing !== undefined) {
-        return await withSourceLock(this.layout, existing.source.id, async () => {
-          if (options.as !== undefined && normalizeManagementId(options.as, 'source') !== existing.source.id) {
-            throw new Error(`该来源已登记为 Source ${existing.source.id}，不能再以 ${options.as} 重复登记`)
+  private async ensureStoredSource(
+    input: string,
+    options: SourceAddOptions,
+    ownership: SourceOwnership,
+  ): Promise<{ source: SourceInspection; created: boolean }> {
+    const resolved = await resolveInstallSource(input, options.cwd)
+    const existing = await this.findSourceByOrigin(resolved.source)
+    if (existing !== undefined) {
+      const source = await withSourceLock(this.layout, existing.source.id, async () => {
+        if (options.as !== undefined && normalizeManagementId(options.as, 'source') !== existing.source.id) {
+          throw new Error(`该来源已登记为 Source ${existing.source.id}，不能再以 ${options.as} 重复登记`)
+        }
+        if ((options.paths?.length ?? 0) > 0) {
+          const oldPaths = [...(existing.scan.manualPaths ?? [])].sort()
+          const newPaths = [...new Set(options.paths)].sort()
+          if (JSON.stringify(oldPaths) !== JSON.stringify(newPaths)) {
+            throw new Error('该来源已登记，不能用不同 --path 重新定义；请先移除 Source')
           }
-          if ((options.paths?.length ?? 0) > 0) {
-            const oldPaths = [...(existing.scan.manualPaths ?? [])].sort()
-            const newPaths = [...new Set(options.paths)].sort()
-            if (JSON.stringify(oldPaths) !== JSON.stringify(newPaths)) {
-              throw new Error('该来源已登记，不能用不同 --path 重新定义；请先移除 Source')
-            }
-          }
-          if (existing.source.ownership === 'implicit') {
-            await writeJsonAtomic(this.layout.sourceFile(existing.source.id), {
-              ...existing.source,
-              ownership: 'explicit' as const,
-            })
-          }
-          return await this.inspectSourceUnlocked(existing.source.id)
-        })
-      }
+        }
+        if (ownership === 'explicit' && existing.source.ownership === 'implicit') {
+          await writeJsonAtomic(this.layout.sourceFile(existing.source.id), {
+            ...existing.source,
+            ownership: 'explicit' as const,
+          })
+        }
+        return await this.inspectSourceUnlocked(existing.source.id)
+      })
+      return { source, created: false }
+    }
 
-      const transaction = await createTransactionDir(this.layout, 'source-add')
-      try {
-        const created = await this.createSourceRecord(resolved, 'explicit', options, transaction)
-        return await withSourceLock(this.layout, created.sourceId, async () => {
-          const destination = this.layout.sourceRoot(created.sourceId)
-          if (await pathExists(destination)) throw new Error(`Source ${created.sourceId} 已存在；请使用 --as 指定其他 ID`)
-          await commitDirectory(created.recordRoot, destination)
-          return await this.inspectSourceUnlocked(created.sourceId)
-        })
-      } finally {
-        await cleanAcquisition(transaction)
+    const transaction = await createTransactionDir(this.layout, 'source-add')
+    try {
+      const created = await this.createSourceRecord(resolved, ownership, options, transaction)
+      const source = await withSourceLock(this.layout, created.sourceId, async () => {
+        const destination = this.layout.sourceRoot(created.sourceId)
+        if (await pathExists(destination)) throw new Error(`Source ${created.sourceId} 已存在；请使用 --as 指定其他 ID`)
+        await commitDirectory(created.recordRoot, destination)
+        return await this.inspectSourceUnlocked(created.sourceId)
+      })
+      return { source, created: true }
+    } finally {
+      await cleanAcquisition(transaction)
+    }
+  }
+
+  async sourceAdd(input: string, options: SourceAddOptions = {}): Promise<SourceInspection> {
+    return await this.withManagedRepository(async () =>
+      (await this.ensureStoredSource(input, options, 'explicit')).source)
+  }
+
+  /**
+   * 拉取并固定一次 Source，供需要先展示候选再安装的前端使用。
+   * 新 Source 保持 implicit；调用方取消时应通过 sourceRemove 回收它。
+   */
+  async prepareInstall(input: string, options: SourceAddOptions = {}): Promise<InstallPreparation> {
+    return await this.withManagedRepository(async () => {
+      const prepared = await this.ensureStoredSource(input, options, 'implicit')
+      return {
+        sourceId: prepared.source.source.id,
+        sourceCreated: prepared.created,
+        plugins: prepared.source.compat.plugins,
       }
     })
   }
@@ -1486,8 +1519,19 @@ export class CompatManager {
             hooks: plugin.hooks.length,
             errors: plugin.diagnostics.filter(item => item.level === 'error').length,
             warnings: plugin.diagnostics.filter(item => item.level === 'warning').length,
+            diagnostics: plugin.diagnostics.flatMap((item) => {
+              if (item.level === 'info') return []
+              return [{
+                level: item.level,
+                code: item.code,
+                capability: item.capability,
+                message: item.message,
+                ...(item.file === undefined ? {} : { file: item.file }),
+              }]
+            }),
           })
-        } catch {
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
           entries.push({
             id: pluginId,
             name: pluginId,
@@ -1501,6 +1545,12 @@ export class CompatManager {
             hooks: 0,
             errors: 1,
             warnings: 0,
+            diagnostics: [{
+              level: 'error',
+              code: 'INSTALLED_PLUGIN_READ_FAILED',
+              capability: 'plugin',
+              message: `无法读取插件安装记录：${message}`,
+            }],
           })
         }
       }

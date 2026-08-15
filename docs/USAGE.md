@@ -3,10 +3,22 @@
 ## 1. 安装 bundle
 
 ```bash
-dsh plugin --profile <profile-name> add ./dsh-compat-0.2.2.tgz
+dsh plugin --profile <profile-name> add ./dsh-compat-0.3.1.tgz
 ```
 
 按原方式启动 profile。`dsh-compat` 插件会提供 `ctx.compat` 服务，并在 `autoStart=true` 时恢复已启用 Plugin。
+
+### 1.1 Web 设置页面
+
+在 Web profile 中打开“设置 → 兼容插件”即可在线管理当前 profile：
+
+- 开关会立即启动或停止整个旧 Plugin 的父 Cordis 实例；
+- 卸载会先停止运行实例，再删除安装记录，并按 Source 引用规则回收内容；
+- “添加”支持 Git URL、`github:` 简写、本地目录和归档；拉取期间显示进度；
+- 单插件 Source 直接安装，多插件 Source 会显示可勾选列表；确认后复用同一份已固定快照，不会再次拉取。
+- 插件行中的错误或警告数量可以展开；错误会阻止启用，警告表示插件仍可运行但部分兼容行为可能不同。详情包含诊断说明、稳定代码、能力类型和关联文件。
+
+这些操作都通过当前 DSH 进程执行，不要求重启。只有首次安装、升级或删除 `dsh-compat` 这个 DSH bundle 本身时，Host/Client 插件图发生变化，需要重启 profile 并刷新 Web 页面。
 
 独立 CLI：
 
@@ -195,7 +207,7 @@ dsh-compat update plugin-a --source ./new-source.zip --yes
 dsh-compat install ./plugin --priority 10
 ```
 
-恢复顺序为 `priority` 升序，再按 `pluginId` 字典序。0.2.x CLI 不提供独立修改 priority 的命令；可在受控停机后修改状态或重新安装，后续版本可增加显式 setter。
+恢复顺序为 `priority` 升序，再按 `pluginId` 字典序。当前 CLI 不提供独立修改 priority 的命令；可在受控停机后修改状态或重新安装，后续版本可增加显式 setter。
 
 ## 5. 在线服务 API
 

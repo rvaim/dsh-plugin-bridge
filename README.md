@@ -11,7 +11,7 @@ Plugin = Source 中的一个具体旧插件；负责安装、启用、禁用、�
 
 一个 Source 可以包含一个或多个 Plugin。Skill、MCP、Hook、Agent、Command 都只是 Plugin 内部能力，不会成为独立安装项，也不会被复制到 DSH 的全局目录。
 
-> 当前交付版本：`0.2.2`。Plugin parser 版本为 `2.0.1`，Source parser 版本为 `2.0.0`，内部缓存结构 `schemaVersion` 为 `1`。实现按 2026-08-15 可取得的 DSH `0.0.1-rc.5` 接口核对。
+> 当前交付版本：`0.3.1`。Plugin parser 版本为 `2.0.1`，Source parser 版本为 `2.0.0`，内部缓存结构 `schemaVersion` 为 `1`。实现按 2026-08-15 可取得的 DSH `0.1.0-rc.6` 源码与公开接口核对。
 
 ## 核心边界
 
@@ -74,7 +74,7 @@ DSH
 - MCP stdio 与 streamable-http，通过 DSH 的 `dsh-mcp-client` 子插件接入。
 - Claude Code / Codex Hook parser、`command + args` 参数边界、DSH 事件映射、matcher、超时、取消、stdout/退出码处理与结果合并。
 - Codex Stop payload 从当前 DSH turn 的最后一条 `assistant/message` 提取 `last_assistant_message`；无文本时才传 `null`。
-- Command / Agent 可识别并产生明确 warning；0.2.x 不执行。
+- Command / Agent 可识别并产生明确 warning；当前版本不执行。
 - Claude Code Workflow、Output Style、LSP、Theme、Monitor、Channel、userConfig、插件依赖等未可靠适配能力均有结构化诊断。
 - Codex 现行顶层 `skills`、`hooks`、`mcpServers`、`apps` 与 Marketplace 扁平 manifest 回退。
 - Codex 自定义 Skill、Hook、MCP 路径按当前规范补充默认发现；多个 Marketplace Plugin 共用 Source 根目录时，以条目显式路径作为 Plugin 边界。
@@ -83,7 +83,7 @@ DSH
 ## 环境要求
 
 - Node.js：`^22.19.0` 或 `>=24.0.0`。
-- DeepSeek Harness：本版本按 `0.0.1-rc.5` 的公开接口核对。
+- DeepSeek Harness：本版本按 `0.1.0-rc.6` 的源码与公开接口核对。
 - Git：仅 Git Source 或 Marketplace 外部 Git Plugin 需要。
 
 ## 安装到 DSH profile
@@ -91,10 +91,12 @@ DSH
 发布包是 DSH bundle，`package.json` 声明 `dsh.bundle.patch`，并包含 `cordis.patch.yml`：
 
 ```bash
-dsh plugin --profile <profile-name> add ./dsh-compat-0.2.2.tgz
+dsh plugin --profile <profile-name> add ./dsh-compat-0.3.1.tgz
 ```
 
 启动该 profile 后，插件会在 `ctx.compat` 暴露服务，并按稳定顺序恢复已启用 Plugin。
+
+Web profile 还会通过 DSH Client module 向原生 `settings.section` Slot 注册“兼容插件”页面，并经 Typert Remote 调用当前进程的 `ctx.compat`。页面中新增、启停和卸载旧 Plugin 都无需重启；多插件 Source 会先拉取并固定一份快照，再从同一 Source 中安装用户勾选的 Plugin，不会二次拉取。但首次把 `dsh-compat` 本身加入 profile 或升级本 bundle 会改变 DSH 的 Host/Client 插件图，需要重启 profile 并重新加载页面。页面使用 DSH 原生 UI primitives 和 `--dsw-*` 主题 Token。
 
 从源码构建：
 
@@ -239,6 +241,8 @@ Plugin 安装不会把源码复制到 `installed/<pluginId>/package/`。事实�
 - `warning`：可以运行，但存在必须公开的兼容差异。
 - `info`：发现和规范化信息。
 
+Web 设置页会把 `error` / `warning` 数量显示为可展开的诊断入口，直接展示说明、稳定代码、能力类型和关联文件；`info` 与内部 `details` 不发送到浏览器。
+
 运行状态：`disabled`、`starting`、`running`、`degraded`、`failed`、`stopping`。
 
 `degraded` 表示部分能力失败，Plugin 仍是一个整体；不会因此把失败能力拆成独立管理项。如果全部可运行能力失败，父运行实例会被释放，避免残留部分注册。
@@ -282,7 +286,7 @@ npm run verify:dsh
 
 ## 明确边界
 
-0.2.x 不重新实现 Claude Code 或 Codex Runtime，不修改原插件源码，不自动重命名能力，不递归扫描整个仓库猜插件，不自动安装 Marketplace 新增 Plugin，不把 Bash 猜测翻译为 PowerShell，也不执行 Command/Agent。无法可靠兼容的行为必须通过诊断公开。
+当前版本不重新实现 Claude Code 或 Codex Runtime，不修改原插件源码，不自动重命名能力，不递归扫描整个仓库猜插件，不自动安装 Marketplace 新增 Plugin，不把 Bash 猜测翻译为 PowerShell，也不执行 Command/Agent。无法可靠兼容的行为必须通过诊断公开。
 
 ## 许可证
 

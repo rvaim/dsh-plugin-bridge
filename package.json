@@ -1,6 +1,6 @@
 {
   "name": "dsh-compat",
-  "version": "0.2.2",
+  "version": "0.3.1",
   "description": "在 DeepSeek Harness 中按 Source/Plugin 模型整体管理并运行 Claude Code、Codex 旧插件",
   "type": "module",
   "main": "./dist/src/index.js",
@@ -14,6 +14,22 @@
       "types": "./dist/src/service.d.ts",
       "import": "./dist/src/service.js"
     },
+    "./types": {
+      "types": "./dist/src/types/index.d.ts",
+      "import": "./dist/src/types/index.js"
+    },
+    "./client": {
+      "types": "./dist/src/client/index.d.ts",
+      "default": "./dist/client.js"
+    },
+    "./typert": {
+      "types": "./dist/typert.host.d.ts",
+      "default": "./dist/typert.host.js"
+    },
+    "./remote": {
+      "types": "./dist/typert.remote-client.d.ts",
+      "default": "./dist/typert.remote-client.js"
+    },
     "./package.json": "./package.json"
   },
   "bin": {
@@ -21,6 +37,13 @@
   },
   "files": [
     "dist/src/",
+    "dist/client.js",
+    "dist/client.js.map",
+    "dist/typert.host.js",
+    "dist/typert.host.d.ts",
+    "dist/typert.remote-client.js",
+    "dist/typert.remote-client.d.ts",
+    "dist/typert.remote-client.d.ts.map",
     "docs/",
     "scripts/verify-real-dsh.mjs",
     "cordis.patch.yml",
@@ -31,11 +54,20 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
     }
   },
   "scripts": {
     "clean": "node ./scripts/clean.mjs",
-    "build": "tsc -p tsconfig.json",
+    "build": "node ./scripts/generate-typert.mjs && tsc -p tsconfig.json && tsdown",
     "prepare": "npm run build",
     "test:compiled": "node --test --test-reporter=spec dist/test/**/*.test.js",
     "test": "npm run clean && npm run build && npm run test:compiled",
@@ -48,20 +80,47 @@
   },
   "dependencies": {
     "@clack/prompts": "1.7.0",
-    "@deepseek-ai/dsh-hook-protocol": "0.0.1-rc.5"
+    "@deepseek-ai/dsh-hook-protocol": "0.1.0-rc.6",
+    "zod": "4.4.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
+    "@deepseek-ai/dsh-api-remotes": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-slots": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-llm": "*",
     "@deepseek-ai/dsh-mcp-client": "*",
     "@deepseek-ai/dsh-session": "*",
     "@deepseek-ai/dsh-skill": "*",
     "@deepseek-ai/dsh-tools": "*",
-    "@deepseek-ai/schemastery": "*"
+    "@deepseek-ai/dsh-typert-protocol": "^0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "*",
+    "react": "^18.2.0"
   },
   "peerDependenciesMeta": {
+    "@deepseek-ai/dsh-api-remotes": {
+      "optional": true
+    },
     "@deepseek-ai/dsh-agent": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-locale": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-runtime": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-primitives": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-settings": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-ui-slots": {
       "optional": true
     },
     "@deepseek-ai/dsh-llm": {
@@ -78,10 +137,31 @@
     },
     "@deepseek-ai/dsh-tools": {
       "optional": true
+    },
+    "react": {
+      "optional": true
     }
   },
   "devDependencies": {
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-api-remotes": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-locale": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-invariants": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-mcp-client": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-subprocess": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-timeout": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-typert-generator": "0.1.0-rc.6",
+    "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.6",
     "@types/node": "^22.15.0",
+    "@types/react": "~18.3.1",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "lightningcss": "1.33.0",
+    "react": "^18.2.0",
+    "tsdown": "0.22.14",
     "typescript": "^5.8.3"
   },
   "license": "MIT"

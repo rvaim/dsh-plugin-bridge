@@ -5,6 +5,13 @@ const root = new URL('../', import.meta.url)
 for (const file of [
   'dist/src/index.js',
   'dist/src/cli/index.js',
+  'dist/client.js',
+  'dist/client.js.map',
+  'dist/typert.host.js',
+  'dist/typert.host.d.ts',
+  'dist/typert.remote-client.js',
+  'dist/typert.remote-client.d.ts',
+  'dist/typert.remote-client.d.ts.map',
   'README.md',
   'CHANGELOG.md',
   'cordis.patch.yml',
@@ -20,16 +27,36 @@ for (const file of [
 
 const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
 if (packageJson.name !== 'dsh-compat') throw new Error('包名必须为 dsh-compat')
-if (packageJson.version !== '0.2.2') throw new Error('交付版本必须为 0.2.2')
+if (packageJson.version !== '0.3.1') throw new Error('交付版本必须为 0.3.1')
 if (packageJson.bin?.['dsh-compat'] !== './dist/src/cli/index.js') throw new Error('bin 配置错误')
 if (packageJson.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('dsh.bundle.patch 配置错误')
+if (packageJson.dsh?.client?.platform !== 'web') throw new Error('dsh.client.platform 必须为 web')
+for (const dependency of [
+  '@deepseek-ai/dsh-api-remotes',
+  '@deepseek-ai/dsh-client-runtime',
+  '@deepseek-ai/dsh-client-ui-settings',
+  '@deepseek-ai/dsh-client-locale',
+]) {
+  if (!packageJson.dsh.client.inject.includes(dependency)) {
+    throw new Error(`dsh.client.inject 缺少 ${dependency}`)
+  }
+}
+for (const [subpath, target] of [
+  ['./client', './dist/client.js'],
+  ['./typert', './dist/typert.host.js'],
+  ['./remote', './dist/typert.remote-client.js'],
+]) {
+  if (packageJson.exports?.[subpath]?.default !== target) {
+    throw new Error(`${subpath} 导出必须指向 ${target}`)
+  }
+}
 if (packageJson.engines?.node !== '^22.19.0 || >=24.0.0') throw new Error('Node engines 未与当前 DSH 对齐')
 if (packageJson.files?.includes('dist/') === true) throw new Error('发布清单不得包含整个 dist/，否则会夹带测试产物')
 if (!packageJson.files?.includes('dist/src/')) throw new Error('发布清单缺少 dist/src/')
 if (packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'] !== undefined) {
   throw new Error('Schemastery 是静态导入，不能声明为 optional peer')
 }
-if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== '0.0.1-rc.5') {
+if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== '0.1.0-rc.6') {
   throw new Error('Hook Protocol 必须作为与目标 DSH 对齐的运行依赖安装')
 }
 if (packageJson.dependencies?.['@clack/prompts'] !== '1.7.0') {
@@ -38,6 +65,21 @@ if (packageJson.dependencies?.['@clack/prompts'] !== '1.7.0') {
 if (packageJson.peerDependencies?.['@deepseek-ai/dsh-hook-protocol'] !== undefined
   || packageJson.peerDependenciesMeta?.['@deepseek-ai/dsh-hook-protocol'] !== undefined) {
   throw new Error('Hook Protocol 不能再声明为 peer/optional peer，否则 profile 安装后 Hook 无法注册')
+}
+
+const clientBundle = await readFile(new URL('dist/client.js', root), 'utf8')
+if (!clientBundle.startsWith('window.__ModuleLoader__.load({')) {
+  throw new Error('Web client 不是 DSH ModuleLoader closure-factory 产物')
+}
+for (const marker of ['compat-plugins', 'compatAdmin.beginAdd', 'compatAdmin.completeAdd']) {
+  if (!clientBundle.includes(marker)) throw new Error(`Web client 缺少 ${marker}`)
+}
+const hostTypert = await readFile(new URL('dist/typert.host.js', root), 'utf8')
+const remoteTypert = await readFile(new URL('dist/typert.remote-client.js', root), 'utf8')
+for (const method of ['beginAdd', 'cancelAdd', 'completeAdd', 'list', 'setEnabled', 'uninstall']) {
+  if (!hostTypert.includes(`compatAdmin/${method}`) || !remoteTypert.includes(`compatAdmin/${method}`)) {
+    throw new Error(`Typert Host/Remote 缺少 compatAdmin/${method}`)
+  }
 }
 
 const help = spawnSync(process.execPath, [new URL('dist/src/cli/index.js', root).pathname, 'help'], { encoding: 'utf8' })
@@ -58,6 +100,17 @@ const packReport = JSON.parse(packed.stdout)
 const files = new Set(packReport[0]?.files?.map(item => item.path) ?? [])
 if (![...files].some(path => path === 'dist/src/index.js')) throw new Error('npm 包缺少 dist/src/index.js')
 if (![...files].some(path => path === 'cordis.patch.yml')) throw new Error('npm 包缺少 cordis.patch.yml')
+for (const required of [
+  'dist/client.js',
+  'dist/client.js.map',
+  'dist/typert.host.js',
+  'dist/typert.host.d.ts',
+  'dist/typert.remote-client.js',
+  'dist/typert.remote-client.d.ts',
+  'dist/typert.remote-client.d.ts.map',
+]) {
+  if (!files.has(required)) throw new Error(`npm 包缺少 ${required}`)
+}
 if ([...files].some(path => path.startsWith('dist/test/'))) throw new Error('npm 包意外包含 dist/test/')
 if ([...files].some(path => path.startsWith('test/') || path.startsWith('src/') || path.startsWith('node_modules/'))) {
   throw new Error('npm 包意外包含源码、测试或 node_modules')

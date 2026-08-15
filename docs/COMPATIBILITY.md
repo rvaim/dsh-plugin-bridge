@@ -2,7 +2,7 @@
 
 ## 1. Source 与 Marketplace
 
-| 能力 | Claude Code | Codex | 0.2.x 行为 |
+| 能力 | Claude Code | Codex | 当前行为 |
 |---|---|---|---|
 | Marketplace | `.claude-plugin/marketplace.json` | `.agents/plugins/marketplace.json` | 支持 |
 | 一个 Source 多 Plugin | 支持 | 支持 | 必须选择，不默认全装 |
@@ -11,7 +11,7 @@
 | `--path` | 支持 | 支持 | 无 Marketplace 时显式兜底 |
 | Source 内目录 | 相对路径 | `local.path` | 支持，校验真实路径 |
 | 外部 Git | 支持 | 支持 | 支持 Git 与 git-subdir |
-| npm/archive 远端位置 | 可识别 | 可识别 | 明确诊断，0.2.x 不安装 |
+| npm/archive 远端位置 | 可识别 | 可识别 | 明确诊断，当前版本不安装 |
 
 压缩包、本地目录和 Git 最终都进入同一 Source parser，不使用不同的 Plugin 猜测逻辑。
 
@@ -53,7 +53,7 @@
 - 多个 Marketplace Plugin 共用 Source 根目录时，以条目显式能力路径作为 Plugin 边界；
 - PascalCase 与早期 snake_case Hook 名称。
 
-顶层 `apps` 会被识别并产生 `CODEX_APPS_UNSUPPORTED` warning，0.2.x 不注册 Codex App。`paths` 是 Codex 内部规范化结构，不是当前插件 JSON 的公开包装字段；旧包若把能力放在 `paths` 下，会产生 `CODEX_PLUGIN_PATHS_UNSUPPORTED` 或 `CODEX_MARKETPLACE_PATHS_UNSUPPORTED` error，而不是猜测执行。
+顶层 `apps` 会被识别并产生 `CODEX_APPS_UNSUPPORTED` warning，当前版本不注册 Codex App。`paths` 是 Codex 内部规范化结构，不是当前插件 JSON 的公开包装字段；旧包若把能力放在 `paths` 下，会产生 `CODEX_PLUGIN_PATHS_UNSUPPORTED` 或 `CODEX_MARKETPLACE_PATHS_UNSUPPORTED` error，而不是猜测执行。
 
 ## 3. Skill
 
@@ -154,7 +154,7 @@ Hook 执行优先复用 `@deepseek-ai/dsh-hook-protocol` 与 `ctx.shell`，不�
 
 - parser 会识别 Markdown 内容、名称、描述和元数据；
 - 统一结构、类型和 adapters 目录已保留；
-- 0.2.x 不执行或注册；
+- 当前版本不执行或注册；
 - 每个发现项产生 `COMMAND_RUNTIME_UNSUPPORTED` 或 `AGENT_RUNTIME_UNSUPPORTED` warning。
 
 ## 7. 路径、环境变量与凭据
@@ -173,7 +173,7 @@ Hook 执行优先复用 `@deepseek-ai/dsh-hook-protocol` 与 `ctx.shell`，不�
 
 如果旧插件 `package.json` 声明 `dependencies`、`optionalDependencies` 或 `peerDependencies`，parser 产生 `NODE_DEPENDENCIES_NOT_INSTALLED` warning。
 
-这不代表自动执行包管理器。0.2.x 安装阶段不会运行 npm/pnpm/bun 或生命周期脚本；插件必须自带运行依赖，或由用户在受控环境中显式准备。
+这不代表自动执行包管理器。当前版本安装阶段不会运行 npm/pnpm/bun 或生命周期脚本；插件必须自带运行依赖，或由用户在受控环境中显式准备。
 
 ## 9. 跨平台原则
 

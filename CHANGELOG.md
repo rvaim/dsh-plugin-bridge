@@ -1,5 +1,19 @@
 # 更新日志
 
+## 0.3.1
+
+- 兼容插件列表中的错误与警告数量支持原位展开，显示诊断说明、稳定代码、能力类型和关联文件。
+- Web Remote 只发送 error/warning 的公开诊断字段，不传输 info 或内部 details。
+- 修复长版本号和多个格式标签把插件名称压缩到不可见的问题。
+
+## 0.3.0
+
+- 新增与 DSH Web 原生设置面板融合的“兼容插件”页面，可查看当前 profile 中由 dsh-compat 管理的插件，并在线启用、停用和卸载。
+- 新增带进度反馈的 Web 添加弹窗：单插件 Source 拉取后直接安装，多插件 Source 使用复选列表选择；选择阶段复用第一次固定的 Source 快照，不重复拉取。
+- Web 管理调用通过 DSH Typert Remote 严格 schema 暴露；浏览器端复用 DSH 的 Settings Slot、UI primitives、主题 token 与中英文 locale。
+- 新增未完成选择的回收机制：取消、页面卸载或请求超时都会尝试删除未被引用的临时隐式 Source。
+- 对齐 DSH `0.1.0-rc.6` 的 Client、Typert 与 Hook Protocol 契约。
+
 ## 0.2.2
 
 - 多插件 Marketplace 在交互终端中改用 `@clack/prompts` 复选列表：↑/↓ 移动、Space 选中/反选、Enter 确认；无交互、CI 与 JSON 模式继续要求显式 `--plugin`。

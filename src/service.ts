@@ -2,6 +2,7 @@ import { Service, type Context as CordisContext } from '@deepseek-ai/cordis'
 import type { Config } from './config.js'
 import {
   CompatManager,
+  type InstallPreparation,
   type InstallOptions,
   type InstallResult,
   type PluginInspection,
@@ -62,6 +63,10 @@ export class CompatService extends Service {
 
   sourceInspect(sourceId: string): Promise<SourceInspection> {
     return this.manager.sourceInspect(sourceId)
+  }
+
+  prepareInstall(source: string, options?: SourceAddOptions): Promise<InstallPreparation> {
+    return this.manager.prepareInstall(source, options)
   }
 
   install(source: string, options?: InstallOptions): Promise<InstallResult> {

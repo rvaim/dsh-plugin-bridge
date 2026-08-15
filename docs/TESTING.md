@@ -112,7 +112,22 @@ Adapter 测试直接构造统一结构，不依赖 Claude/Codex 原始 fixture�
 - 不创建 checkout，因此不触发 smudge/filter；
 - 不执行 package 生命周期脚本。
 
-## 7. CLI 与包测试
+## 7. Web 设置与 Remote 测试
+
+覆盖：
+
+- 单插件 Source 第一次拉取后直接安装；
+- 多插件 Source 返回可访问候选并复用第一次固定的 Source 快照；
+- 删除原始输入目录后仍可完成第二阶段安装，证明没有重复拉取；
+- 取消选择回收无引用的隐式 Source；
+- 同一 Source 并发选择时正确转交清理责任；
+- Web list、启用、停用和卸载映射到 manager 生命周期；
+- Web list 与安装结果只传输 error/warning 的公开诊断字段，并保留说明、代码、能力和文件；
+- Typert Host/Remote 生成产物包含全部严格 RPC descriptor；
+- Client bundle 使用 DSH `window.__ModuleLoader__` closure-factory，并进入 `dsh.client` 启动图；
+- 真实隔离 DSH Web 中验证设置导航、空状态、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题。
+
+## 8. CLI 与包测试
 
 覆盖：
 
@@ -128,7 +143,7 @@ Adapter 测试直接构造统一结构，不依赖 Claude/Codex 原始 fixture�
 - `package.json`、`cordis.patch.yml`、bin 和 Node engines；
 - npm 包只包含 `dist/src`、中文文档和 bundle 文件，不夹带 `src/`、`test/`、`dist/test/` 或 `node_modules/`。
 
-## 8. 真实 DSH 契约探针
+## 9. 真实 DSH 契约探针
 
 在安装了目标 peerDependencies 的 DSH profile 或源码 checkout 中运行：
 
@@ -142,11 +157,12 @@ npm run verify:dsh
 - `@deepseek-ai/schemastery` 的 schema API；
 - `@deepseek-ai/dsh-hook-protocol` 关键函数；
 - `@deepseek-ai/dsh-mcp-client` 可挂载插件形态；
-- `dsh-compat` 的 `apply`、`inject` 和 `Config` 导出。
+- `dsh-compat` 的 `apply`、`inject`、`Config`、`CompatWebGateway` 与 `prepareInstall` 导出；
+- Typert Host/Remote 中的 `compatAdmin` RPC 完整且可导入。
 
 该探针不伪造缺少的依赖。如果当前环境没有目标 DSH 包，会明确失败并列出缺项。
 
-## 9. 新增兼容逻辑的要求
+## 10. 新增兼容逻辑的要求
 
 每次增加生态格式或能力适配时，应同时满足：
 

@@ -6,7 +6,7 @@ import test from 'node:test'
 test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', async () => {
   const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as any
   assert.equal(packageJson.name, 'dsh-compat')
-  assert.equal(packageJson.version, '0.4.1')
+  assert.equal(packageJson.version, '0.4.2')
   assert.equal(packageJson.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(packageJson.bin, undefined)
   assert(packageJson.files.includes('dist/src/'))

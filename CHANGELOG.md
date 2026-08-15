@@ -1,5 +1,9 @@
 # 更新日志
 
+## 0.4.2
+
+- 补丁版本：完善 GitHub 安装说明，给出稳定的 `allowBuilds` 仓库级 key，避免 pnpm 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`。
+
 ## 0.4.1
 
 - 补丁版本：版本号更新为 `0.4.1`，README、使用文档与验证报告改用 GitHub 仓库 tag `v0.4.1` 安装。

@@ -3,10 +3,15 @@
 ## 1. 安装 bundle
 
 ```bash
-dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.1
+dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.2
 ```
 
-> 从 GitHub 安装会运行包内 `prepare` 构建；如果 pnpm 阻止该构建，请按提示把 `dsh-compat` 加入 profile 的 `pnpm-workspace.yaml` `allowBuilds` 后重试。
+> 从 GitHub 安装会运行包内 `prepare` 构建。如果 pnpm 报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`，请在 profile 的 `pnpm-workspace.yaml` 增加以下内容后重试：
+>
+> ```yaml
+> allowBuilds:
+>   dsh-compat@git+https://github.com/rvaim/dsh-compat.git: true
+> ```
 
 按原方式启动 profile。`dsh-compat` 插件会提供 `ctx.compat` 服务，并在 `autoStart=true` 时恢复已启用 Plugin。
 

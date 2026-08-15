@@ -1,14 +1,14 @@
-# dsh-compat 0.4.1 验证报告
+# dsh-compat 0.4.2 验证报告
 
 验证日期：2026-08-15  
-交付版本：`0.4.1`
+交付版本：`0.4.2`
 目标 DeepSeek Harness：`0.1.0-rc.6`
 Plugin parser：`2.0.1`
 Source parser：`2.0.0`
 
 ## 1. 结论
 
-0.4.1 是 0.4.0 的补丁版本，仅更新版本号与 GitHub 安装指引。0.4.0 已移除独立 `dsh-compat` CLI，并清理了 dsh-compat 自身旧版磁盘记录的 `schemaVersion` 兼容标记。旧 Plugin 的添加、启停与卸载收敛为 Web“设置 → 兼容插件”页面，批量和自动化操作使用 `ctx.compat` 服务 API；Claude Code / Codex 插件格式兼容保持不变。
+0.4.2 是 0.4.0 之后的补丁版本，仅更新版本号并完善 GitHub 安装的 `allowBuilds` 指引。0.4.0 已移除独立 `dsh-compat` CLI，并清理了 dsh-compat 自身旧版磁盘记录的 `schemaVersion` 兼容标记。旧 Plugin 的添加、启停与卸载收敛为 Web“设置 → 兼容插件”页面，批量和自动化操作使用 `ctx.compat` 服务 API；Claude Code / Codex 插件格式兼容保持不变。
 
 已验证的关键结果：
 
@@ -62,7 +62,7 @@ npm run verify:dsh
 
 ## 3. 真实 DSH Web 验证
 
-0.3.1 报告中的 Web 浏览器实测继续作为 UI 基线：0.4.0 / 0.4.1 未修改 Client 设置页、Typert Remote、`CompatWebOperations` 或 `CompatRuntimeManager`，因此 0.3.1 已验证的设置导航、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题结论仍然适用。
+0.3.1 报告中的 Web 浏览器实测继续作为 UI 基线：0.4.0 / 0.4.1 / 0.4.2 未修改 Client 设置页、Typert Remote、`CompatWebOperations` 或 `CompatRuntimeManager`，因此 0.3.1 已验证的设置导航、添加弹窗、多选、安装后 `running`、动态开关、卸载确认、诊断 disclosure 及暗/浅主题结论仍然适用。
 
 0.3.1 验证观察：
 
@@ -136,14 +136,14 @@ Typert Remote: 六个 compatAdmin 方法均被严格挂载
 - 未在真实模型会话中执行所有第三方 Hook；
 - 未通过真实公网超慢 Git 仓库逐帧捕获 loading 动画；本地 Source 完成过快，但进行中 DOM、按钮禁用与 loading 图标已进入编译后的 Client bundle，并通过实现审查；
 - 不支持的 Claude Code/Codex 能力仍以结构化诊断公开，不会被描述为已兼容；
-- 0.4.1 本轮未重新执行浏览器逐帧回归，UI 验证继承 0.3.1 基线；0.4.1 相对 0.4.0 仅更新版本号与安装指引。
+- 0.4.2 本轮未重新执行浏览器逐帧回归，UI 验证继承 0.3.1 基线；0.4.2 相对 0.4.1 仅更新版本号与安装指引。
 
 ## 7. 发布命令
 
 ```bash
 npm run verify
 npm pack --ignore-scripts
-dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.1
+dsh plugin --profile <profile-name> add github:rvaim/dsh-compat#v0.4.2
 ```
 
 安装或升级 `dsh-compat` 后重启该 profile。之后可直接在“设置 → 兼容插件”中在线添加和管理旧 Plugin。

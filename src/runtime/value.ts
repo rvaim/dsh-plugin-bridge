@@ -1,7 +1,11 @@
-import { readFile } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
+import { isPathInside } from '../source/safety.js'
 import { isAbsolute, join, resolve } from 'node:path'
 import type { CompatPath, CompatRuntimeValue, CompatTemplate } from '../types/path.js'
 import type { DshContextLike } from './context.js'
+import { parseTemplate } from '../shared/template.js'
+import { expandPluginPaths } from '../shared/mcp-execution.js'
+import { buildPluginEnvironment } from './environment.js'
 
 function decodePointerSegment(value: string): string {
   return value.replaceAll('~1', '/').replaceAll('~0', '~')
@@ -19,11 +23,12 @@ function readJsonPointer(root: unknown, pointer: string): unknown {
   return current
 }
 
-async function resolveEnvironment(ctx: DshContextLike, name: string): Promise<string> {
+async function resolveEnvironment(ctx: DshContextLike, name: string, fallback?: string): Promise<string> {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error('环境变量或凭据引用名称无效')
   const credentials = ctx.credentials ?? ctx.get?.('credentials')
   const resolved = credentials === undefined ? undefined : await credentials.resolve(name)
-  const value = resolved?.value ?? process.env[name]
-  if (value === undefined || value === '') throw new Error(`缺少环境变量或凭据引用：${name}`)
+  const value = resolved?.value || process.env[name] || fallback
+  if (value === undefined) throw new Error(`缺少环境变量或凭据引用：${name}`)
   return value
 }
 
@@ -42,8 +47,8 @@ export async function resolveTemplate(
     else if (part.type === 'plugin-data') values.push(dataRoot)
     else if (part.type === 'workspace-root') values.push(workspaceRoot)
     else {
-      const value = await resolveEnvironment(ctx, part.name)
-      sensitiveValues?.add(value)
+      const value = await resolveEnvironment(ctx, part.name, part.fallback)
+      if (value !== '') sensitiveValues?.add(value)
       values.push(value)
     }
   }
@@ -57,15 +62,35 @@ export async function resolveRuntimeValue(
   dataRoot: string,
   workspaceRoot: string,
   sensitiveValues?: Set<string>,
+  sourceRoot?: string,
 ): Promise<string> {
   if (value.type === 'template') {
     return await resolveTemplate(ctx, value, pluginRoot, dataRoot, workspaceRoot, sensitiveValues)
   }
-  const file = resolve(pluginRoot, value.file)
-  const parsed = JSON.parse(await readFile(file, 'utf8')) as unknown
+  if (value.base === 'source' && sourceRoot === undefined) throw new Error('Marketplace 延迟配置缺少 Source 根目录')
+  const base = value.base === 'source' ? sourceRoot! : pluginRoot
+  const file = resolve(base, value.file)
+  const [baseReal, fileReal] = await Promise.all([realpath(base), realpath(file)])
+  if (!isPathInside(baseReal, fileReal)) throw new Error('延迟配置文件逃逸声明根目录')
+  let parsed: unknown
+  try { parsed = JSON.parse(await readFile(fileReal, 'utf8')) as unknown } catch {
+    throw new Error(`延迟配置文件无法读取或不是有效 JSON：${value.file}`)
+  }
   const resolvedValue = readJsonPointer(parsed, value.pointer)
   if (typeof resolvedValue !== 'string') throw new Error(`延迟配置值不是字符串：${value.file}#${value.pointer}`)
-  if (value.sensitive === true) sensitiveValues?.add(resolvedValue)
+  if (value.sensitive === true && resolvedValue !== '') sensitiveValues?.add(resolvedValue)
+  if (value.expansion === 'none') return resolvedValue
+  if (value.expansion === 'exact-plugin-vars') {
+    const paths = buildPluginEnvironment(value.templateBindings, pluginRoot, dataRoot, workspaceRoot)
+    const expanded = expandPluginPaths(resolvedValue, paths)
+    if (value.sensitive === true && expanded !== '') sensitiveValues?.add(expanded)
+    return expanded
+  }
+  if (value.templateSyntax === 'environment') {
+    const expanded = await resolveTemplate(ctx, parseTemplate(resolvedValue, value.templateBindings), pluginRoot, dataRoot, workspaceRoot, sensitiveValues)
+    if (value.sensitive === true && expanded !== '') sensitiveValues?.add(expanded)
+    return expanded
+  }
   return resolvedValue
 }
 

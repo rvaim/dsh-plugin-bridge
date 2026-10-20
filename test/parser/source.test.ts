@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdir, symlink, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
-import { parseCompatPlugin } from '../../src/parser/normalize.js'
-import { parseCompatSource } from '../../src/parser/source/index.js'
+import { parseCompatPlugin } from '../../src/composition/defaults.js'
+import { parseCompatSource } from '../../src/composition/defaults.js'
 import { temporaryDirectory } from '../helpers/temp.js'
 
 async function writeJson(path: string, value: unknown): Promise<void> {
@@ -182,7 +182,10 @@ test('同目录双格式插件的等价 Skill 与 MCP 合并为单一运行能�
     assert.deepEqual(plugin.skills.map(item => item.name), ['shared-skill'])
     assert.equal(plugin.mcpServers.length, 1)
     assert.equal(plugin.mcpServers[0].serverName, 'shared')
-    assert.equal(plugin.mcpServers[0].environmentMode, 'combined-plugin')
+    assert.deepEqual(plugin.mcpServers[0].environmentBindings, {
+      CLAUDE_PLUGIN_ROOT: 'plugin-root', CLAUDE_PLUGIN_DATA: 'plugin-data', CLAUDE_PROJECT_DIR: 'workspace-root',
+      CODEX_PLUGIN_ROOT: 'plugin-root', CODEX_PLUGIN_DATA: 'plugin-data', PLUGIN_ROOT: 'plugin-root', PLUGIN_DATA: 'plugin-data',
+    })
     assert.equal(plugin.diagnostics.some(item => item.code === 'SKILL_NAME_DUPLICATE'), false)
     assert.equal(plugin.diagnostics.some(item => item.code === 'MCP_SERVER_NAME_DUPLICATE'), false)
     assert(plugin.diagnostics.some(item => item.code === 'CAPABILITY_FORMAT_ALIAS_MERGED'))
@@ -299,7 +302,7 @@ test('Marketplace 缺失目录和不支持来源产生结构化诊断', async ()
     assert.equal(npm?.installable, false)
     assert(npm?.diagnostics.some(item => item.code === 'SOURCE_LOCATION_NPM_UNSUPPORTED'))
     assert.equal(command?.installable, false)
-    assert(command?.diagnostics.some(item => item.code === 'SOURCE_LOCATION_COMMAND_REQUIRES_AUTHORIZATION'))
+    assert(command?.diagnostics.some(item => item.code === 'SOURCE_LOCATION_COMMAND_UNSUPPORTED'))
   } finally {
     await temp.cleanup()
   }
@@ -419,7 +422,7 @@ test('共享 Source 根目录的 Marketplace 条目只解析自身显式能力�
   }
 })
 
-test('Claude Marketplace strict=false 不回退扫描条目未声明的默认能力', async () => {
+test('Claude Marketplace strict=false 不清空已有清单的默认能力', async () => {
   const temp = await temporaryDirectory()
   try {
     const root = resolve(temp.path, 'non-strict')
@@ -448,8 +451,8 @@ test('Claude Marketplace strict=false 不回退扫描条目未声明的默认能
       marketplaceDefinitions: candidate.definitions,
     })
 
-    assert.equal(plugin.skills.length, 0)
-    assert.equal(plugin.mcpServers.length, 0)
+    assert.equal(plugin.skills.length, 1)
+    assert.equal(plugin.mcpServers.length, 1)
     assert.equal(plugin.hooks.length, 0)
     for (const code of [
       'CLAUDE_WORKFLOWS_UNSUPPORTED',
@@ -457,14 +460,14 @@ test('Claude Marketplace strict=false 不回退扫描条目未声明的默认能
       'CLAUDE_BIN_PATH_UNSUPPORTED',
       'CLAUDE_SETTINGS_UNSUPPORTED',
     ]) {
-      assert.equal(plugin.diagnostics.some(item => item.code === code), false, code)
+      assert.equal(plugin.diagnostics.some(item => item.code === code), true, code)
     }
   } finally {
     await temp.cleanup()
   }
 })
 
-test('Claude Marketplace strict=false 与 plugin.json 能力字段冲突时明确拒绝启用', async () => {
+test('Claude Marketplace strict=false 允许本地清单能力，拒绝条目额外声明', async () => {
   const temp = await temporaryDirectory()
   try {
     const root = resolve(temp.path, 'non-strict-conflict')
@@ -488,8 +491,15 @@ test('Claude Marketplace strict=false 与 plugin.json 能力字段冲突时明�
       marketplaceDefinitions: candidate.definitions,
     })
 
-    assert.equal(plugin.skills.length, 0)
-    assert(plugin.diagnostics.some(item => item.code === 'CLAUDE_MARKETPLACE_NON_STRICT_CONFLICT' && item.level === 'error'))
+    assert.equal(plugin.skills.length, 1)
+    assert.equal(plugin.diagnostics.some(item => item.code === 'CLAUDE_MARKETPLACE_NON_STRICT_CONFLICT'), false)
+
+    await writeJson(resolve(root, '.claude-plugin/marketplace.json'), claudeMarketplace('non-strict-conflict', [
+      { name: 'a', source: './plugins/a', strict: false, skills: ['./skills'] },
+    ]))
+    const conflicting = (await parseCompatSource(root)).candidates[0]
+    const rejected = await parseCompatPlugin(pluginRoot, { marketplaceDefinitions: conflicting.definitions })
+    assert(rejected.diagnostics.some(item => item.code === 'CLAUDE_MARKETPLACE_NON_STRICT_CONFLICT' && item.level === 'error'))
   } finally {
     await temp.cleanup()
   }

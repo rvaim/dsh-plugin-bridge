@@ -9,7 +9,7 @@ export interface CompatWebDiagnostic {
   file?: string
 }
 
-/** Web 设置页展示的一条兼容插件记录。 */
+/** Web 设置页展示的一条外部插件记录。 */
 export interface CompatWebPlugin {
   id: string
   name: string

@@ -10,13 +10,14 @@ import { createLegacyRuntimePlugin } from './plugin.js'
 interface RuntimeHandle {
   fiber: FiberLike
   snapshot: PluginRuntimeSnapshot
+  signature: string
 }
 
 export interface CompatRuntimeManagerOptions {
   workspaceRoot?: string
   hookDefaultTimeoutMs?: number
   hookStderrSummaryMaxChars?: number
-  codexModel?: string
+  modelName?: string
   dependencies?: RuntimeDependencies
 }
 
@@ -68,13 +69,25 @@ export class CompatRuntimeManager {
     return this.update(pluginId, 'failed', this.get(pluginId).capabilities, error)
   }
 
+  /** Compare the mounted model without invoking lifecycle operations. */
+  isCurrent(plugin: CompatPlugin, packageRoot: string): boolean {
+    return this.handles.get(plugin.id)?.signature === JSON.stringify([packageRoot, plugin])
+  }
+
   async start(
     plugin: CompatPlugin,
     packageRoot: string,
   ): Promise<PluginRuntimeSnapshot> {
-    if (hasErrorDiagnostics(plugin.diagnostics)) throw new Error(`插件 ${plugin.id} 存在 error 诊断，不能启用`)
+    if (hasErrorDiagnostics(plugin.diagnostics)) {
+      await this.stop(plugin.id)
+      throw new Error(`插件 ${plugin.id} 存在 error 诊断，不能启用`)
+    }
+    const signature = JSON.stringify([packageRoot, plugin])
     const existing = this.handles.get(plugin.id)
-    if (existing !== undefined && ['running', 'degraded', 'starting'].includes(existing.snapshot.status)) return existing.snapshot
+    if (existing !== undefined && ['running', 'degraded', 'starting'].includes(existing.snapshot.status)) {
+      if (existing.signature === signature) return existing.snapshot
+      await this.stop(plugin.id)
+    }
     if (this.ctx.plugin === undefined) throw new Error('Cordis ctx.plugin 不可用，无法创建旧插件父实例')
     this.update(plugin.id, 'starting', [])
     await mkdir(this.layout.dataDir(plugin.id), { recursive: true, mode: 0o700 })
@@ -86,15 +99,18 @@ export class CompatRuntimeManager {
       fiber = this.ctx.plugin(module, {
         plugin,
         packageRoot,
+        sourceRoot: this.layout.sourcePackageDir(plugin.sourceId),
         dataRoot: this.layout.dataDir(plugin.id),
         workspaceRoot: this.workspaceRoot,
         dependencies: this.dependencies,
         hookDefaultTimeoutMs: this.options.hookDefaultTimeoutMs,
         hookStderrSummaryMaxChars: this.options.hookStderrSummaryMaxChars,
-        codexModel: this.options.codexModel,
+        modelName: this.options.modelName,
         report: (health: CapabilityRuntimeHealth[], status: PluginRuntimeStatus) => {
           reportedHealth = health
           reportedStatus = status
+          const handle = this.handles.get(plugin.id)
+          if (handle !== undefined) handle.snapshot = this.update(plugin.id, status, health)
         },
       })
       await Promise.resolve(fiber)
@@ -108,11 +124,11 @@ export class CompatRuntimeManager {
         }
         return snapshot
       }
-      this.handles.set(plugin.id, { fiber, snapshot })
+      this.handles.set(plugin.id, { fiber, snapshot, signature })
       return snapshot
     } catch (error) {
       const snapshot = this.update(plugin.id, 'failed', reportedHealth, String(error))
-      this.ctx.logger.warn(`dsh-compat: 插件 ${plugin.id} 父实例启动失败：${String(error)}`)
+      this.ctx.logger.warn(`plugin-bridge: 插件 ${plugin.id} 父实例启动失败：${String(error)}`)
       return snapshot
     }
   }
@@ -136,7 +152,7 @@ export class CompatRuntimeManager {
       try {
         await this.stop(pluginId)
       } catch (error) {
-        this.ctx.logger.warn(`dsh-compat: 停止 ${pluginId} 失败：${String(error)}`)
+        this.ctx.logger.warn(`plugin-bridge: 停止 ${pluginId} 失败：${String(error)}`)
       }
     }
   }

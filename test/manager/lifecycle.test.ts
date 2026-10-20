@@ -1,3 +1,4 @@
+import { createBuiltinParserEngine } from '../../src/composition/defaults.js'
 import assert from 'node:assert/strict'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -25,7 +26,7 @@ async function setup(): Promise<{
     workspaceRoot: resolve(temp.path, 'workspace'),
     dependencies: fakeRuntimeDependencies(ctx.shared),
   })
-  return { temp, ctx, layout, manager: new CompatManager(layout, runtime) }
+  return { temp, ctx, layout, manager: new CompatManager(layout, runtime, createBuiltinParserEngine()) }
 }
 
 test('安装、禁用、启用和整体卸载完整旧插件', async () => {
@@ -76,7 +77,7 @@ test('包含不支持能力的插件仍安装，但保持 disabled 并可 inspec
     await buildClaudePlugin(source, { name: 'unsupported', unsupportedHook: true })
     const installed = (await manager.install(source)).plugins[0]
     assert.equal(installed.enabled, false)
-    assert.equal(installed.plugin.diagnostics.some(item => item.code === 'HOOK_EVENT_UNSUPPORTED'), true)
+    assert.equal(installed.plugin.diagnostics.some(item => item.code === 'HOOK_EVENT_RUNTIME_UNSUPPORTED'), true)
     const inspection = await manager.inspect('unsupported')
     assert.equal(inspection.state.enabled, false)
     assert.equal(inspection.scan.plugin.diagnostics.some(item => item.level === 'error'), true)

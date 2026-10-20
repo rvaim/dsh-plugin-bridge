@@ -1,7 +1,7 @@
 {
-  "name": "@rvaim/dsh-compat",
-  "version": "0.4.4",
-  "description": "在 DeepSeek Harness 中按 Source/Plugin 模型整体管理并运行 Claude Code、Codex 旧插件",
+  "name": "@rvaim/dsh-plugin-bridge",
+  "version": "0.5.0",
+  "description": "Plugin Bridge for DeepSeek Harness: manage and run Claude Code, Codex, and Agent Plugins.",
   "keywords": [
     "deepseek-harness",
     "dsh",
@@ -30,6 +30,22 @@
       "types": "./dist/src/index.d.ts",
       "import": "./dist/src/index.js"
     },
+    "./parser": {
+      "types": "./dist/src/parser/index.d.ts",
+      "import": "./dist/src/parser/index.js"
+    },
+    "./protocols/claude-code": {
+      "types": "./dist/src/protocols/claude-code/index.d.ts",
+      "import": "./dist/src/protocols/claude-code/index.js"
+    },
+    "./protocols/codex": {
+      "types": "./dist/src/protocols/codex/index.d.ts",
+      "import": "./dist/src/protocols/codex/index.js"
+    },
+    "./protocols/agent-plugins": {
+      "types": "./dist/src/protocols/agent-plugins/index.d.ts",
+      "import": "./dist/src/protocols/agent-plugins/index.js"
+    },
     "./service": {
       "types": "./dist/src/service.d.ts",
       "import": "./dist/src/service.js"
@@ -39,7 +55,7 @@
       "import": "./dist/src/types/index.js"
     },
     "./client": {
-      "types": "./dist/src/client/index.d.ts",
+      "types": "./dist/src/web/client/index.d.ts",
       "default": "./dist/client.js"
     },
     "./typert": {
@@ -50,6 +66,8 @@
       "types": "./dist/typert.remote-client.d.ts",
       "default": "./dist/typert.remote-client.js"
     },
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.png",
     "./package.json": "./package.json"
   },
   "files": [
@@ -61,6 +79,8 @@
     "dist/typert.remote-client.js",
     "dist/typert.remote-client.d.ts",
     "dist/typert.remote-client.d.ts.map",
+    "locale/*.json",
+    "icon.png",
     "docs/",
     "scripts/verify-real-dsh.mjs",
     "cordis.patch.yml",
@@ -88,7 +108,8 @@
     "prepare": "npm run build",
     "test:compiled": "node --test --test-reporter=spec dist/test/**/*.test.js",
     "test": "npm run clean && npm run build && npm run test:compiled",
-    "verify": "npm run test && node ./scripts/verify-package.mjs",
+    "verify": "npm run test && node ./scripts/verify-parser-removal.mjs && node ./scripts/verify-package.mjs",
+    "verify:parsers": "npm run build && node ./scripts/verify-parser-removal.mjs",
     "verify:dsh": "node ./scripts/verify-real-dsh.mjs",
     "pack:check": "npm pack --dry-run --json --ignore-scripts"
   },
@@ -97,12 +118,13 @@
   },
   "dependencies": {
     "@deepseek-ai/dsh-hook-protocol": "0.1.0-rc.6",
+    "ajv": "8.20.0",
     "zod": "4.4.3"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "*",
-    "@deepseek-ai/dsh-api-remotes": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-agent": "*",
+    "@deepseek-ai/dsh-api-remotes": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-locale": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-runtime": "^0.1.0-rc.6",
     "@deepseek-ai/dsh-client-ui-primitives": "^0.1.0-rc.6",
@@ -172,9 +194,9 @@
     "@deepseek-ai/dsh-timeout": "0.1.0-rc.6",
     "@deepseek-ai/dsh-typert-generator": "0.1.0-rc.6",
     "@deepseek-ai/dsh-typert-protocol": "0.1.0-rc.6",
+    "@deepseek-ai/schemastery": "3.18.1",
     "@types/node": "^22.15.0",
     "@types/react": "~18.3.1",
-    "@deepseek-ai/schemastery": "3.18.1",
     "lightningcss": "1.33.0",
     "react": "^18.2.0",
     "tsdown": "0.22.14",

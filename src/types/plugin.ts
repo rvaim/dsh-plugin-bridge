@@ -1,3 +1,4 @@
+import type { ParserSnapshot } from './parser.js'
 import type { CompatAgent } from './agent.js'
 import type { CompatCommand } from './command.js'
 import type { CompatDiagnostic } from './diagnostic.js'
@@ -6,16 +7,19 @@ import type { CompatMcpServer } from './mcp.js'
 import type { CompatSkill } from './skill.js'
 import type { CompatPluginLocation } from './source.js'
 
-export type CompatFormat = 'claude-code' | 'codex'
+export type CompatFormat = string
 
 /** parser 产出的统一插件结构；不携带 Claude Code/Codex 原始配置。 */
 export interface CompatPlugin {
   id: string
   name: string
   version?: string
+  /** 仅在上游显式声明时存在；Marketplace 优先于插件清单。 */
+  defaultEnabled?: boolean
   sourceId: string
   sourcePluginId: string
   formats: CompatFormat[]
+  protocol?: { format: CompatFormat; version: string; schema?: string }
   skills: CompatSkill[]
   mcpServers: CompatMcpServer[]
   hooks: CompatHook[]
@@ -48,6 +52,7 @@ export interface PluginState {
 
 export interface ScanCache {
   parserVersion: string
+  parserSnapshot?: ParserSnapshot
   /** 生成本缓存时对应的 Source 内容版本。 */
   sourceRevision: string
   scannedAt: string

@@ -1,3 +1,4 @@
+import { createBuiltinParserEngine } from '../../src/composition/defaults.js'
 import assert from 'node:assert/strict'
 import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -24,7 +25,7 @@ async function writeClaudeMarketplace(
   await mkdir(resolve(root, '.claude-plugin'), { recursive: true })
   await writeFile(resolve(root, '.claude-plugin/marketplace.json'), JSON.stringify({
     name,
-    owner: { name: 'dsh-compat 测试' },
+    owner: { name: 'Plugin Bridge 测试' },
     plugins,
   }, null, 2))
 }
@@ -32,7 +33,7 @@ async function writeClaudeMarketplace(
 async function initializeGitRepository(root: string): Promise<string> {
   await runProcess('git', ['init', root])
   await runProcess('git', ['-C', root, 'config', 'user.email', 'test@example.com'])
-  await runProcess('git', ['-C', root, 'config', 'user.name', 'dsh-compat Test'])
+  await runProcess('git', ['-C', root, 'config', 'user.name', 'Plugin Bridge Test'])
   await runProcess('git', ['-C', root, 'add', '.'])
   await runProcess('git', ['-C', root, 'commit', '-m', 'initial'])
   return (await runProcess('git', ['-C', root, 'rev-parse', 'HEAD'])).stdout.trim()
@@ -48,6 +49,7 @@ class ScriptedRuntime {
   readonly failStartCalls: Set<number>
   readonly failStopCalls: Set<number>
   readonly snapshots = new Map<string, PluginRuntimeSnapshot>()
+  readonly mountedModels = new Map<string, { model: string; packageRoot: string }>()
   startCalls = 0
   stopCalls = 0
 
@@ -66,11 +68,17 @@ class ScriptedRuntime {
     return snapshot
   }
 
-  async start(plugin: CompatPlugin): Promise<PluginRuntimeSnapshot> {
+  isCurrent(plugin: CompatPlugin, packageRoot: string): boolean {
+    const mounted = this.mountedModels.get(plugin.id)
+    return this.get(plugin.id).status === 'running' && mounted?.model === JSON.stringify(plugin) && mounted.packageRoot === packageRoot
+  }
+
+  async start(plugin: CompatPlugin, packageRoot: string): Promise<PluginRuntimeSnapshot> {
     this.startCalls += 1
     if (this.failStartCalls.has(this.startCalls)) {
       return this.noteFailure(plugin.id, `测试注入的第 ${this.startCalls} 次启动失败`)
     }
+    this.mountedModels.set(plugin.id, { model: JSON.stringify(plugin), packageRoot })
     const snapshot: PluginRuntimeSnapshot = { pluginId: plugin.id, status: 'running', capabilities: [] }
     this.snapshots.set(plugin.id, snapshot)
     return snapshot
@@ -81,6 +89,7 @@ class ScriptedRuntime {
     if (this.failStopCalls.has(this.stopCalls)) {
       throw new Error(`测试注入的第 ${this.stopCalls} 次停止失败`)
     }
+    this.mountedModels.delete(pluginId)
     const snapshot: PluginRuntimeSnapshot = { pluginId, status: 'disabled', capabilities: [] }
     this.snapshots.set(pluginId, snapshot)
     return snapshot
@@ -101,7 +110,7 @@ test('多插件 Marketplace 只安装被选择项，共享 Source 只保存一�
     ], 'shared-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     const installed = await manager.install(source, {
       sourceAs: 'shared-market',
       plugins: ['a', 'c'],
@@ -143,7 +152,7 @@ test('多插件 Source 未显式选择时拒绝安装，并列出全部候选 ID
     ], 'select-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await assert.rejects(
       manager.install(source, { sourceAs: 'select-market', enable: false }),
       /必须通过 plugins 显式选择：a, b/,
@@ -166,7 +175,7 @@ test('显式 Source 在引用归零后保留，仍被 Plugin 引用时禁止删�
     await writeClaudeMarketplace(source, [{ name: 'a', source: './plugins/a' }], 'explicit-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     const added = await manager.sourceAdd(source, { as: 'explicit-market' })
     assert.equal(added.source.ownership, 'explicit')
 
@@ -197,7 +206,7 @@ test('一次选择多个 Plugin 时，任一 Marketplace 位置无效则整体�
     ], 'atomic-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await assert.rejects(
       manager.install(source, {
         sourceAs: 'atomic-market',
@@ -244,7 +253,7 @@ test('共享 Source 更新影响全部已安装 Plugin，新候选只进入可�
     await writeClaudeMarketplace(missing, [{ name: 'a', source: './plugins/a' }], 'update-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.install(v1, {
       sourceAs: 'update-market',
       plugins: ['a', 'b'],
@@ -323,7 +332,7 @@ test('共享 Source 中第二个新版 Plugin 启动失败时整体恢复全部�
     const runtime = new (await import('../../src/runtime/manager.js')).CompatRuntimeManager(ctx, layout, {
       dependencies: fakeRuntimeDependencies(ctx.shared),
     })
-    const manager = new CompatManager(layout, runtime)
+    const manager = new CompatManager(layout, runtime, createBuiltinParserEngine())
     await manager.install(v1, {
       sourceAs: 'runtime-rollback-market',
       plugins: ['a', 'b'],
@@ -366,7 +375,7 @@ test('Marketplace 外部 Git Plugin 保存在顶层 external，并随 Source 整
     }], 'external-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     const installed = (await manager.install(marketplace, {
       sourceAs: 'external-market',
       plugins: ['remote'],
@@ -410,7 +419,7 @@ test('复用已有 Source 时不静默忽略冲突的 --source-as', async () => 
     await writeClaudeMarketplace(source, [{ name: 'a', source: './plugins/a' }], 'canonical-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.sourceAdd(source, { as: 'canonical-market' })
 
     await assert.rejects(
@@ -442,7 +451,7 @@ test('外部 Git Plugin 新版启动失败时恢复旧 Source、旧提交与旧�
 
     const runtime = new ScriptedRuntime({ failStartCalls: [2] })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout, runtime as unknown as CompatRuntimeManager)
+    const manager = new CompatManager(layout, runtime as unknown as CompatRuntimeManager, createBuiltinParserEngine())
     await manager.install(marketplace, {
       sourceAs: 'rollback-market',
       plugins: ['remote'],
@@ -485,7 +494,7 @@ test('新版运行实例无法停止时保留正在使用的 Source 与事务恢
 
     const runtime = new ScriptedRuntime({ failStartCalls: [2], failStopCalls: [2] })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout, runtime as unknown as CompatRuntimeManager)
+    const manager = new CompatManager(layout, runtime as unknown as CompatRuntimeManager, createBuiltinParserEngine())
     await manager.install(v1, {
       sourceAs: 'stop-failure-market',
       plugins: ['a'],
@@ -524,7 +533,7 @@ test('Source Plugin 可使用管理别名安装，但同一具体 Plugin 不能�
     await writeClaudeMarketplace(source, [{ name: 'original', source: './plugins/original' }], 'alias-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.sourceAdd(source, { as: 'alias-market' })
     await manager.install('original@alias-market', { as: 'managed-alias', enable: false })
 
@@ -553,7 +562,7 @@ test('损坏的 install.json 会保守阻止 Source 删除和隐式 Source 自�
     await writeClaudeMarketplace(source, [{ name: 'a', source: './plugins/a' }], 'conservative-market')
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.install(source, {
       sourceAs: 'conservative-market',
       plugins: ['a'],
@@ -603,7 +612,7 @@ test('禁用 Plugin 的同名能力不阻止共享 Source 更新，启用时再�
     }
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.install(v1, {
       sourceAs: 'disabled-conflict-market',
       plugins: ['a', 'b'],

@@ -1,3 +1,4 @@
+import type { ParserSnapshot } from './parser.js'
 import type { CompatDiagnostic } from './diagnostic.js'
 import type { CompatFormat } from './plugin.js'
 
@@ -83,6 +84,8 @@ export interface SourceMetadata {
 /** scan.json：Source parser 的可重建缓存。 */
 export interface SourceScanCache {
   parserVersion: string
+  parserSnapshot?: ParserSnapshot
+  sourceRevision?: string
   scannedAt: string
   formats: CompatFormat[]
   plugins: CompatSourcePlugin[]

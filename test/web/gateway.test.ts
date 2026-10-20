@@ -1,10 +1,11 @@
+import { createBuiltinParserEngine } from '../../src/composition/defaults.js'
 import assert from 'node:assert/strict'
 import { mkdir, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { CompatManager } from '../../src/manager/manager.js'
 import { CompatLayout } from '../../src/store/layout.js'
-import { CompatWebOperations } from '../../src/web/gateway.js'
+import { CompatWebOperations } from '../../src/web/host/gateway.js'
 import { buildClaudePlugin } from '../helpers/plugin-builder.js'
 import { temporaryDirectory } from '../helpers/temp.js'
 
@@ -21,7 +22,7 @@ async function buildMarketplace(root: string): Promise<void> {
   await mkdir(resolve(root, '.claude-plugin'), { recursive: true })
   await writeFile(resolve(root, '.claude-plugin/marketplace.json'), JSON.stringify({
     name: 'web-market',
-    owner: { name: 'dsh-compat test' },
+    owner: { name: 'Plugin Bridge test' },
     plugins: [
       { name: 'alpha', source: './plugins/alpha' },
       { name: 'beta', source: './plugins/beta' },
@@ -48,7 +49,7 @@ test('Web 多插件选择复用第一次拉取的固定快照，并可动态管�
   try {
     const source = resolve(temp.path, 'market')
     await buildMarketplace(source)
-    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')))
+    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')), undefined, createBuiltinParserEngine())
     const web = operations(manager)
 
     const begun = await web.beginAdd(source)
@@ -85,7 +86,7 @@ test('Web 取消多插件选择会回收未被引用的临时 Source', async () 
   try {
     const source = resolve(temp.path, 'market')
     await buildMarketplace(source)
-    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')))
+    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')), undefined, createBuiltinParserEngine())
     const web = operations(manager)
 
     const begun = await web.beginAdd(source)
@@ -105,7 +106,7 @@ test('并发选择同一新 Source 时只由最后一个请求负责回收快照
   try {
     const source = resolve(temp.path, 'market')
     await buildMarketplace(source)
-    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')))
+    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')), undefined, createBuiltinParserEngine())
     const web = operations(manager)
 
     const first = await web.beginAdd(source)
@@ -132,7 +133,7 @@ test('Web 单插件来源在第一次拉取后直接安装', async () => {
     const source = resolve(temp.path, 'single')
     await buildClaudePlugin(source, { name: 'single', hookEvent: 'PreToolUse' })
     await mkdir(resolve(source, 'bin'), { recursive: true })
-    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')))
+    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')), undefined, createBuiltinParserEngine())
     const web = operations(manager)
 
     const result = await web.beginAdd(source)
@@ -170,7 +171,7 @@ test('Web 检查更新会标记共享 Source 的全部插件，并可在线更�
   try {
     const source = resolve(temp.path, 'market')
     await buildMarketplace(source)
-    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')))
+    const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')), undefined, createBuiltinParserEngine())
     const web = operations(manager)
     const first = await web.beginAdd(source)
     assert.equal(first.kind, 'selection')

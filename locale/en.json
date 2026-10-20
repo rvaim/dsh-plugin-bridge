@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Plugin Bridge",
+    "description": "Install, manage, and run Claude Code, Codex, and Agent Plugins in DSH."
+  }
+}

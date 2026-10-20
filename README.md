@@ -1,76 +1,82 @@
-# @rvaim/dsh-compat
+# 插件桥 / Plugin Bridge
 
-[![npm version](https://img.shields.io/npm/v/%40rvaim%2Fdsh-compat.svg)](https://www.npmjs.com/package/@rvaim/dsh-compat)
-[![license](https://img.shields.io/npm/l/%40rvaim%2Fdsh-compat.svg)](LICENSE)
+[![npm version](https://img.shields.io/npm/v/%40rvaim%2Fdsh-plugin-bridge.svg)](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)
+[![license](https://img.shields.io/npm/l/%40rvaim%2Fdsh-plugin-bridge.svg)](LICENSE)
 
-DeepSeek Harness（DSH）的 Claude Code / Codex 旧插件兼容层。它把一个旧插件作为完整生命周期单元接入 DSH，让 Skill、MCP 与 Hook 尽量保持原目录和原语义运行。
+插件桥（Plugin Bridge）是 DeepSeek Harness（DSH）的外部插件管理工具，支持独立 Agent Plugins 1.0.0、传统 Codex 与 Claude Code 插件。插件作为完整生命周期单元接入 DSH，复用 Source 快照、Skill Provider 和 MCP 子实例。
 
-> 当前版本：`0.4.4`。目标 DSH：`0.1.0-rc.6`。Plugin parser：`2.0.1`，Source parser：`2.0.0`。
+> 从 **0.5.0** 起，包名为 `@rvaim/dsh-plugin-bridge`，Cordis 插件 ID 为 `plugin-bridge`。GitHub 仓库仍为 [rvaim/dsh-compat](https://github.com/rvaim/dsh-compat)，数据目录仍为 `$DSH_HOME/dsh-compat/`；更名不自动修改 profile。详见[包更名说明](<docs/包更名说明.md>)。
 
-![DSH Web 设置中的兼容插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-compat/main/docs/assets/compat-settings.png)
+> 当前包版本：`0.5.0`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
+>
+> DSH 构建依赖仍为 rc.6；本轮补充当前 Shell / Agent Hook 接口，**尚未完成当前 Desktop Web 的 Typert 与页面端到端兼容验证**，不能把解析测试通过视为当前 GUI 可直接安装使用。详见[本轮验证报告](docs/插件协议兼容验证报告.md)。
+
+![更名前的 DSH Web 插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-compat/main/docs/assets/compat-settings.png)
+
+截图保留更名前的界面；当前设置页中文名为“插件桥”，英文名为“Plugin Bridge”。
 
 ## 安装
 
 要求 Node.js `^22.19.0` 或 `>=24.0.0`；使用 Git 来源时还需要 Git。
 
-从 [npm：@rvaim/dsh-compat](https://www.npmjs.com/package/@rvaim/dsh-compat) 安装到目标 profile：
+从 [npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge) 安装指定版本：
 
 ```bash
-dsh plugin --profile web add @rvaim/dsh-compat@latest
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.5.0
 ```
 
-把 `web` 换成实际 profile 名称即可。首次安装或升级 `@rvaim/dsh-compat` 后，需要重启该 profile 并重新加载 Web 页面，因为 DSH 的 Host/Client 插件图发生了变化。
+把 `web` 换成实际 profile 名称即可。首次安装或升级 `@rvaim/dsh-plugin-bridge` 后，需要重启该 profile 并重新加载 Web 页面，因为 DSH 的 Host/Client 插件图发生了变化。
 
-如果 profile 之前通过 GitHub 安装过未加 scope 的 `dsh-compat`，先移除旧依赖再安装 npm 组织包：
+已有 profile 需按原依赖名手动移除旧包，再添加新包；更名不会自动执行这些命令。例如，原来安装 scoped 包的 profile 可执行：
 
 ```bash
-dsh plugin --profile web remove dsh-compat
-dsh plugin --profile web add @rvaim/dsh-compat@latest
+dsh plugin --profile web remove @rvaim/dsh-compat
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.5.0
 ```
 
-这只替换 DSH bundle 依赖，不会删除 `$DSH_HOME/dsh-compat/` 中已安装旧插件的数据。
+如果此前通过 GitHub 安装的是未加 scope 的 `dsh-compat`，移除命令改为 `dsh plugin --profile web remove dsh-compat`。这只替换 DSH bundle 依赖，不会删除 `$DSH_HOME/dsh-compat/` 中已安装插件的数据。
 
 ## 使用
 
-1. 启动 profile，在 DSH Web 中打开“设置 → 兼容插件”。
+1. 启动 profile，在 DSH Web 中打开“设置 → 插件桥”。
 2. 点击“添加”，输入 Git URL、`github:owner/repo#ref`、本地目录或 ZIP/TAR/TGZ 归档。
 3. 单插件来源会直接安装；多插件来源会显示复选列表，确认后从同一份固定快照安装所选插件，不会再次拉取。
 4. 使用开关在线启用或停用整个插件；使用删除按钮卸载。错误或警告数量可以展开查看说明、诊断代码、能力类型与关联文件。
 5. 点击刷新会检查每个已安装插件所属 Source 的最新 revision；有更新时插件行会显示“更新”按钮，点击后在当前进程中更新并重启该插件。
 
-旧插件的添加、启用、停用和卸载会立即作用于当前 DSH 进程，通常无需重启。只有安装、升级或删除 `@rvaim/dsh-compat` 本体时需要重启 profile。
+旧插件的添加、启用、停用和卸载会立即作用于当前 DSH 进程，通常无需重启。只有安装、升级或删除 `@rvaim/dsh-plugin-bridge` 本体时需要重启 profile。
 
-本包不提供独立 CLI。常用操作在 Web 设置页完成；批量与自动化场景使用 `ctx.compat` 服务 API。
+本包不提供独立 CLI。常用操作在 Web 设置页完成；批量与自动化场景使用 `ctx.pluginBridge` 服务 API。
 
 ## 服务 API
 
 其他 DSH 插件可以声明：
 
 ```ts
-export const inject = ['compat']
+export const inject = ['pluginBridge']
 ```
 
 然后调用：
 
 ```ts
-ctx.compat.sourceAdd(source, options?)
-ctx.compat.sourceRemove(sourceId)
-ctx.compat.sourceUpdate(sourceId, options?)
-ctx.compat.sourceList()
-ctx.compat.sourceInspect(sourceId)
+ctx.pluginBridge.sourceAdd(source, options?)
+ctx.pluginBridge.sourceRemove(sourceId)
+ctx.pluginBridge.sourceUpdate(sourceId, options?)
+ctx.pluginBridge.sourceList()
+ctx.pluginBridge.sourceInspect(sourceId)
 
-ctx.compat.prepareInstall(source, options?)
-ctx.compat.install(sourceOrSourceId, options?)
-ctx.compat.checkUpdates()
-ctx.compat.update(pluginId, options?)
-ctx.compat.enable(pluginId)
-ctx.compat.disable(pluginId)
-ctx.compat.uninstall(pluginId)
-ctx.compat.list()
-ctx.compat.inspect(pluginId)
+ctx.pluginBridge.prepareInstall(source, options?)
+ctx.pluginBridge.install(sourceOrSourceId, options?)
+ctx.pluginBridge.checkUpdates()
+ctx.pluginBridge.update(pluginId, options?)
+ctx.pluginBridge.enable(pluginId)
+ctx.pluginBridge.disable(pluginId)
+ctx.pluginBridge.uninstall(pluginId)
+ctx.pluginBridge.list()
+ctx.pluginBridge.inspect(pluginId)
 ```
 
-服务 API 直接通知运行管理器，适合对正在运行的 DSH 实例执行生命周期操作。
+服务 API 直接通知运行管理器，适合对正在运行的 DSH 实例执行生命周期操作。服务注入名为 `pluginBridge`，Web RPC namespace 为 `pluginBridgeAdmin`，Client locale namespace 为 `settings.pluginBridge`，Settings section ID 为 `plugin-bridge`；旧服务名、RPC 和 Client namespace 不提供兼容别名。内部 `Compat*` 类型和 `parseCompat*` 函数保留原名。
 
 ## Source 与 Plugin
 
@@ -107,7 +113,7 @@ Git / Directory / ZIP / TAR / TGZ
                  DSH
 ```
 
-`adapters` 与 `runtime` 不直接读取 Claude Code / Codex 原始配置；生态差异先由 parser 转换为统一结构。
+[runtime/adapters](<src/runtime/adapters/>) 与运行层不直接读取 Claude Code / Codex 原始配置；生态差异先由 parser 转换为统一结构。
 
 ## 能力范围
 
@@ -142,9 +148,10 @@ Git / Directory / ZIP / TAR / TGZ
 | `harnessHome` | Harness Home；省略时读取 `DSH_HOME` 或 `~/.dsh` | 环境决定 |
 | `workspaceRoot` | MCP 启动与无会话 Hook 的默认工作区 | 当前进程目录 |
 | `autoStart` | 启动时恢复 `state.json.enabled` 的 Plugin | `true` |
-| `hookDefaultTimeoutMs` | Hook 未声明超时时的默认毫秒数 | `600000` |
+| `parsers` | 参与解析的已装配实现 id；`[]` 不启用任何解析器 | 全部已装配实现 |
+| `hookDefaultTimeoutMs` | Hook 默认超时覆盖值；省略时 CC UserPromptSubmit 为 30 秒，其余已适配事件为 600 秒 | 事件规则 |
 | `hookStderrSummaryMaxChars` | Hook 记录中的 stderr 摘要字符上限 | `500` |
-| `codexModel` | Codex Hook payload 中的模型名 | 空字符串 |
+| `modelName` | Hook 运行配置要求提供模型字段时使用的名称 | 空字符串 |
 
 ## 存储布局
 
@@ -185,7 +192,7 @@ Plugin 安装不会把源码复制到 `installed/<pluginId>/package/`；事实�
 - Token、API Key、Header 等敏感配置使用引用或延迟指针，不写入 scan、日志或 inspect 输出。
 - Source 与 Plugin 操作使用文件锁、临时目录和原子重命名；共享更新失败时整体回滚。
 
-详见 [安全模型](docs/SECURITY.md)。
+详见[安全模型](docs/安全模型.md)。
 
 ## 开发与验证
 
@@ -196,16 +203,24 @@ npm run verify:dsh
 npm pack --ignore-scripts
 ```
 
-`npm run verify` 执行严格 TypeScript 编译、自动化测试、DSH Client/Typert 构建，以及发布白名单检查。`npm run verify:dsh` 额外核对已安装 DSH `0.1.0-rc.6` 真实依赖的关键导出契约。
+`npm run verify` 执行严格 TypeScript 编译、自动化测试、DSH Client/Typert 构建、八种解析器组合的物理移除编译/公共入口加载，以及发布白名单检查。`npm run verify:parsers` 可单独重跑可移除性验收。`npm run verify:dsh` 额外核对工作区 DSH `0.1.0-rc.6` 依赖的关键导出契约。
 
 ## 文档
 
-- [架构与生命周期](docs/ARCHITECTURE.md)
-- [使用与运维](docs/USAGE.md)
-- [兼容矩阵](docs/COMPATIBILITY.md)
-- [安全模型](docs/SECURITY.md)
-- [测试策略](docs/TESTING.md)
-- [验证报告](docs/VALIDATION-REPORT.md)
+- [包更名说明](<docs/包更名说明.md>)
+- [解析器解耦重构说明](docs/解析器解耦重构说明.md)
+- [解析器解耦验证报告](docs/解析器解耦验证报告.md)
+
+- [Agent Plugins 1.0.0 兼容说明](<docs/Agent Plugins 1.0.0 兼容说明.md>)
+- [Agent Plugins 1.0.0 验证报告](<docs/Agent Plugins 1.0.0 验证报告.md>)
+- [传统插件解析兼容方案](docs/传统插件解析兼容方案.md)
+- [传统插件兼容矩阵](docs/传统插件兼容矩阵.md)
+- [本轮协议兼容验证报告](docs/插件协议兼容验证报告.md)
+- [架构与生命周期](docs/架构与生命周期.md)
+- [使用与运维](docs/使用与运维.md)
+- [安全模型](docs/安全模型.md)
+- [测试策略](docs/测试策略.md)
+- [历史版本验证报告](docs/历史版本验证报告.md)
 
 ## 明确边界
 

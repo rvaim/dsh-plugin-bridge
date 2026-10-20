@@ -8,6 +8,7 @@ const failures = []
 
 async function load(name) {
   try {
+    console.log(`探针依赖 ${name} → ${import.meta.resolve(name)}`)
     return await import(name)
   } catch (error) {
     failures.push(`${name} 无法导入：${error instanceof Error ? error.message : String(error)}`)
@@ -39,12 +40,12 @@ if (mcpClient !== undefined) {
 
 try {
   const compat = await import('../dist/src/index.js')
-  if (typeof compat.apply !== 'function') failures.push('dsh-compat 未导出 apply()')
+  if (typeof compat.apply !== 'function') failures.push('plugin-bridge 未导出 apply()')
   if (!Array.isArray(compat.inject) || !compat.inject.includes('skills') || !compat.inject.includes('shell')) {
-    failures.push('dsh-compat 的 inject 未声明 skills/shell')
+    failures.push('plugin-bridge 的 inject 未声明 skills/shell')
   }
-  if (compat.Config === undefined) failures.push('dsh-compat 未导出 Config schema')
-  if (typeof compat.CompatWebGateway !== 'function') failures.push('dsh-compat 未导出 CompatWebGateway')
+  if (compat.Config === undefined) failures.push('plugin-bridge 未导出 Config schema')
+  if (typeof compat.CompatWebGateway !== 'function') failures.push('plugin-bridge 未导出 CompatWebGateway')
   if (typeof compat.CompatManager?.prototype?.prepareInstall !== 'function') {
     failures.push('CompatManager 未导出分步 Web 安装的 prepareInstall()')
   }
@@ -52,7 +53,7 @@ try {
     failures.push('CompatManager 未导出 Web 更新检测的 checkUpdates()')
   }
 } catch (error) {
-  failures.push(`dsh-compat 构建入口无法导入：${error instanceof Error ? error.message : String(error)}`)
+  failures.push(`plugin-bridge 构建入口无法导入：${error instanceof Error ? error.message : String(error)}`)
 }
 
 try {
@@ -63,12 +64,12 @@ try {
   const hostMethods = new Set(TYPERT?.invocations?.map(item => `${item.namespace}/${item.method}`) ?? [])
   const remoteMethods = new Set(remote?.descriptors?.map(item => `${item.namespace}/${item.method}`) ?? [])
   for (const method of ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'list', 'setEnabled', 'uninstall', 'update']) {
-    const endpoint = `compatAdmin/${method}`
+    const endpoint = `pluginBridgeAdmin/${method}`
     if (!hostMethods.has(endpoint)) failures.push(`Typert Host 缺少 ${endpoint}`)
     if (!remoteMethods.has(endpoint)) failures.push(`Typert Remote 缺少 ${endpoint}`)
   }
 } catch (error) {
-  failures.push(`dsh-compat Typert 产物无法导入：${error instanceof Error ? error.message : String(error)}`)
+  failures.push(`plugin-bridge Typert 产物无法导入：${error instanceof Error ? error.message : String(error)}`)
 }
 
 if (failures.length > 0) {
@@ -77,5 +78,5 @@ if (failures.length > 0) {
   console.error('\n请在安装了目标 DeepSeek Harness 依赖的 profile 或源码 checkout 中重试。')
   process.exitCode = 1
 } else {
-  console.log('真实 DSH 关键导出契约检查通过')
+  console.log('当前解析环境的 DSH 关键导出检查通过；这不是当前 Desktop 挂载、RPC 往返或浏览器验证')
 }

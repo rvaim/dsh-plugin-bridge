@@ -3,8 +3,8 @@ import { basename, dirname, resolve } from 'node:path'
 import { defineConfig } from 'tsdown'
 import { transform } from 'lightningcss'
 
-const PACKAGE_ID = '@rvaim/dsh-compat'
-const CSS_PREFIX = '\0dsh-compat-css:'
+const PACKAGE_ID = '@rvaim/dsh-plugin-bridge'
+const CSS_PREFIX = '\0dsh-plugin-bridge-css:'
 const CSS_SUFFIX = '.mjs'
 const PLATFORM_MODULES = [
   'react',
@@ -22,7 +22,7 @@ const PLATFORM_MODULES = [
 
 export default defineConfig({
   name: `${PACKAGE_ID}/client`,
-  entry: { client: 'src/client/index.ts' },
+  entry: { client: 'src/web/client/index.ts' },
   outDir: 'dist',
   format: 'cjs',
   platform: 'browser',
@@ -37,7 +37,7 @@ export default defineConfig({
     onlyBundle: ['zod'],
   },
   plugins: [{
-    name: 'dsh-compat-css-modules-inline',
+    name: 'dsh-plugin-bridge-css-modules-inline',
     resolveId(source: string, importer: string | undefined) {
       if (!source.endsWith('.module.css') || importer === undefined) return null
       return `${CSS_PREFIX}${resolve(dirname(importer), source)}${CSS_SUFFIX}`

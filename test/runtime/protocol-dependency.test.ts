@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { registerHooks } from '../../src/adapters/hooks/register.js'
+import { registerHooks } from '../../src/runtime/adapters/hooks.js'
 import { defaultRuntimeDependencies } from '../../src/runtime/dependencies.js'
 import type { DshContextLike } from '../../src/runtime/context.js'
 import type { CompatPlugin } from '../../src/types/plugin.js'
@@ -8,7 +8,6 @@ import type { CompatPlugin } from '../../src/types/plugin.js'
 test('发布运行依赖可直接加载并执行 Hook Protocol', async () => {
   const protocol = await defaultRuntimeDependencies.loadHookProtocol()
   assert.equal(typeof protocol.runHook, 'function')
-  assert.equal(typeof protocol.matchesMatcher, 'function')
   assert.equal(typeof protocol.mergeHookOutputs, 'function')
   assert.equal(typeof protocol.createDetachedRuns, 'function')
 
@@ -90,12 +89,14 @@ test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () 
       matcher: 'danger',
       runtime: {
         wireEventName: 'PreToolUse',
-        matcherMode: 'claude-code',
+        matcherSyntax: 'exact',
+        matcherSeparator: 'pipe-or-comma',
+        defaultTimeoutSec: 600,
         trailingNewline: true,
         plainStdoutAsContext: false,
-        environmentMode: 'claude-plugin',
+        environmentBindings: { CLAUDE_PLUGIN_ROOT: 'plugin-root', CLAUDE_PLUGIN_DATA: 'plugin-data', CLAUDE_PROJECT_DIR: 'workspace-root' },
         missingTranscriptPath: 'empty-string',
-        includeCodexBaseFields: false,
+        includeModelPermissionFields: false,
         includeTurnId: false,
         toolInputShape: 'raw',
         honorPreToolAsk: true,

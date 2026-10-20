@@ -5,9 +5,9 @@ import test from 'node:test'
 
 test('adapter 不读取 Claude/Codex 原始配置文件', async () => {
   for (const file of [
-    'src/adapters/skills/provider.ts',
-    'src/adapters/mcp/client.ts',
-    'src/adapters/hooks/register.ts',
+    'src/runtime/adapters/skills.ts',
+    'src/runtime/adapters/mcp.ts',
+    'src/runtime/adapters/hooks.ts',
   ]) {
     const source = await readFile(resolve(file), 'utf8')
     assert.equal(source.includes('.mcp.json'), false, file)

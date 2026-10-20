@@ -1,3 +1,4 @@
+import { createBuiltinParserEngine } from '../../src/composition/defaults.js'
 import assert from 'node:assert/strict'
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -17,7 +18,7 @@ test('安装阶段拒绝恶意归档且不留下半安装目录或事务目录',
     const archive = resolve(temp.path, 'evil.zip')
     await createStoredZip(archive, [{ name: '../outside.txt', data: 'owned' }])
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await assert.rejects(manager.install(archive, { enable: false }), /逃逸/)
     assert.deepEqual(await readdir(layout.installed), [])
     assert.deepEqual(await readdir(layout.temp), [])
@@ -34,7 +35,7 @@ test('损坏清单作为结构化 error 保存，插件可 inspect 但不会启�
     await mkdir(resolve(source, '.claude-plugin'), { recursive: true })
     await writeFile(resolve(source, '.claude-plugin/plugin.json'), '{broken json')
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     const result = (await manager.install(source)).plugins[0]
     assert.equal(result.enabled, false)
     assert(result.plugin.diagnostics.some(item => item.code === 'PLUGIN_MANIFEST_INVALID' && item.level === 'error'))
@@ -55,7 +56,7 @@ test('安装不会执行 package.json 的 postinstall 或任意第三方脚本',
       scripts: { postinstall: `node -e "require('fs').writeFileSync(${JSON.stringify(marker)}, 'bad')"` },
     }))
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    await new CompatManager(layout).install(source, { enable: false })
+    await new CompatManager(layout, undefined, createBuiltinParserEngine()).install(source, { enable: false })
     await assert.rejects(readFile(marker), /ENOENT/)
   } finally {
     await temp.cleanup()
@@ -70,7 +71,7 @@ test('运行实例 dispose 失败时卸载中止，正式插件目录保持完�
     await buildClaudePlugin(source, { name: 'dispose-failure', skillName: 'keep-me' })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
-    const manager = new CompatManager(layout, runtime)
+    const manager = new CompatManager(layout, runtime, createBuiltinParserEngine())
     await manager.install(source)
     runtime.stop = async () => { throw new Error('故障注入：dispose 失败') }
 
@@ -92,7 +93,7 @@ test('enable 启动异常时可靠回写 disabled', async () => {
     await buildClaudePlugin(source, { name: 'enable-failure' })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
-    const manager = new CompatManager(layout, runtime)
+    const manager = new CompatManager(layout, runtime, createBuiltinParserEngine())
     await manager.install(source, { enable: false })
     const record = await manager.inspect('enable-failure')
     await writeJsonAtomic(layout.stateFile('enable-failure'), { ...record.state, enabled: true })

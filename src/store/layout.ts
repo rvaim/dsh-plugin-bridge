@@ -15,7 +15,7 @@ function storageId(value: string, kind: 'Source' | 'Plugin'): string {
   return value
 }
 
-/** dsh-compat 在 Harness Home 下的独立命名空间。 */
+/** 插件桥在 Harness Home 下的独立存储命名空间。 */
 export class CompatLayout {
   readonly harnessHome: string
   readonly root: string
@@ -28,6 +28,7 @@ export class CompatLayout {
 
   constructor(harnessHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')) {
     this.harnessHome = resolve(harnessHome)
+    // 保留稳定 storage key，避免品牌重命名后无法读取已有安装与数据。
     this.root = join(this.harnessHome, 'dsh-compat')
     this.sources = join(this.root, 'sources')
     this.installed = join(this.root, 'installed')

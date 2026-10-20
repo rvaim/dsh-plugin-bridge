@@ -1,3 +1,4 @@
+import { createBuiltinParserEngine } from '../../src/composition/defaults.js'
 import assert from 'node:assert/strict'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -17,7 +18,7 @@ test('从带单层包装目录的 ZIP 安装并记录 SHA-256', async () => {
       { name: 'zip-plugin/skills/demo/SKILL.md', data: '---\nname: demo\ndescription: Demo\n---\n正文' },
     ])
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     const result = await manager.install(archive, { enable: false })
     const installed = result.plugins[0]
     assert.equal(installed.plugin.id, 'zip-plugin')
@@ -53,7 +54,7 @@ test('从本地 Git 仓库安装并把实际 commit 写入 install.json', async 
     await runProcess('git', ['-C', repo, 'commit', '-m', 'initial'])
     const commit = (await runProcess('git', ['-C', repo, 'rev-parse', 'HEAD'])).stdout.trim()
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     const result = await manager.install(`file://${repo}`, { enable: false })
     const installed = result.plugins[0]
     assert.equal(result.source.source.origin.type, 'git')

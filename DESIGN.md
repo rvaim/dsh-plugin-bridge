@@ -1,12 +1,13 @@
-# dsh-compat Web 设计约定
+# 插件桥（Plugin Bridge） Web 设计约定
 
 ## 继承关系
 
-dsh-compat Web 设置页是 DeepSeek Harness 现有设置面板的局部扩展。视觉与交互真源是 DSH 的 `ui-settings-general`、`ui-settings-plugin-inventory` 与 `ui-primitives`，而不是本项目自建的设计系统。
+插件桥（Plugin Bridge） Web 设置页是 DeepSeek Harness 现有设置面板的局部扩展。视觉与交互真源是 DSH 的 `ui-settings-general`、`ui-settings-plugin-inventory` 与 `ui-primitives`，而不是本项目自建的设计系统。
 
 ## 页面结构
 
-- 通过 `settings.section` 注册独立的“兼容插件”导航项，排序在 Agent 预设之后。
+- 通过 `settings.section` 注册独立导航项，section ID 为 `plugin-bridge`，中文名“插件桥”、英文名“Plugin Bridge”，排序在 Agent 预设之后。
+- Client locale namespace 为 `settings.pluginBridge`；中文说明为“在当前 profile 中管理和运行 Claude Code、Codex 与 Agent Plugins 外部插件。开关与卸载会立即作用于当前进程。”，英文说明为“Manage and run external plugins for Claude Code, Codex, and Agent Plugins in the current profile. Changes apply to this process immediately.”。
 - 内容列沿用设置面板的 760px 最大内容宽度、紧凑标题/说明层级和 12–14px 间距节奏。
 - 插件列表以全宽管理行呈现。左侧承载名称、来源、格式与能力摘要；右侧承载实时状态、启停开关与卸载动作。
 - 错误与警告数量是行内 disclosure trigger；展开内容留在原管理行中，以说明为主、诊断代码/能力/文件为辅，不用第二层 Modal 打断上下文。

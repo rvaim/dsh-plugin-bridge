@@ -1,2 +1,3 @@
-/** parser 归一化后的插件运行环境语义；adapter 不再推断原始生态。 */
-export type CompatPluginEnvironmentMode = 'claude-plugin' | 'codex-plugin' | 'combined-plugin'
+/** 子进程变量对应的路径语义，不依赖插件来源或方言。 */
+export type CompatPluginEnvironmentBinding = 'plugin-root' | 'plugin-data' | 'workspace-root'
+export type CompatPluginEnvironmentBindings = Record<string, CompatPluginEnvironmentBinding>

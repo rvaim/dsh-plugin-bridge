@@ -1,4 +1,5 @@
 import { Service, type Context as CordisContext } from '@deepseek-ai/cordis'
+import { createBuiltinParserEngine } from './composition/defaults.js'
 import type { Config } from './config.js'
 import {
   CompatManager,
@@ -19,22 +20,22 @@ import { CompatRuntimeManager } from './runtime/manager.js'
 import type { DshContextLike } from './runtime/context.js'
 import { CompatLayout } from './store/layout.js'
 
-/** 暴露给其他 DSH 插件使用的 dsh-compat 服务。 */
+/** 暴露给其他 DSH 插件使用的插件桥服务。 */
 export class CompatService extends Service {
   readonly layout: CompatLayout
   readonly runtime: CompatRuntimeManager
   readonly manager: CompatManager
 
   constructor(ctx: DshContextLike, readonly config: Config = {}) {
-    super(ctx as unknown as CordisContext, 'compat')
+    super(ctx as unknown as CordisContext, 'pluginBridge')
     this.layout = new CompatLayout(config.harnessHome)
     this.runtime = new CompatRuntimeManager(ctx, this.layout, {
       workspaceRoot: config.workspaceRoot,
       hookDefaultTimeoutMs: config.hookDefaultTimeoutMs,
       hookStderrSummaryMaxChars: config.hookStderrSummaryMaxChars,
-      codexModel: config.codexModel,
+      modelName: config.modelName,
     })
-    this.manager = new CompatManager(this.layout, this.runtime)
+    this.manager = new CompatManager(this.layout, this.runtime, createBuiltinParserEngine(config.parsers))
   }
 
   async start(): Promise<void> {
@@ -105,6 +106,6 @@ export class CompatService extends Service {
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    compat: CompatService
+    pluginBridge: CompatService
   }
 }

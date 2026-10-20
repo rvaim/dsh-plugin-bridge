@@ -1,3 +1,4 @@
+import { createBuiltinParserEngine } from '../../src/composition/defaults.js'
 import assert from 'node:assert/strict'
 import { readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
@@ -19,7 +20,7 @@ test('事务更新替换 package/，保留 data/state，并清理 cache', async 
     await buildClaudePlugin(v2, { name: 'updatable', version: '2.0.0', mcpName: 'svc', mcpCommand: 'fake-mcp-v2', marker: 'version-two' })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
-    const manager = new CompatManager(layout, runtime)
+    const manager = new CompatManager(layout, runtime, createBuiltinParserEngine())
     assert.equal((await manager.install(v1)).plugins[0].enabled, true)
     await writeFile(resolve(layout.dataDir('updatable'), 'persistent.txt'), '保留我')
     await writeFile(resolve(layout.cacheDir('updatable'), 'old.cache'), '可删除')
@@ -48,7 +49,7 @@ test('新版运行失败时恢复旧 package、元数据、状态和旧运行实
     await buildClaudePlugin(broken, { name: 'rollback', version: '3.0.0', mcpName: 'svc', mcpCommand: 'fail-mcp', marker: 'broken' })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
-    const manager = new CompatManager(layout, runtime)
+    const manager = new CompatManager(layout, runtime, createBuiltinParserEngine())
     await manager.install(stable)
     await writeFile(resolve(layout.dataDir('rollback'), 'persistent.txt'), 'data')
 
@@ -76,7 +77,7 @@ test('新版静态解析有 error 时不停止旧实例、不交换目录', asyn
     await buildClaudePlugin(invalid, { name: 'static-check', version: '2.0.0', unsupportedHook: true, marker: 'invalid' })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
-    const manager = new CompatManager(layout, runtime)
+    const manager = new CompatManager(layout, runtime, createBuiltinParserEngine())
     await manager.install(stable)
     await assert.rejects(
       manager.update('static-check', { source: invalid }),
@@ -99,7 +100,7 @@ test('checkUpdates 探测目录 Source 的 revision 变化，并在更新后收�
     const source = resolve(temp.path, 'source')
     await buildClaudePlugin(source, { name: 'updatable-check', version: '1.0.0', marker: 'v1' })
     const layout = new CompatLayout(resolve(temp.path, 'home'))
-    const manager = new CompatManager(layout)
+    const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.install(source)
 
     const before = await manager.checkUpdates()

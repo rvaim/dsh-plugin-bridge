@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
-import { parseCompatPlugin } from '../../src/parser/normalize.js'
-import { parseFrontmatter } from '../../src/parser/shared/frontmatter.js'
+import { parseCompatPlugin } from '../../src/composition/defaults.js'
+import { parseFrontmatter } from '../../src/shared/frontmatter.js'
 import { temporaryDirectory } from '../helpers/temp.js'
 
 const claudeFixture = resolve('test/fixtures/claude-code/full')
@@ -24,7 +24,7 @@ test('Claude Code 完整插件被规范化为 CompatPlugin', async () => {
   assert.equal(plugin.skills[0].name, 'review')
   assert.equal(plugin.skills[0].invocation.modelInvocable, true)
   assert.deepEqual(new Set(plugin.hooks.map(item => item.dshEvent)), new Set([
-    'agent/session-start', 'tools/pre-execute', 'tools/post-execute',
+    'agent/created', 'tools/pre-execute', 'tools/post-execute',
   ]))
 })
 
@@ -82,7 +82,7 @@ test('不支持的 Hook handler 与事件产生 error，不静默忽略', async 
       },
     }))
     const plugin = await parseCompatPlugin(temp.path)
-    assert(plugin.diagnostics.some(item => item.code === 'HOOK_EVENT_UNSUPPORTED' && item.level === 'error'))
+    assert(plugin.diagnostics.some(item => item.code === 'HOOK_EVENT_RUNTIME_UNSUPPORTED' && item.level === 'error'))
     assert(plugin.diagnostics.some(item => item.code === 'HOOK_UNSUPPORTED_HANDLER' && item.level === 'error'))
     assert(plugin.diagnostics.some(item => item.code === 'HOOK_ARGS_INVALID' && item.level === 'error'))
   } finally {
@@ -188,12 +188,12 @@ notes: |
   assert.equal(parsed.attributes.name, 'demo')
   assert.deepEqual(parsed.attributes.tags, ['one', 'two'])
   assert.deepEqual(parsed.attributes.metadata, { owner: 'team' })
-  assert.equal(parsed.attributes.notes, '第一行\n第二行')
+  assert.equal(parsed.attributes.notes, '第一行\n第二行\n')
   assert.equal(parsed.body, '正文')
 })
 
 
-test('Codex 清单显式内联配置补充默认文件，并支持 PascalCase Hook 与 mcp_servers', async () => {
+test('Codex 清单显式配置替换默认文件，并支持 PascalCase Hook 与历史 mcp_servers', async () => {
   const temp = await temporaryDirectory()
   try {
     await mkdir(resolve(temp.path, '.codex-plugin'), { recursive: true })
@@ -225,12 +225,12 @@ test('Codex 清单显式内联配置补充默认文件，并支持 PascalCase Ho
 
     const plugin = await parseCompatPlugin(temp.path)
     assert.equal(plugin.diagnostics.some(item => item.level === 'error'), false)
-    assert.equal(plugin.hooks.length, 2)
+    assert.equal(plugin.hooks.length, 1)
     const inlineHook = plugin.hooks.find(item => item.runtime.wireEventName === 'PreToolUse')
     assert(inlineHook)
     assert.equal(inlineHook.matcher, '^shell$')
-    assert(plugin.hooks.some(item => item.event === 'stop'))
-    assert.deepEqual(plugin.mcpServers.map(item => item.serverName).sort(), ['default_server', 'inline_server'])
+    assert.equal(plugin.hooks.some(item => item.event === 'stop'), false)
+    assert.deepEqual(plugin.mcpServers.map(item => item.serverName), ['inline_server'])
     const inlineServer = plugin.mcpServers.find(item => item.serverName === 'inline_server')
     assert(inlineServer)
     assert.equal(inlineServer.toolCallTimeoutMs, 2_000)

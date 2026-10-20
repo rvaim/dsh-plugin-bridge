@@ -1,7 +1,7 @@
 {
   "name": "web-settings-fixture",
   "owner": {
-    "name": "dsh-compat tests"
+    "name": "Plugin Bridge tests"
   },
   "plugins": [
     {

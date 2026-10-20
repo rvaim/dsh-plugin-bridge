@@ -17,7 +17,7 @@ interface SharedState {
   hookInvoked: Record<string, unknown>[]
   hookResults: Record<string, unknown>[]
   hookRuns: Array<{
-    hook: { command: string; timeoutSec?: number }
+    hook: { command: string; timeoutSec?: number; args?: readonly string[] }
     options: {
       payload: unknown
       env?: Record<string, string>
@@ -199,12 +199,6 @@ function createSharedState(): SharedState {
   }
 }
 
-function matchesMatcher(matcher: string | undefined, query: string, mode: 'claude-code' | 'codex'): boolean {
-  if (matcher === undefined || matcher === '' || matcher === '*') return true
-  if (mode === 'claude-code' && /^[A-Za-z0-9_|]+$/.test(matcher)) return matcher.split('|').includes(query)
-  try { return new RegExp(matcher).test(query) } catch { return false }
-}
-
 function mergeHookOutputs(outputs: HookOutputLike[]): MergedHookOutcomeLike {
   let rank = 0
   const reasons = new Map<number, string[]>()
@@ -271,7 +265,6 @@ export function fakeRuntimeDependencies(shared: SharedState): RuntimeDependencie
     },
     appendHookInvoked(_session, data) { shared.hookInvoked.push(data) },
     appendHookResult(_session, data) { shared.hookResults.push(data) },
-    matchesMatcher,
     mergeHookOutputs,
     async runHook(_shell, hook, options) {
       shared.hookRuns.push({ hook, options })

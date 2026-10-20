@@ -1,5 +1,53 @@
 # 更新日志
 
+## 0.5.0 — 2026-10-21
+
+此版本以新包名 `@rvaim/dsh-plugin-bridge` 交付，包含不兼容的服务命名和开发 API 调整；旧包不会自动升级或迁移 profile。支持的解析能力与当前 Desktop 运行边界分别记录，见[包更名说明](<docs/包更名说明.md>)和[验证报告](<docs/解析器解耦验证报告.md>)。
+
+### 包标识与展示名称调整
+
+- 中文名称：插件桥。
+- 英文名称：Plugin Bridge。
+- Cordis 插件 ID：`plugin-bridge`。
+- npm 包名：`@rvaim/dsh-plugin-bridge`，版本 `0.5.0`。
+
+当前服务统一为 `ctx.pluginBridge`，RPC namespace 为 `pluginBridgeAdmin`，Client locale namespace 为 `settings.pluginBridge`，Settings section ID 为 `plugin-bridge`；不保留旧 namespace 别名。内部 `Compat*` 类型及 `parseCompat*` 函数保留原名。数据 namespace 继续使用 `dsh-compat`，磁盘目录仍为 `$DSH_HOME/dsh-compat/`；repository 仍为 `https://github.com/rvaim/dsh-compat`。本次不自动修改任何 profile，历史发布记录保留当时的包名和 API，详细边界见[包更名说明](<docs/包更名说明.md>)。
+
+### 源码目录收敛
+
+- `src` 一级目录从 13 个收敛为 10 个：`composition`、`manager`、`parser`、`protocols`、`runtime`、`shared`、`source`、`store`、`types`、`web`；其他职责分工不变。
+- 加载器迁至 [manager/plugin-loader.ts](<src/manager/plugin-loader.ts>)；能力适配器归入 [runtime/adapters/](<src/runtime/adapters/>)，Hook/MCP/Skill 实现压平为三个文件；Web 按 [host/](<src/web/host/>) 与 [client/](<src/web/client/>) 收拢；协议共享描述类型迁至 [types/protocol.ts](<src/types/protocol.ts>)。
+- 删除旧 `src/core/`、`src/adapters/`、`src/client/`、`src/protocols/shared/`，不保留 re-export、转发文件或兼容门面；完整映射见[解析器解耦重构说明](<docs/解析器解耦重构说明.md>)。
+- 本次仅调整目录归属，Plugin parser / Source parser 模型版本仍为 `5.0.0`，各内置协议实现版本仍为 `1.1.0`；不更改解析语义、运行逻辑、执行 profile 或用户 profile。最终验证和发布文件数量由本轮实际执行结果记录。
+
+### 解析器解耦重构
+
+- CC、传统 Codex、Agent Plugins 完整实现归独立协议目录，唯一装配文件引用具体模块；协议专属旧 API、转发门面和反向查询注册表全部删除。
+- 新增统一解析契约、显式引擎、格式边界元数据及八种组合验收。缺失解析器明确诊断，不回退其他格式；混合目录同名策略保守阻断。
+- 核心管理/加载器通过端口注入，缓存比较全局版本、Source revision 和解析器快照；全局缓存版本为 5.0.0，各内置解析实现版本为 1.1.0。
+- 运行层按显式语义 profile 和环境绑定执行，来源格式仅作元数据；共享模板无厂商变量别名，删除旧环境模式、IR alias 和默认 Manager 构造，`codexModel` 改为 `modelName`。
+- 拆出 Manager 类型、仓库及完整更新事务；解析器移除后保留用户启用意愿和数据，停止失效运行能力。
+- 完整验证增加无对应实现目录时的真实构建/公共入口加载，并输出中文重构说明与验证报告。
+
+
+### Agent Plugins 1.0.0 独立格式接入
+
+- 新增 `agent-plugins` 独立身份，使用根 `plugin.json`，不归入传统 Codex/CC 方言；只有本地支持的 canonical schema 可加载。
+- 内置官方 v1.0.0 Manifest/MCP schema、固定来源与 Apache-2.0 许可，使用显式 Ajv 运行依赖离线校验；未知核心字段/扩展按规范例外忽略。
+- 固定发现直接子目录 Skill 与根 mcp.json，按组件及单条目隔离错误；实现 portable stdio、无配置 Header 的 streamable-http、默认 cwd、真实路径检查、保留 env 和单次占位符展开。
+- 复用原有安装、更新、数据保留和卸载；新增独立格式回归及中文兼容/验证文档。Parser/source parser 为 3.1.0。
+- SSE、配置 Header 的 HTTP 转发及未实现 namespace 有明确边界；当前 Desktop Web 的 Typert 迁移仍独立处理。
+
+### 传统协议兼容修订
+
+- 明确上游基线：Codex 0.163.0 传统格式、Claude Code 2.1.304 和 2026-10-20 官方文档；Agent Plugins 1.0.0 采用单独的解析器，不并入传统规则。
+- 修正两平台 Manifest/Marketplace 的替换、追加、strict、Hook 事件覆盖、MCP 有序覆盖及 defaultEnabled；补充 Command 对象来源与合法未适配能力诊断。
+- 扩充事件目录、matcher、Handler 声明；支持 Hook 失败阻断、完整工具 JSON、当前 Shell/Agent/Session 接入和直接 argv 执行，失败不再记为 pass/running。
+- 补充 Codex Skill sidecar、CC 调用提示和布尔语义、传统 MCP Header/env/bearer 与延迟模板；未兑现权限和执行限制阻止启用。
+- Plugin parser / Source parser 升级至 3.0.0，已有扫描缓存重扫；文档改为中文命名，新增实施方案和本轮验证报告。
+- 上述修订在 `0.5.0` 汇总交付，阶段性缓存版本和验证事实保留在中文报告中；当前 Desktop Web 的 Typert 生成契约迁移和页面端到端验证仍单独列为运行时边界。
+
+
 ## 0.4.4
 
 - Web 设置页新增更新检测：刷新时探测每个已安装插件所属 Source 的最新 revision，有更新时显示“更新”按钮。

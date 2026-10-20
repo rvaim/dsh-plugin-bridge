@@ -1,7 +1,6 @@
 export * from './context.js'
 export * from './dependencies.js'
 export * from './environment.js'
-export * from './loader.js'
 export * from './manager.js'
 export * from './plugin.js'
 export * from './value.js'

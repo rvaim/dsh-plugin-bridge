@@ -1,6 +1,6 @@
-import { registerHooks } from '../adapters/hooks/register.js'
-import { mountMcpServers } from '../adapters/mcp/client.js'
-import { registerSkillProvider } from '../adapters/skills/provider.js'
+import { registerHooks } from './adapters/hooks.js'
+import { mountMcpServers } from './adapters/mcp.js'
+import { registerSkillProvider } from './adapters/skills.js'
 import type { CompatPlugin } from '../types/plugin.js'
 import type { CapabilityRuntimeHealth, PluginRuntimeStatus } from '../types/runtime.js'
 import type { DshContextLike } from './context.js'
@@ -9,12 +9,13 @@ import type { RuntimeDependencies } from './dependencies.js'
 export interface LegacyRuntimePluginConfig {
   plugin: CompatPlugin
   packageRoot: string
+  sourceRoot?: string
   dataRoot: string
   workspaceRoot: string
   dependencies: RuntimeDependencies
   hookDefaultTimeoutMs?: number
   hookStderrSummaryMaxChars?: number
-  codexModel?: string
+  modelName?: string
   report(health: CapabilityRuntimeHealth[], status: PluginRuntimeStatus): void
 }
 
@@ -32,7 +33,7 @@ export function createLegacyRuntimePlugin(pluginId: string): {
   apply(ctx: DshContextLike, config: LegacyRuntimePluginConfig): Promise<void>
 } {
   return {
-    name: `dsh-compat-runtime-${pluginId}`,
+    name: `plugin-bridge-runtime-${pluginId}`,
     async apply(ctx, config): Promise<void> {
       const health: CapabilityRuntimeHealth[] = []
       if (config.plugin.skills.length > 0) {
@@ -41,19 +42,26 @@ export function createLegacyRuntimePlugin(pluginId: string): {
           health.push(...config.plugin.skills.map(skill => ({ capability: 'skill' as const, name: skill.name, status: 'running' as const })))
         } catch (error) {
           health.push(...config.plugin.skills.map(skill => ({ capability: 'skill' as const, name: skill.name, status: 'failed' as const, message: String(error) })))
-          ctx.logger.warn(`dsh-compat: ${pluginId} Skill Provider 注册失败：${String(error)}`)
+          ctx.logger.warn(`plugin-bridge: ${pluginId} Skill Provider 注册失败：${String(error)}`)
         }
       }
       try {
         health.push(...await registerHooks(ctx, config.plugin, config.packageRoot, config.dataRoot, config.dependencies, {
           workspaceRoot: config.workspaceRoot,
+          sourceRoot: config.sourceRoot,
           defaultTimeoutMs: config.hookDefaultTimeoutMs,
           stderrSummaryMaxChars: config.hookStderrSummaryMaxChars,
-          codexModel: config.codexModel,
+          modelName: config.modelName,
+          onHealth: next => {
+            const index = health.findIndex(item => item.capability === 'hook' && item.name === next.name)
+            if (index < 0) health.push(next)
+            else health[index] = next
+            config.report([...health], statusFromHealth(health))
+          },
         }))
       } catch (error) {
         health.push(...config.plugin.hooks.map(hook => ({ capability: 'hook' as const, name: hook.id, status: 'failed' as const, message: String(error) })))
-        ctx.logger.warn(`dsh-compat: ${pluginId} Hook 注册失败：${String(error)}`)
+        ctx.logger.warn(`plugin-bridge: ${pluginId} Hook 注册失败：${String(error)}`)
       }
       try {
         const mounted = await mountMcpServers(
@@ -63,11 +71,12 @@ export function createLegacyRuntimePlugin(pluginId: string): {
           config.dataRoot,
           config.workspaceRoot,
           config.dependencies,
+          config.sourceRoot,
         )
         health.push(...mounted.health)
       } catch (error) {
         health.push(...config.plugin.mcpServers.map(server => ({ capability: 'mcp' as const, name: server.serverName, status: 'failed' as const, message: String(error) })))
-        ctx.logger.warn(`dsh-compat: ${pluginId} MCP 注册失败：${String(error)}`)
+        ctx.logger.warn(`plugin-bridge: ${pluginId} MCP 注册失败：${String(error)}`)
       }
       health.push(...config.plugin.commands.map(command => ({
         capability: 'command' as const,

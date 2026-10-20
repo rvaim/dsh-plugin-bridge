@@ -2,7 +2,6 @@ import type {
   CommandHook,
   DetachedRuns,
   HookOutput,
-  MatcherMode,
   MergedHookOutcome,
   RunHookOptions,
   RunHookResult,
@@ -19,11 +18,10 @@ export interface HookProtocolLike {
   appendHookResult?(session: unknown, data: Record<string, unknown>): void
   runHook(
     shell: unknown,
-    hook: CommandHook,
+    hook: CommandHook & { args?: readonly string[] },
     options: RunHookOptions,
     now: () => number,
   ): Promise<RunHookResult>
-  matchesMatcher(matcher: string | undefined, query: string, mode: MatcherMode): boolean
   mergeHookOutputs(outputs: HookOutputLike[]): MergedHookOutcomeLike
 }
 

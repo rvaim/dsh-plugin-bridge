@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
-import { parseCompatPlugin } from '../../src/parser/normalize.js'
+import { parseCompatPlugin } from '../../src/composition/defaults.js'
 import { copyPluginDirectory } from '../../src/source/directory.js'
 import { CompatLayout } from '../../src/store/layout.js'
 import { CompatRuntimeManager } from '../../src/runtime/manager.js'
@@ -19,6 +19,7 @@ function fakeAgent(cwd: string): any {
     session: {
       header: { id: 'session-1', cwd },
       events: [{ type: 'turn/start', data: { turn: 1 } }],
+      append(this: any, type: string, data: unknown) { this.events.push({ type, data }) },
     },
     injected,
     steered,
@@ -102,7 +103,7 @@ test('父运行实例注册 Skill、MCP、Hook，停止时整体撤销', async (
     assert.equal(post.kind, 'continue')
     assert.equal(post.additionalContexts[0].content[0].text, '已完成安全检查')
 
-    await ctx.emit('agent/session-start', { agent, source: 'startup' })
+    await ctx.emit('agent/created', { agent, source: 'startup' })
     await tick()
     assert.equal(agent.injected[0].content[0].text, '会话初始化完成')
     assert(ctx.shared.hookInvoked.length > 0)
@@ -146,7 +147,7 @@ test('缺少一个 MCP 凭据时插件整体进入 degraded，其他能力继续
   }
 })
 
-test('Codex Hook 使用当前协议 payload，并忽略不受支持的 ask', async () => {
+test('Codex Hook 保留完整 payload，并明确阻断不支持的 ask', async () => {
   const temp = await temporaryDirectory()
   const ctx = FakeContext.create()
   try {
@@ -159,7 +160,7 @@ test('Codex Hook 使用当前协议 payload，并忽略不受支持的 ask', asy
     })
     ctx.setCredential('SEARCH_KEY', 'search-token')
     const runtime = new CompatRuntimeManager(ctx, layout, {
-      codexModel: 'deepseek-v4',
+      modelName: 'deepseek-v4',
       dependencies: fakeRuntimeDependencies(ctx.shared),
     })
     assert.equal((await runtime.start(plugin, packageRoot)).status, 'running')
@@ -178,7 +179,8 @@ test('Codex Hook 使用当前协议 payload，并忽略不受支持的 ask', asy
     const decision = await ctx.intercept('tools/pre-execute', [{
       name: 'danger', arguments: { command: 'echo ok', ignored: true }, callId: 'x', agent, signal: new AbortController().signal,
     }], async () => ({ kind: 'allow' }))
-    assert.deepEqual(decision, { kind: 'allow' }, '当前 Codex 桥不把 ask 映射为工具确认')
+    assert.equal(decision.kind, 'deny')
+    assert.match(decision.reason, /不支持.*ask/)
 
     const preRun = ctx.shared.hookRuns.find(item => item.hook.command === 'ask:需要确认')
     assert(preRun)
@@ -202,7 +204,7 @@ test('Codex Hook 使用当前协议 payload，并忽略不受支持的 ask', asy
       permission_mode: 'default',
       turn_id: '1',
       tool_name: 'danger',
-      tool_input: { command: 'echo ok' },
+      tool_input: { command: 'echo ok', ignored: true },
       tool_use_id: 'x',
     })
 
@@ -252,7 +254,7 @@ test('Codex Hook 使用当前协议 payload，并忽略不受支持的 ask', asy
   }
 })
 
-test('Claude Hook 的 command + args 被解析、展开并按 Shell Token 安全执行', async () => {
+test('Claude Hook 的 command + args 保留直接执行参数边界', async () => {
   const temp = await temporaryDirectory()
   const ctx = FakeContext.create()
   try {
@@ -294,13 +296,10 @@ test('Claude Hook 的 command + args 被解析、展开并按 Shell Token 安全
     }], async () => ({ kind: 'enter', messages: [] }))
 
     assert.equal(ctx.shared.hookRuns.length, 1)
-    assert.equal(ctx.shared.hookRuns[0].hook.command, [
-      "'node'",
-      `'${resolve(packageRoot, 'bin/dispatch file.js')}'`,
-      "'--host'",
-      "'claude'",
-      `'quote'"'"'value'`,
-    ].join(' '))
+    assert.equal(ctx.shared.hookRuns[0].hook.command, 'node')
+    assert.deepEqual(ctx.shared.hookRuns[0].hook.args, [
+      resolve(packageRoot, 'bin/dispatch file.js'), '--host', 'claude', "quote'value",
+    ])
   } finally {
     await ctx.dispose()
     await temp.cleanup()

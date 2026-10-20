@@ -1,8 +1,9 @@
 import type { CompatLayout } from '../store/layout.js'
 import { listPluginIds } from '../store/metadata.js'
-import { loadInstalledPluginForRuntime } from '../runtime/loader.js'
+import { loadInstalledPluginForRuntime } from './plugin-loader.js'
+import type { CompatParserEngine } from '../parser/contracts.js'
 import type { CompatDiagnostic } from '../types/diagnostic.js'
-import { diagnostic } from '../types/diagnostic.js'
+import { diagnostic, hasErrorDiagnostics } from '../types/diagnostic.js'
 import type { CompatPlugin } from '../types/plugin.js'
 
 interface CapabilityNames {
@@ -55,7 +56,8 @@ export function stripConflictDiagnostics(plugin: CompatPlugin): CompatPlugin {
 export async function findCapabilityConflicts(
   layout: CompatLayout,
   candidate: CompatPlugin,
-  excludePluginIds: string | readonly string[] = [],
+  excludePluginIds: string | readonly string[],
+  parsers: CompatParserEngine,
 ): Promise<CompatDiagnostic[]> {
   const excluded = new Set(typeof excludePluginIds === 'string' ? [excludePluginIds] : excludePluginIds)
   const result: CompatDiagnostic[] = []
@@ -63,11 +65,11 @@ export async function findCapabilityConflicts(
     if (excluded.has(pluginId)) continue
     let existing
     try {
-      existing = await loadInstalledPluginForRuntime(layout, pluginId)
+      existing = await loadInstalledPluginForRuntime(layout, pluginId, parsers)
     } catch {
       continue
     }
-    if (!existing.state.enabled) continue
+    if (!existing.state.enabled || hasErrorDiagnostics(existing.scan.plugin.diagnostics)) continue
     result.push(...pairDiagnostics(candidate, existing.scan.plugin, pluginId))
   }
   return result

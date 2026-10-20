@@ -5,9 +5,9 @@ import { fileURLToPath } from 'node:url'
 import { WorkspaceTypertGenerator } from '@deepseek-ai/dsh-typert-generator'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
-const packageName = '@rvaim/dsh-compat'
-const temporaryRoot = await mkdtemp(join(tmpdir(), 'dsh-compat-typert-'))
-const packageRoot = join(temporaryRoot, 'packages', 'dsh-compat')
+const packageName = '@rvaim/dsh-plugin-bridge'
+const temporaryRoot = await mkdtemp(join(tmpdir(), 'dsh-plugin-bridge-typert-'))
+const packageRoot = join(temporaryRoot, 'packages', 'dsh-plugin-bridge')
 const protocolRoot = join(temporaryRoot, 'packages', 'typert-protocol')
 
 try {
@@ -39,7 +39,7 @@ try {
     '.': { types: './lib/types/index.d.ts', default: './lib/index.js' },
     './service': { types: './lib/types/service.d.ts', default: './lib/service.js' },
     './types': { types: './lib/types/types/index.d.ts', default: './lib/types/types/index.js' },
-    './client': { types: './lib/types/client/index.d.ts', default: './lib/client.js' },
+    './client': { types: './lib/types/web/client/index.d.ts', default: './lib/client.js' },
     './typert': { types: './lib/typert.host.d.ts', default: './lib/typert.host.js' },
     './remote': { types: './lib/typert.remote-client.d.ts', default: './lib/typert.remote-client.js' },
     './package.json': './package.json',
@@ -60,7 +60,7 @@ try {
       noEmit: true,
     },
     include: ['src/**/*.ts'],
-    exclude: ['src/client'],
+    exclude: ['src/web/client'],
   }, null, 2)}\n`)
   await writeFile(join(temporaryRoot, 'tsconfig.base.json'), `${JSON.stringify({
     compilerOptions: {
@@ -83,7 +83,7 @@ try {
     files: [],
     references: [
       { path: './packages/typert-protocol' },
-      { path: './packages/dsh-compat' },
+      { path: './packages/dsh-plugin-bridge' },
     ],
   }, null, 2)}\n`)
 

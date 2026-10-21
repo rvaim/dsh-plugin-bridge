@@ -23,6 +23,8 @@ class CustomEngine implements CompatParserEngine {
   omitCandidate = false
   criticalMissing = false
   constructor(readonly formats: CompatFormat[], readonly version = 'custom-1') {}
+  get categories() { return this.formats.map((id, order) => ({ id, label: { en: id }, order })) }
+  dispose(): void {}
   get snapshot() {
     return { fingerprint: `${this.version}:${this.formats.join(',')}`, parsers: this.formats.map(id => ({ id, version: this.version })) }
   }

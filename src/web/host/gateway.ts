@@ -23,11 +23,14 @@ import type {
   CompatWebUpdateResult,
 } from '../../types/web.js'
 
+import type { ConnectionFetchRoute } from '@deepseek-ai/dsh-client-connection'
+import { ArchiveUploads } from './archive-uploads.js'
+import { PLUGIN_ARCHIVE_UPLOAD_PATH } from '../../types/upload.js'
 import { InstallRequests } from './install-requests.js'
 
 type CompatAdminTarget = Pick<
   CompatService,
-  'checkUpdates' | 'completeInstallPreparation' | 'disable' | 'enable' | 'list' | 'prepareInstall' | 'releaseInstallPreparation' | 'uninstall' | 'update'
+  'checkUpdates' | 'completeInstallPreparation' | 'disable' | 'enable' | 'list' | 'listCategories' | 'prepareArchiveInstall' | 'prepareInstall' | 'releaseInstallPreparation' | 'uninstall' | 'update'
 >
 
 const ADD_REQUEST_TTL_MS = 10 * 60 * 1000
@@ -115,7 +118,8 @@ export class CompatWebOperations {
   /** 读取当前 profile 中由 plugin-bridge 管理的插件。 */
   async list(): Promise<CompatWebListResult> {
     try {
-      return { kind: 'ready', plugins: (await this.compat.list()).map(webPlugin) }
+      const plugins = (await this.compat.list()).map(webPlugin)
+      return { kind: 'ready', plugins, categories: this.compat.listCategories() }
     } catch (error) {
       return { kind: 'error', message: messageOf(error) }
     }
@@ -189,6 +193,21 @@ export class CompatWebOperations {
     }
   }
 
+  /** Binary intake prepares only; the browser confirms/continues installation after transfer ends. */
+  async prepareArchive(source: string, signal: AbortSignal): Promise<CompatWebAddResult> {
+    let preparation: InstallPreparation | undefined
+    try {
+      signal.throwIfAborted()
+      preparation = await this.installRequests.prepare(source, path => this.compat.prepareArchiveInstall(path))
+      signal.throwIfAborted()
+      if (preparation.plugins.length === 0) throw new Error('上传归档中没有可定位的插件')
+      return { kind: 'selection', requestId: preparation.preparationId, candidates: preparation.plugins.map(webCandidate) }
+    } catch (error) {
+      if (preparation !== undefined) await this.installRequests.cancel(preparation.preparationId)
+      return { kind: 'error', message: signal.aborted ? '文件上传已取消' : messageOf(error) }
+    }
+  }
+
   /** 使用 beginAdd 返回的同一份 Source 快照安装所选插件；失败后可重试。 */
   async completeAdd(requestId: string, plugins: string[]): Promise<CompatWebAddResult> {
     if (plugins.length === 0) return { kind: 'error', message: '请至少选择一个可安装插件' }
@@ -245,10 +264,20 @@ export class CompatWebOperations {
 /** 受 Typert 严格 schema 校验的 plugin-bridge Web 管理 RPC。 */
 export class CompatWebGateway extends TypertRemoteService {
   private readonly operations: CompatWebOperations
+  private readonly uploads = new ArchiveUploads()
 
   constructor(ctx: Context) {
     super(ctx, 'pluginBridgeAdmin')
     this.operations = new CompatWebOperations(ctx.pluginBridge)
+    ctx.inject(['connection'], child => {
+      const route: ConnectionFetchRoute = {
+        path: PLUGIN_ARCHIVE_UPLOAD_PATH,
+        methods: ['POST'],
+        requestBody: 'streaming',
+        fetch: request => this.uploads.handle(request, (path, signal) => this.operations.prepareArchive(path, signal)),
+      }
+      child.connection.fetch.register(route)
+    })
   }
 
   /** @returns 当前外部插件列表或可展示错误。 */
@@ -313,8 +342,9 @@ export class CompatWebGateway extends TypertRemoteService {
     return this.operations.uninstall(pluginId)
   }
 
-  dispose(): Promise<void> {
-    return this.operations.dispose()
+  async dispose(): Promise<void> {
+    await this.uploads.dispose()
+    await this.operations.dispose()
   }
 }
 

@@ -14,6 +14,7 @@ import { parseAgentsForHarness } from './agents.js'
 export const claudeCodeParser: PluginParser = {
   id: 'claude-code',
   version: '1.1.0',
+  category: { label: { default: 'Claude Code', en: 'Claude Code', zh: 'Claude Code' }, order: 20 },
   signature: { id: 'claude-code', manifestPaths: ['.claude-plugin/plugin.json'], marketplacePaths: ['.claude-plugin/marketplace.json'] },
   async detect(root) {
     if (await pathExists(resolve(root, '.claude-plugin/plugin.json'))) return { matched: true }

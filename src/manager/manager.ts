@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, rename, rm, stat } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
-import type { CompatParserEngine } from '../parser/contracts.js'
+import type { CompatParserEngine, CompatCategory } from '../parser/contracts.js'
 import type { SourceDiscovery, SourcePluginCandidate } from '../types/catalog.js'
 import { normalizeManagementId } from '../shared/id.js'
 import { copyPluginDirectory } from '../source/directory.js'
@@ -17,6 +17,8 @@ import type { InstalledPluginRecord } from '../types/plugin.js'
 import type { PluginRuntimeSnapshot } from '../types/runtime.js'
 import type { InstalledSourceRecord, ResolvedInstallSource, SourceMetadata, SourceOwnership } from '../types/source.js'
 import type { CompatRuntimeManager } from '../runtime/manager.js'
+import { sha256File } from '../source/archive.js'
+import { isUploadedArchive, retainUploadedArchive } from './uploaded-archive.js'
 import { acquireSource, cleanAcquisition } from './acquire.js'
 import { CompatibilityError, SharedSourceUpdateError } from './errors.js'
 import { candidateBySelector, compareInstalledPriority, externalDirectoryName, latestRevisionFor, resolvedFromStored, runtimeDisabled } from './helpers.js'
@@ -66,6 +68,11 @@ export class CompatManager {
   }
 
   private readonly repository: CompatRepository
+
+  /** 仅包含当前装配实例的解析器分类，不读取安装记录或格式边界。 */
+  listCategories(): CompatCategory[] {
+    return this.parsers.categories.map(category => structuredClone(category))
+  }
 
   private async synchronizeRuntime(record: InstalledPluginRecord): Promise<void> {
     if (this.runtime === undefined) return
@@ -235,7 +242,7 @@ export class CompatManager {
   private async createSourceRecord(
     resolved: ResolvedInstallSource,
     ownership: SourceOwnership,
-    options: { as?: string; paths?: string[] },
+    options: { as?: string; paths?: string[]; retainArchive?: boolean },
     transaction: string,
   ): Promise<{
     sourceId: string
@@ -263,7 +270,7 @@ export class CompatManager {
     const source: SourceMetadata = {
       id: sourceId,
       ...(discovery.name === undefined ? {} : { name: discovery.name }),
-      origin: acquired.origin,
+      origin: options.retainArchive ? await retainUploadedArchive(this.layout, sourceId, acquired.origin, recordRoot) : acquired.origin,
       ownership,
       revision: acquired.revision,
       createdAt: new Date().toISOString(),
@@ -279,10 +286,15 @@ export class CompatManager {
 
   private async ensureStoredSource(
     input: string,
-    options: SourceAddOptions,
+    options: SourceAddOptions & { retainArchive?: boolean },
     ownership: SourceOwnership,
   ): Promise<{ source: SourceInspection; created: boolean }> {
     const resolved = await resolveInstallSource(input, options.cwd)
+    if (options.retainArchive) {
+      if (resolved.source.type !== 'archive') throw new Error('上传来源必须是归档文件')
+      resolved.source.sha256 = await sha256File(resolved.source.path)
+      resolved.suggestedId = `upload-${resolved.source.sha256.slice(0, 24)}`
+    }
     const existing = await this.repository.findSourceByOrigin(resolved.source)
     if (existing !== undefined) {
       const source = await withSourceLock(this.layout, existing.source.id, async () => {
@@ -296,11 +308,23 @@ export class CompatManager {
             throw new Error('该来源已登记，不能用不同 paths 重新定义；请先移除 Source')
           }
         }
-        if (ownership === 'explicit' && existing.source.ownership === 'implicit') {
-          await writeJsonAtomic(this.layout.sourceFile(existing.source.id), {
-            ...existing.source,
-            ownership: 'explicit' as const,
-          })
+        let metadata = existing.source
+        if (options.retainArchive && !isUploadedArchive(this.layout, metadata.id, metadata.origin)) {
+          const origin = await retainUploadedArchive(this.layout, metadata.id, resolved.source, this.layout.sourceRoot(metadata.id))
+          metadata = { ...metadata, origin }
+        }
+        if (ownership === 'explicit' && metadata.ownership === 'implicit') metadata = { ...metadata, ownership: 'explicit' }
+        if (metadata !== existing.source) {
+          await writeJsonAtomic(this.layout.sourceFile(metadata.id), metadata)
+          const current = await this.sourceSnapshot(metadata)
+          for (const group of this.preparedSources) {
+            if (group.snapshot.sourceId === current.sourceId && group.snapshot.identity === current.identity
+              && group.snapshot.createdAt === current.createdAt && group.snapshot.revision === current.revision
+              && JSON.stringify(group.snapshot.origin) === JSON.stringify(existing.source.origin)) {
+              // Only the location of the identical archived bytes changed; fixed content and cleanup ownership remain.
+              group.snapshot.origin = structuredClone(current.origin)
+            }
+          }
         }
         return await this.repository.inspectSourceUnlocked(existing.source.id)
       })
@@ -348,6 +372,15 @@ export class CompatManager {
 
   /** Prepare one fixed Source; callers complete or release this Manager-owned session. */
   async prepareInstall(input: string, options: SourceAddOptions = {}): Promise<InstallPreparation> {
+    return await this.prepareSourceInstall(input, options)
+  }
+
+  /** Upload intake transfers the original archive into Source-owned storage. */
+  async prepareArchiveInstall(input: string): Promise<InstallPreparation> {
+    return await this.prepareSourceInstall(input, { retainArchive: true })
+  }
+
+  private async prepareSourceInstall(input: string, options: SourceAddOptions & { retainArchive?: boolean }): Promise<InstallPreparation> {
     return await this.withManagedRepository(async () => {
       const prepared = await this.ensureStoredSource(input, options, 'implicit')
       const snapshot = await this.sourceSnapshot(prepared.source.source)

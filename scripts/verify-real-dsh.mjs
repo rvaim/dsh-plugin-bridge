@@ -91,6 +91,7 @@ try {
       if (listFailure) throw new Error('Controlled list failure')
       return []
     },
+    listCategories() { return [] },
     async checkUpdates() { return [] },
     async uninstall(id) { removed.push(id) },
   })
@@ -129,7 +130,7 @@ try {
   const namespace = client.get('remote.pluginBridgeAdmin')
   assert.notEqual(namespace, undefined)
   const retainedList = namespace.list
-  assert.deepEqual(await namespace.list(), { ok: true, value: { kind: 'ready', plugins: [] } })
+  assert.deepEqual(await namespace.list(), { ok: true, value: { kind: 'ready', plugins: [], categories: [] } })
   assert.deepEqual(await namespace.uninstall('contract-plugin'), {
     ok: true, value: { kind: 'removed', pluginId: 'contract-plugin' },
   })

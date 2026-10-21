@@ -10,6 +10,7 @@ import { AGENT_PLUGIN_SCHEMA_URI, AGENT_PLUGINS_VERSION } from './constants.js'
 export const agentPluginsParser: PluginParser = {
   id: 'agent-plugins',
   version: '1.1.0',
+  category: { label: { default: 'Agent Plugins', en: 'Agent Plugins', zh: 'Agent Plugins' }, order: 30 },
   signature: { id: 'agent-plugins', manifestPaths: ['plugin.json'], marketplacePaths: [], exclusive: true, priority: 100 },
   async detect(root) {
     const matched = await lstat(resolve(root, 'plugin.json')).then(() => true, error => {

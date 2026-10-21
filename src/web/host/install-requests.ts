@@ -30,10 +30,10 @@ export class InstallRequests {
     private readonly requestTtlMs: number,
   ) {}
 
-  prepare(source: string): Promise<InstallPreparation> {
+  prepare(source: string, prepare: InstallTarget['prepareInstall'] = this.compat.prepareInstall.bind(this.compat)): Promise<InstallPreparation> {
     if (this.closed) return Promise.reject(new Error('添加服务已关闭'))
     const operation = Promise.resolve().then(async () => {
-      const preparation = await this.compat.prepareInstall(source)
+      const preparation = await prepare(source)
       const request: InstallRequest = {
         preparationId: preparation.preparationId,
         state: { kind: 'pending' },

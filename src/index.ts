@@ -13,7 +13,7 @@ export type { CompatConfig as ConfigType }
 /** DSH/Cordis 插件入口。 */
 export async function apply(ctx: CordisContext, config: CompatConfig = {}): Promise<void> {
   const service = new CompatService(ctx, config)
-  ctx.effect(() => () => service.stop(), 'plugin-bridge: 停止全部旧插件父实例')
+  ctx.effect(() => () => service.stop(), 'plugin-bridge: 停止旧插件父实例并撤销解析器分类')
   await service.start()
   const gateway = new CompatWebGateway(ctx)
   ctx.effect(() => () => gateway.dispose(), 'plugin-bridge: 清理未完成的 Web 添加请求')

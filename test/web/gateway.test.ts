@@ -39,9 +39,11 @@ function operations(
 ): CompatWebOperations {
   return new CompatWebOperations({
     prepareInstall: (source, options) => manager.prepareInstall(source, options),
+    prepareArchiveInstall: source => manager.prepareArchiveInstall(source),
     completeInstallPreparation: (preparationId, plugins) => manager.completeInstallPreparation(preparationId, plugins),
     releaseInstallPreparation: preparationId => manager.releaseInstallPreparation(preparationId),
     list: () => manager.list(),
+    listCategories: () => manager.listCategories(),
     checkUpdates: () => manager.checkUpdates(),
     update: (pluginId, options) => manager.update(pluginId, options),
     enable: pluginId => manager.enable(pluginId),
@@ -50,6 +52,28 @@ function operations(
     ...overrides,
   }, requestTtlMs)
 }
+
+test('Web list 返回实际解析器分类目录，零解析器和撤销后不留旧项', async () => {
+  const temp = await temporaryDirectory()
+  try {
+    for (const selected of [[], ['codex'], ['claude-code', 'agent-plugins']] as const) {
+      const engine = createBuiltinParserEngine(selected)
+      const manager = new CompatManager(new CompatLayout(resolve(temp.path, `home-${selected.join('-')}`)), undefined, engine)
+      const web = operations(manager)
+      const listed = await web.list()
+      assert.equal(listed.kind, 'ready')
+      if (listed.kind !== 'ready') continue
+      assert.deepEqual(listed.plugins, [])
+      assert.deepEqual(listed.categories.map(item => item.id).sort(), [...selected].sort())
+      assert.deepEqual(listed.categories, manager.listCategories())
+      engine.dispose()
+      assert.deepEqual(await web.list(), { kind: 'ready', plugins: [], categories: [] })
+      await web.dispose()
+    }
+  } finally {
+    await temp.cleanup()
+  }
+})
 
 test('Web 多插件选择复用第一次拉取的固定快照，并可动态管理生命周期', async () => {
   const temp = await temporaryDirectory()
@@ -164,6 +188,7 @@ test('Web 单插件来源在第一次拉取后直接安装', async () => {
     const listed = await web.list()
     assert.equal(listed.kind, 'ready')
     if (listed.kind === 'ready') {
+      assert.deepEqual(listed.categories, manager.listCategories())
       assert.equal(listed.plugins[0]?.diagnostics[0]?.message,
         '插件包含 Claude Code bin/ 可执行目录；当前不会修改 DSH Shell 的 PATH')
     }

@@ -40,9 +40,16 @@ export interface CompatWebCandidate {
   warnings: number
 }
 
+/** 已装配解析器提供的页内分类。 */
+export interface CompatWebCategory {
+  id: string
+  label: { en: string; zh?: string }
+  order: number
+}
+
 /** 插件列表 RPC 的业务结果；预期错误保留可展示文案。 */
 export type CompatWebListResult =
-  | { kind: 'ready'; plugins: CompatWebPlugin[] }
+  | { kind: 'ready'; plugins: CompatWebPlugin[]; categories: CompatWebCategory[] }
   | { kind: 'error'; message: string }
 
 /** 添加来源 RPC 的业务结果。 */

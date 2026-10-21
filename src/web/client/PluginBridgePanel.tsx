@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Button, IconCloseOutlineRegular, IconLoadingOutlineRegular, IconPlusOutlineRegular, IconRefreshOutlineRegular, IconSearchOutlineRegular, Input, Toast } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { CompatWebPlugin } from '../../types/web.js'
@@ -6,30 +6,60 @@ import type { PluginBridgeLocaleKey } from './locales.js'
 import type { PluginBridgeInjected } from './types.js'
 import { AddPluginDialog } from './AddPluginDialog.js'
 import { PluginActionDialog, type ConfirmAction } from './PluginActionDialog.js'
+import { ParserCategories } from './ParserCategories.js'
 import { PluginRow } from './PluginRow.js'
 import { usePluginBridge } from './usePluginBridge.js'
-import { filterPlugins, needsAttention, type PluginFilter } from './panel-model.js'
+import { categoryInventory, filterPlugins, inCategory, needsAttention, uniquePlugins, type PluginFilter } from './panel-model.js'
 import css from './PluginBridgePanel.module.css'
 
 export type PluginBridgePanelProps = PropsRuntime<'main'> & PropsLocale<'pluginBridge'> & InjectFace<PluginBridgeInjected>
 
-/** Native DSH management: clear state, searchable rows, protected multi-plugin actions. */
+/** Native DSH management: registered categories, searchable rows, protected actions. */
 export function PluginBridgePanel({ t, ...api }: PluginBridgePanelProps) {
   const state = usePluginBridge(api)
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState<PluginFilter>('all')
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [categoryRemoved, setCategoryRemoved] = useState(false)
   const [addOpen, setAddOpen] = useState(false)
   const [confirmation, setConfirmation] = useState<ConfirmAction | null>(null)
   const [expanded, setExpanded] = useState<string | null>(null)
   const panel = useRef<HTMLElement>(null)
   const addButton = useRef<HTMLButtonElement>(null)
-  const plugins = state.view.status === 'ready' ? state.view.plugins : []
-  const visible = useMemo(() => filterPlugins(plugins, query, filter, state.updateState), [plugins, query, filter, state.updateState])
-  const running = plugins.filter(plugin => plugin.runtimeStatus === 'running').length
-  const attention = plugins.filter(plugin => needsAttention(plugin, state.updateState[plugin.id])).length
+  const actionFocus = useRef<string | null>(null)
+  const plugins = useMemo(() => state.view.status === 'ready' ? uniquePlugins(state.view.plugins) : [], [state.view])
+  const categories = state.view.status === 'ready' ? state.view.categories : []
+  const catalog = useMemo(() => categoryInventory(categories, plugins), [categories, plugins])
+  const selectedCategory = categories.find(category => category.id === selectedId)
+  const activeId = selectedCategory === undefined ? null : selectedId
+  const categoryPlugins = useMemo(() => plugins.filter(plugin => inCategory(plugin, activeId)), [plugins, activeId])
+  const visible = useMemo(() => filterPlugins(plugins, query, filter, state.updateState, activeId), [plugins, query, filter, state.updateState, activeId])
+  const categoryName = selectedCategory === undefined ? t('categoryAll') : api.resolveText(selectedCategory.label)
+  const running = categoryPlugins.filter(plugin => plugin.runtimeStatus === 'running').length
+  const attention = categoryPlugins.filter(plugin => needsAttention(plugin, state.updateState[plugin.id])).length
   const busy = state.pending !== null
   const filtered = query.trim() !== '' || filter !== 'all'
   const clearFilters = () => { setQuery(''); setFilter('all') }
+  const selectCategory = (id: string | null) => { setSelectedId(id); setCategoryRemoved(false) }
+
+  useEffect(() => {
+    if (state.view.status === 'ready' && selectedId !== null && selectedCategory === undefined) {
+      setSelectedId(null)
+      setCategoryRemoved(true)
+    }
+  }, [state.view.status, selectedId, selectedCategory])
+
+  useEffect(() => {
+    if (confirmation !== null || busy || actionFocus.current === null) return
+    const pluginId = actionFocus.current
+    actionFocus.current = null
+    const frame = requestAnimationFrame(() => {
+      const row = [...panel.current?.querySelectorAll<HTMLElement>('[data-plugin-id]') ?? []]
+        .find(element => element.dataset.pluginId === pluginId)
+      ;(row?.querySelector<HTMLButtonElement>('[role="switch"]') ?? addButton.current)?.focus()
+    })
+    return () => { cancelAnimationFrame(frame) }
+  }, [confirmation, busy])
 
   const requestUpdate = (plugin: CompatWebPlugin) => {
     const info = state.updateState[plugin.id]
@@ -44,13 +74,8 @@ export function PluginBridgePanel({ t, ...api }: PluginBridgePanelProps) {
       ? await state.removePlugin(target.plugin)
       : await state.updatePlugin(target.plugin, true)
     if (success) {
+      actionFocus.current = target.plugin.id
       setConfirmation(null)
-      // The confirmed row/action may have disappeared. Choose a connected control.
-      requestAnimationFrame(() => {
-        const row = [...panel.current?.querySelectorAll<HTMLElement>('[data-plugin-id]') ?? []]
-          .find(element => element.dataset.pluginId === target.plugin.id)
-        ;(row?.querySelector<HTMLButtonElement>('[role="switch"]') ?? addButton.current)?.focus()
-      })
     }
   }
 
@@ -80,53 +105,66 @@ export function PluginBridgePanel({ t, ...api }: PluginBridgePanelProps) {
         <Button variant="outline" size="sm" onClick={() => { void state.refresh() }}>{t('retry')}</Button>
       </div> : null}
       {state.view.status === 'ready' ? (
-        <>
-          <div className={css.collectionHeader}>
-            <p>{t('collectionSummary', { total: plugins.length, running, attention })}</p>
-            <span className={css.checkStatus} role="status">
-              {state.checkingUpdates ? t('checkingUpdates') : state.refreshing ? t('refreshingList') : ''}
-            </span>
-          </div>
-          {state.listError !== null ? <div className={css.inlineNotice} role="alert"><p>{t('refreshError', { message: state.listError })}</p>
-            <Button variant="outline" size="sm" disabled={state.refreshing || busy} onClick={() => { void state.refresh() }}>{t('retry')}</Button></div> : null}
-          {state.updateError !== null ? <div className={css.inlineNotice} role="alert"><p>{t('updateCheckError', { message: state.updateError })}</p>
-            <Button variant="outline" size="sm" disabled={state.checkingUpdates || busy} onClick={() => { void state.retryUpdates() }}>{t('retryCheck')}</Button></div> : null}
-          {plugins.length > 0 ? (
-            <>
-              <div className={css.listToolbar}>
-                <div className={css.searchField}>
-                  <Input icon={<IconSearchOutlineRegular size={16} />} type="search" aria-label={t('searchLabel')} placeholder={t('searchPlaceholder')}
-                    value={query} onChange={event => { setQuery(event.currentTarget.value) }} />
-                  {query !== '' ? <button type="button" className={css.clearSearch} aria-label={t('clearSearch')} onClick={() => { setQuery('') }}><IconCloseOutlineRegular size={14} /></button> : null}
+        <div className={css.workspace}>
+          <ParserCategories categories={catalog} total={plugins.length} selectedId={activeId} onSelect={selectCategory} resolveText={api.resolveText} t={t} />
+          <section className={css.collection} aria-label={categoryName}>
+            <div className={css.collectionTitle}>
+              <h2>{categoryName}<span>{t('categoryPluginCount', { count: categoryPlugins.length })}</span></h2>
+              <span className={css.checkStatus} role="status">
+                {state.checkingUpdates ? t('checkingUpdates') : state.refreshing ? t('refreshingList') : ''}
+              </span>
+            </div>
+            <div className={css.collectionHeader}><p>{t('collectionSummary', { total: categoryPlugins.length, running, attention })}</p></div>
+            {categoryRemoved ? <div className={css.inlineNotice} role="status"><p>{t('categoryRemoved')}</p></div> : null}
+            {state.listError !== null ? <div className={css.inlineNotice} role="alert"><p>{t('refreshError', { message: state.listError })}</p>
+              <Button variant="outline" size="sm" disabled={state.refreshing || busy} onClick={() => { void state.refresh() }}>{t('retry')}</Button></div> : null}
+            {state.updateError !== null ? <div className={css.inlineNotice} role="alert"><p>{t('updateCheckError', { message: state.updateError })}</p>
+              <Button variant="outline" size="sm" disabled={state.checkingUpdates || busy} onClick={() => { void state.retryUpdates() }}>{t('retryCheck')}</Button></div> : null}
+            {plugins.length > 0 ? (
+              <>
+                <div className={css.listToolbar}>
+                  <div className={css.searchField}>
+                    <Input icon={<IconSearchOutlineRegular size={16} />} type="search" aria-label={t('searchLabel')} placeholder={t('searchPlaceholder')}
+                      value={query} onChange={event => { setQuery(event.currentTarget.value) }} />
+                    {query !== '' ? <button type="button" className={css.clearSearch} aria-label={t('clearSearch')} onClick={() => { setQuery('') }}><IconCloseOutlineRegular size={14} /></button> : null}
+                  </div>
+                  <label className={css.filterField}>
+                    <span className={css.srOnly}>{t('filterLabel')}</span>
+                    <select value={filter} onChange={event => { setFilter(event.currentTarget.value as PluginFilter) }}>
+                      <option value="all">{t('filterAll')}</option><option value="enabled">{t('filterEnabled')}</option>
+                      <option value="disabled">{t('filterDisabled')}</option><option value="attention">{t('filterAttention')}</option>
+                      <option value="updates">{t('filterUpdates')}</option>
+                    </select>
+                  </label>
                 </div>
-                <label className={css.filterField}>
-                  <span className={css.srOnly}>{t('filterLabel')}</span>
-                  <select value={filter} onChange={event => { setFilter(event.currentTarget.value as PluginFilter) }}>
-                    <option value="all">{t('filterAll')}</option><option value="enabled">{t('filterEnabled')}</option>
-                    <option value="disabled">{t('filterDisabled')}</option><option value="attention">{t('filterAttention')}</option>
-                    <option value="updates">{t('filterUpdates')}</option>
-                  </select>
-                </label>
-              </div>
-              {filtered ? <div className={css.filterSummary}>
-                <span role="status">{t('resultCount', { count: visible.length, total: plugins.length })}</span>
-                <button type="button" className={css.textButton} onClick={clearFilters}>{t('clearFilters')}</button>
-              </div> : null}
-              {visible.length === 0 ? <div className={css.emptyState}><strong>{t('noResultsTitle')}</strong><p>{t('noResultsDescription')}</p>
-                <Button variant="outline" size="sm" onClick={clearFilters}>{t('clearFilters')}</Button></div>
-                : <ul className={css.pluginList} aria-label={t('pluginListLabel')}>
-                  {visible.map(plugin => <PluginRow key={plugin.id} plugin={plugin} updateInfo={state.updateState[plugin.id]}
-                    pending={state.pending} error={state.mutationError} busy={busy} expanded={expanded === plugin.id}
-                    onExpand={() => { setExpanded(current => current === plugin.id ? null : plugin.id) }}
-                    onToggle={() => { void state.togglePlugin(plugin) }} onUpdate={() => { requestUpdate(plugin) }}
-                    onRemove={() => { state.clearMutationError(); setConfirmation({ kind: 'remove', plugin }) }} t={t} />)}
-                </ul>}
-            </>
-          ) : <div className={css.emptyState}><strong>{t('emptyTitle')}</strong><p>{t('emptyDescription')}</p>
-            <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={14} />} data-plugin-bridge-add onClick={() => { setAddOpen(true) }}>{t('add')}</Button></div>}
-        </>
+                {filtered ? <div className={css.filterSummary}>
+                  <span role="status">{t('resultCount', { count: visible.length, total: categoryPlugins.length })}</span>
+                  <button type="button" className={css.textButton} onClick={clearFilters}>{t('clearFilters')}</button>
+                </div> : null}
+              </>
+            ) : null}
+            {categoryPlugins.length === 0 ? <div className={css.emptyState}>
+              <strong>{t(activeId === null ? 'emptyTitle' : 'categoryEmptyTitle')}</strong>
+              <p>{t(activeId === null ? 'emptyDescription' : 'categoryEmptyDescription', { name: categoryName })}</p>
+              <Button variant="outline" size="sm" icon={<IconPlusOutlineRegular size={14} />} data-plugin-bridge-add disabled={busy}
+                onClick={() => { setAddOpen(true) }}>{t('add')}</Button>
+            </div> : visible.length === 0 ? <div className={css.emptyState}><strong>{t('noResultsTitle')}</strong><p>{t('noResultsDescription')}</p>
+              <Button variant="outline" size="sm" onClick={clearFilters}>{t('clearFilters')}</Button></div>
+              : <ul className={css.pluginList} aria-label={t('pluginListLabel')}>
+                {visible.map(plugin => <PluginRow key={plugin.id} plugin={plugin} categories={categories} resolveText={api.resolveText} updateInfo={state.updateState[plugin.id]}
+                  pending={state.pending} error={state.mutationError} busy={busy} expanded={expanded === plugin.id}
+                  onExpand={() => { setExpanded(current => current === plugin.id ? null : plugin.id) }}
+                  onToggle={() => { void state.togglePlugin(plugin) }} onUpdate={() => { requestUpdate(plugin) }}
+                  onRemove={() => { state.clearMutationError(); setConfirmation({ kind: 'remove', plugin }) }} t={t} />)}
+              </ul>}
+          </section>
+        </div>
       ) : null}
-      {addOpen ? <AddPluginDialog api={api} t={t} onClose={() => { setAddOpen(false) }} onInstalled={installed => { clearFilters(); state.acceptInstalled(installed) }} /> : null}
+      {addOpen ? <AddPluginDialog api={api} categories={categories} resolveText={api.resolveText} t={t} onClose={() => { setAddOpen(false) }} onInstalled={installed => {
+        clearFilters()
+        if (installed.some(plugin => !inCategory(plugin, activeId))) selectCategory(null)
+        state.acceptInstalled(installed)
+      }} /> : null}
       {confirmation !== null ? <PluginActionDialog action={confirmation} plugins={plugins} pending={busy}
         error={state.mutationError?.pluginId === confirmation.plugin.id ? state.mutationError.message : undefined}
         onClose={() => { if (!busy) setConfirmation(null) }} onConfirm={() => { void confirmAction() }} t={t} /> : null}

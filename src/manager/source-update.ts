@@ -15,6 +15,7 @@ import { commitDirectory, createTransactionDir } from '../store/transaction.js'
 import { hasErrorDiagnostics } from '../types/diagnostic.js'
 import type { CompatPlugin, InstallMetadata, InstalledPluginRecord, ScanCache } from '../types/plugin.js'
 import type { SourceMetadata } from '../types/source.js'
+import { preserveUploadedArchive } from './uploaded-archive.js'
 import { acquireSource, cleanAcquisition } from './acquire.js'
 import { findCapabilityConflictsWithin } from './conflicts.js'
 import { CompatibilityError } from './errors.js'
@@ -71,6 +72,7 @@ export async function updateSourceUnlocked(
       mkdir(stagedExternal, { recursive: true, mode: 0o700 }),
     ])
     await copyPluginDirectory(discovery.root, join(stagedSource, 'package'))
+    await preserveUploadedArchive(host.layout, sourceId, acquired.origin, stagedSource)
     const newSourceMetadata: SourceMetadata = {
       ...oldSource.source,
       ...(discovery.name === undefined ? {} : { name: discovery.name }),

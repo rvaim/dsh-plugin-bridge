@@ -1,6 +1,6 @@
 import { Button, IconChevronDownOutlineRegular, IconLoadingOutlineRegular, IconTrashOutlineRegular, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CompatWebDiagnostic, CompatWebPlugin, CompatWebUpdateInfo } from '../../types/web.js'
-import type { PendingAction, RowError } from './types.js'
+import type { CompatWebCategory, CompatWebDiagnostic, CompatWebPlugin, CompatWebUpdateInfo } from '../../types/web.js'
+import type { PendingAction, ResolveText, RowError } from './types.js'
 import type { PluginBridgeLocaleKey } from './locales.js'
 import { displayName, formatLabel, type Translate } from './panel-model.js'
 import css from './PluginBridgePanel.module.css'
@@ -16,6 +16,8 @@ const CAPABILITY_KEYS = {
 
 interface PluginRowProps {
   plugin: CompatWebPlugin
+  categories: readonly CompatWebCategory[]
+  resolveText: ResolveText
   updateInfo?: CompatWebUpdateInfo
   pending: PendingAction
   error: RowError | null
@@ -29,7 +31,7 @@ interface PluginRowProps {
 }
 
 /** One management row owns presentation only; commands and request state live above it. */
-export function PluginRow({ plugin, updateInfo, pending, error, busy, expanded, onExpand, onToggle, onUpdate, onRemove, t }: PluginRowProps) {
+export function PluginRow({ plugin, categories, resolveText, updateInfo, pending, error, busy, expanded, onExpand, onToggle, onUpdate, onRemove, t }: PluginRowProps) {
   const name = displayName(plugin)
   const rowPending = pending?.pluginId === plugin.id
   const transitioning = plugin.runtimeStatus === 'starting' || plugin.runtimeStatus === 'stopping'
@@ -48,7 +50,7 @@ export function PluginRow({ plugin, updateInfo, pending, error, busy, expanded, 
             {plugin.version !== undefined ? <span className={css.version}>{t('version', { version: plugin.version })}</span> : null}
           </div>
           <div className={css.pluginMeta}>
-            {plugin.formats.map(format => <span key={format} className={css.tag}>{formatLabel(format, t)}</span>)}
+            {plugin.formats.map(format => <span key={format} className={css.tag}>{formatLabel(format, categories, resolveText)}</span>)}
             <code>{plugin.id}</code>
           </div>
           <div className={css.sourceLine}>{t('source', { source: plugin.sourceId })}</div>

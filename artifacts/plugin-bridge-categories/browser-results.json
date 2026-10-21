@@ -1,0 +1,16 @@
+{
+  "checks": [
+    "registered categories, mixed counts, intersection, new empty parser and removed selection recovery",
+    "search, status filters, clear recovery and language changes",
+    "persistent refresh/update errors preserve known inventory and updates",
+    "failed mutation recovery and explicit shared-source update confirmation",
+    "uninstall error retention, cancel focus and removed-row focus recovery",
+    "IME Enter guard, stage focus, disabled candidates, selection and modal focus trap",
+    "slow remote check never blocks ready inventory or row controls",
+    "light/dark themes, 320/375px widths and 430px-height selection dialog",
+    "empty inventory and initial failure recovery action",
+    "native cross-platform file chooser, raw File delivery, multi/single installation, upload cancellation and invalid file recovery",
+    "late selection request released after panel unmount"
+  ],
+  "browserErrors": []
+}

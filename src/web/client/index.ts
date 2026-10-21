@@ -11,6 +11,7 @@ import compatRemote from '../../../dist/typert.remote-client.js'
 import { PluginBridgePanel } from './PluginBridgePanel.js'
 import type { PluginBridgeInjected } from './types.js'
 import { PluginBridgePanelIcon } from './PluginBridgePanelIcon.js'
+import { uploadLocalArchive } from './local-archive.js'
 import { en, zh } from './locales.js'
 
 const NS = 'pluginBridge'
@@ -39,6 +40,8 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     )
     const t = ctx.locale.bind(NS)
     const injected: PluginBridgeInjected = {
+      resolveText: label => ctx.locale.resolveText(label),
+      uploadArchive: uploadLocalArchive,
       list: async () => unwrap(await pluginBridgeAdmin.list(), 'pluginBridgeAdmin.list'),
       checkUpdates: async () => unwrap(await pluginBridgeAdmin.checkUpdates(), 'pluginBridgeAdmin.checkUpdates'),
       update: async (pluginId, confirmShared) => unwrap(

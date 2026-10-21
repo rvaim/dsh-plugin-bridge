@@ -16,6 +16,8 @@ function customEngine(fingerprint: string, options: { missing?: boolean; critica
   const calls = { plugin: 0, source: 0 }
   const engine: CompatParserEngine = {
     snapshot: { fingerprint, parsers: [{ id: 'custom-parser', version: fingerprint }] },
+    categories: [{ id: 'custom-parser', label: { en: 'Custom parser' }, order: 0 }],
+    dispose() {},
     async parsePlugin(_root: string, parseOptions: ParsePluginOptions = {}): Promise<CompatPlugin> {
       calls.plugin += 1
       return {

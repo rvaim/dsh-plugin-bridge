@@ -18,6 +18,7 @@ import {
 } from './manager/manager.js'
 import { CompatRuntimeManager } from './runtime/manager.js'
 import { CompatLayout } from './store/layout.js'
+import type { CompatCategory } from './types/parser.js'
 
 /** 暴露给其他 DSH 插件使用的插件桥服务。 */
 export class CompatService extends Service {
@@ -43,7 +44,11 @@ export class CompatService extends Service {
   }
 
   async stop(): Promise<void> {
-    await this.runtime.stopAll()
+    try {
+      await this.runtime.stopAll()
+    } finally {
+      this.manager.parsers.dispose()
+    }
   }
 
   sourceAdd(source: string, options?: SourceAddOptions): Promise<SourceInspection> {
@@ -68,6 +73,10 @@ export class CompatService extends Service {
 
   prepareInstall(source: string, options?: SourceAddOptions): Promise<InstallPreparation> {
     return this.manager.prepareInstall(source, options)
+  }
+
+  prepareArchiveInstall(source: string): Promise<InstallPreparation> {
+    return this.manager.prepareArchiveInstall(source)
   }
 
   completeInstallPreparation(preparationId: string, plugins: string[]): Promise<InstallResult> {
@@ -104,6 +113,10 @@ export class CompatService extends Service {
 
   list(): Promise<PluginListEntry[]> {
     return this.manager.list()
+  }
+
+  listCategories(): CompatCategory[] {
+    return this.manager.listCategories()
   }
 
   inspect(pluginId: string): Promise<PluginInspection> {

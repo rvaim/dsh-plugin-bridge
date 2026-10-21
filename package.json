@@ -1,6 +1,6 @@
 {
   "name": "@rvaim/dsh-plugin-bridge",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Plugin Bridge for DeepSeek Harness: manage and run Claude Code, Codex, and Agent Plugins.",
   "keywords": [
     "deepseek-harness",
@@ -126,6 +126,7 @@
     "@deepseek-ai/cordis": "~4.0.5",
     "@deepseek-ai/dsh-agent": "0.2.1-rc.2",
     "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
     "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
     "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.2",
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",
@@ -147,6 +148,9 @@
       "optional": true
     },
     "@deepseek-ai/dsh-api-remotes": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-client-connection": {
       "optional": true
     },
     "@deepseek-ai/dsh-client-locale": {
@@ -195,6 +199,7 @@
     "@deepseek-ai/dsh-api-gateway": "0.2.1-rc.2",
     "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.2",
     "@deepseek-ai/dsh-app-boot": "0.2.1-rc.2",
+    "@deepseek-ai/dsh-client-connection": "0.2.1-rc.2",
     "@deepseek-ai/dsh-client-locale": "0.2.1-rc.2",
     "@deepseek-ai/dsh-client-ui-layout": "0.2.1-rc.2",
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.2",

@@ -7,8 +7,8 @@ import type { CompatFormat, CompatPlugin } from '../types/plugin.js'
 import type { CompatSkill } from '../types/skill.js'
 import type { MarketplacePluginDefinition, SourceDiscovery, SourceParserResult } from '../types/catalog.js'
 
-import type { ParserIdentity, ParserSnapshot } from '../types/parser.js'
-export type { ParserIdentity, ParserSnapshot } from '../types/parser.js'
+import type { CompatCategory, ParserCategoryContribution, ParserIdentity, ParserSnapshot } from '../types/parser.js'
+export type { CompatCategory, ParserCategoryContribution, ParserIdentity, ParserSnapshot } from '../types/parser.js'
 
 /** 无实现依赖的格式边界。未加载解析器时仍阻止被其他格式兜底接管。 */
 export interface ParserSignature {
@@ -59,6 +59,7 @@ export interface ProtocolParseResult {
 
 /** 解析模块不引用其他模块或任何 DSH 运行实现。 */
 export interface PluginParser extends ParserIdentity {
+  category: ParserCategoryContribution
   signature: ParserSignature
   detect(root: string): Promise<ParserDetection>
   discoverSource(root: string): Promise<SourceParserResult | undefined>
@@ -69,6 +70,8 @@ export interface PluginParser extends ParserIdentity {
 /** 管理/加载层只接收该端口，不引用具体格式或默认装配。 */
 export interface CompatParserEngine {
   readonly snapshot: ParserSnapshot
+  readonly categories: readonly CompatCategory[]
+  dispose(): void
   parsePlugin(root: string, options?: ParsePluginOptions): Promise<CompatPlugin>
   parseSource(root: string, options?: ParseSourceOptions): Promise<SourceDiscovery>
 }

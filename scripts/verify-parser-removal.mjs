@@ -51,7 +51,7 @@ try {
       '',
     ].join('\n')
     await writeFile(join(profile, 'src/composition/builtins.ts'), registration)
-    await writeFile(join(profile, 'package.json'), JSON.stringify({ name: '@rvaim/dsh-plugin-bridge', type: 'module', exports: { './types': './src/types/index.ts' } }))
+    await writeFile(join(profile, 'package.json'), JSON.stringify({ name: '@rvaim/dsh-plugin-bridge', type: 'module', exports: { './types': './src/types/index.ts', './remote': { types: './dist/typert.remote-client.d.ts', default: './dist/typert.remote-client.js' } } }))
     await symlink(join(root, 'node_modules'), join(profile, 'node_modules'), 'dir')
     await mkdir(join(profile, 'dist'))
     for (const file of ['typert.host.js', 'typert.host.d.ts', 'typert.remote-client.js', 'typert.remote-client.d.ts', 'typert.remote-client.d.ts.map']) {
@@ -89,6 +89,7 @@ try {
       assert.equal(Object.keys(api).some(key => /^parse(?:Claude|Codex|AgentPlugin)|^validateAgentPlugin/.test(key)), false);
       const engine = api.getDefaultParserEngine();
       assert.deepEqual(engine.snapshot.parsers.map(parser => parser.id).sort(), selected);
+      assert.deepEqual(engine.categories.map(category => category.id).sort(), selected);
       assert.equal(typeof api.CompatManager, 'function');
       assert.equal(api.CompatManager.length, 3);
       assert.equal(typeof api.CompatRuntimeManager, 'function');

@@ -14,6 +14,7 @@ import { parseAgentsForHarness } from './agents.js'
 export const codexParser: PluginParser = {
   id: 'codex',
   version: '1.1.0',
+  category: { label: { default: 'Codex', en: 'Codex', zh: 'Codex' }, order: 10 },
   signature: { id: 'codex', manifestPaths: ['.codex-plugin/plugin.json'], marketplacePaths: ['.agents/plugins/marketplace.json'] },
   async detect(root) { return { matched: await pathExists(resolve(root, '.codex-plugin/plugin.json')) } },
   discoverSource: parseCodexMarketplace,

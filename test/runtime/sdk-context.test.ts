@@ -44,7 +44,7 @@ test('公开入口和 Service 在真实 Cordis Context 中挂载并随 Fiber 撤
     assert.deepEqual(await service.list(), [])
     const admin = host.get('pluginBridgeAdmin')
     assert(admin)
-    assert.deepEqual(await admin.list(), { kind: 'ready', plugins: [] })
+    assert.deepEqual(await admin.list(), { kind: 'ready', plugins: [], categories: service.listCategories() })
     await fiber.dispose()
     assert.equal(host.get('pluginBridge'), undefined)
     assert.equal(host.get('pluginBridgeAdmin'), undefined)

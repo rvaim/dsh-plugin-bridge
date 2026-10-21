@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type {
+  CompatWebCategory,
   CompatWebPlugin,
   CompatWebSetEnabledResult,
   CompatWebUninstallResult,
@@ -41,6 +42,7 @@ export function usePluginBridge(api: PluginBridgeInjected) {
   const toastSequence = useRef(0)
   const pendingRef = useRef<PendingAction>(null)
   const pluginsRef = useRef<CompatWebPlugin[]>([])
+  const categoriesRef = useRef<CompatWebCategory[]>([])
   const hasInventory = useRef(false)
 
   const [view, setView] = useState<PanelView>({ status: 'loading' })
@@ -58,10 +60,11 @@ export function usePluginBridge(api: PluginBridgeInjected) {
     setToast({ id: toastSequence.current, key, values })
   }, [])
 
-  const commitPlugins = useCallback((plugins: CompatWebPlugin[]) => {
+  const commitPlugins = useCallback((plugins: CompatWebPlugin[], categories = categoriesRef.current) => {
     pluginsRef.current = plugins
+    categoriesRef.current = categories
     hasInventory.current = true
-    setView({ status: 'ready', plugins })
+    setView({ status: 'ready', plugins, categories })
   }, [])
 
   const invalidateReads = useCallback(() => {
@@ -89,7 +92,7 @@ export function usePluginBridge(api: PluginBridgeInjected) {
         if (!hasInventory.current) setView({ status: 'error', message: result.message })
         return
       }
-      commitPlugins(result.plugins)
+      commitPlugins(result.plugins, result.categories)
       setListError(null)
     } catch (error) {
       if (!current()) return

@@ -1,23 +1,30 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { Button, IconLoadingOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CompatWebCandidate, CompatWebPlugin } from '../../types/web.js'
-import type { PluginBridgeInjected } from './types.js'
+import { Button, IconArchiveOutlineRegular, IconLoadingOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { CompatWebAddResult, CompatWebCandidate, CompatWebCategory, CompatWebPlugin } from '../../types/web.js'
+import type { PluginBridgeInjected, ResolveText } from './types.js'
+import { MAX_PLUGIN_ARCHIVE_BYTES, PLUGIN_ARCHIVE_ACCEPT, pluginArchiveSuffix } from '../../shared/archive-input.js'
 import { formatLabel, type Translate } from './panel-model.js'
 import css from './PluginBridgePanel.module.css'
+import fileCss from './AddPluginDialog.module.css'
 
-type AddApi = Pick<PluginBridgeInjected, 'beginAdd' | 'completeAdd' | 'cancelAdd'>
+type AddApi = Pick<PluginBridgeInjected, 'beginAdd' | 'completeAdd' | 'cancelAdd' | 'uploadArchive'>
 interface AddPluginDialogProps {
   api: AddApi
+  categories: readonly CompatWebCategory[]
+  resolveText: ResolveText
   t: Translate
   onClose(): void
   onInstalled(plugins: CompatWebPlugin[]): void
 }
 type Selection = { requestId: string; candidates: CompatWebCandidate[] }
-type Progress = 'fetch' | 'install' | 'cancel' | null
+type Progress = 'fetch' | 'upload' | 'install' | 'cancel' | null
 
 /** The prepared Source belongs to this flow until committed or explicitly released. */
-export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialogProps) {
+export function AddPluginDialog({ api, categories, resolveText, t, onClose, onInstalled }: AddPluginDialogProps) {
   const [source, setSource] = useState('')
+  const [localFile, setLocalFile] = useState<File | null>(null)
+  const filePicker = useRef<HTMLInputElement>(null)
+  const upload = useRef<AbortController | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [pending, setPending] = useState<Progress>(null)
@@ -39,6 +46,7 @@ export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialo
     alive.current = true
     return () => {
       alive.current = false
+      upload.current?.abort()
       const id = request.current
       request.current = null
       if (id !== null) void operations.current.cancelAdd(id).catch(() => undefined)
@@ -52,7 +60,10 @@ export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialo
   }, [selection?.requestId])
 
   const release = async (close: boolean) => {
-    if (busy.current) return
+    if (busy.current) {
+      if (upload.current !== null && close) { upload.current.abort(); onClose() }
+      return
+    }
     busy.current = true
     setError(null)
     const id = request.current
@@ -65,7 +76,7 @@ export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialo
       request.current = null
       if (!alive.current) return
       if (close) onClose()
-      else { setSelection(null); setSelected(new Set()) }
+      else { setSelection(null); setSelected(new Set()); setLocalFile(null) }
     } catch (cause) {
       if (alive.current) setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -74,16 +85,40 @@ export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialo
     }
   }
 
+  const chooseFile = (file: File | undefined) => {
+    if (file === undefined) return
+    if (pluginArchiveSuffix(file.name) === undefined || file.size === 0) { setError(t('invalidArchive')); return }
+    if (file.size > MAX_PLUGIN_ARCHIVE_BYTES) { setError(t('fileTooLarge', { limit: 30 })); return }
+    setLocalFile(file)
+    setError(null)
+  }
+
   const submit = async () => {
-    if (busy.current || source.trim() === '') return
+    if (busy.current || (localFile === null && source.trim() === '')) return
     if (selection !== null && selected.size === 0) { setError(t('noSelection')); return }
     busy.current = true
-    setPending(selection === null ? 'fetch' : 'install')
+    setPending(selection !== null ? 'install' : localFile !== null ? 'upload' : 'fetch')
     setError(null)
     try {
-      const result = selection === null
-        ? await operations.current.beginAdd(source.trim())
-        : await operations.current.completeAdd(selection.requestId, [...selected])
+      let result: CompatWebAddResult
+      if (selection !== null) result = await operations.current.completeAdd(selection.requestId, [...selected])
+      else if (localFile !== null) {
+        const controller = new AbortController()
+        upload.current = controller
+        result = await operations.current.uploadArchive(localFile, controller.signal)
+        upload.current = null
+        if (result.kind === 'selection' && (!alive.current || controller.signal.aborted)) {
+          await operations.current.cancelAdd(result.requestId)
+          return
+        }
+        if (result.kind === 'selection' && result.candidates.length === 1 && result.candidates[0].installable && result.candidates[0].errors === 0) {
+          request.current = result.requestId
+          setSelection(result)
+          setSelected(new Set([result.candidates[0].id]))
+          setPending('install')
+          result = await operations.current.completeAdd(result.requestId, [result.candidates[0].id])
+        }
+      } else result = await operations.current.beginAdd(source.trim())
       if (!alive.current) {
         if (result.kind === 'selection') void operations.current.cancelAdd(result.requestId).catch(() => undefined)
         return
@@ -101,6 +136,7 @@ export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialo
     } catch (cause) {
       if (alive.current) setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
+      upload.current = null
       busy.current = false
       if (alive.current) setPending(null)
     }
@@ -111,27 +147,37 @@ export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialo
       description={t(selection === null ? 'addDescription' : 'selectingDescription')} closeLabel={t('close')}
       className={css.addDialog} contentClassName={css.dialogContent} footer={(
         <>
-          <Button variant="outline" disabled={pending !== null} onClick={() => { void release(true) }}>{t(pending === 'cancel' ? 'cancelling' : 'cancel')}</Button>
-          <Button variant="primary" disabled={pending !== null || source.trim() === '' || (selection !== null && selected.size === 0)}
+          <Button variant="outline" disabled={pending !== null && pending !== 'upload'} onClick={() => { void release(true) }}>{t(pending === 'cancel' ? 'cancelling' : pending === 'upload' ? 'cancelUpload' : 'cancel')}</Button>
+          <Button variant="primary" disabled={pending !== null || (localFile === null && source.trim() === '') || (selection !== null && selected.size === 0)}
             icon={pending !== null && pending !== 'cancel' ? <IconLoadingOutlineRegular className={css.spinner} size={16} /> : undefined}
             onClick={() => { void submit() }}>
-            {t(pending === 'fetch' ? 'fetching' : pending === 'install' ? 'installing' : selection === null ? 'fetch' : 'installSelected')}
+            {t(pending === 'upload' ? 'uploadingFile' : pending === 'fetch' ? 'fetching' : pending === 'install' ? 'installing' : selection === null ? 'fetch' : 'installSelected')}
           </Button>
         </>
       )}>
       {selection === null ? (
         <div className={css.sourceForm}>
           <label htmlFor={fieldId}>{t('addSourceLabel')}</label>
-          <Input ref={sourceInput} id={fieldId} className={css.sourceInput} value={source} placeholder={t('addPlaceholder')} data-modal-autofocus
+          <Input ref={sourceInput} id={fieldId} className={css.sourceInput} value={localFile?.name ?? source} placeholder={t('addPlaceholder')} data-modal-autofocus
             aria-describedby={`${hintId}${error === null ? '' : ` ${errorId}`}`} aria-invalid={error !== null || undefined}
-            disabled={pending !== null} onChange={event => { setSource(event.currentTarget.value); setError(null) }}
+            disabled={pending !== null || localFile !== null} onChange={event => { setSource(event.currentTarget.value); setError(null) }}
             onKeyDown={event => {
               if (event.key === 'Enter' && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229) {
                 event.preventDefault()
                 void submit()
               }
             }} />
-          <p className={css.hint} id={hintId}>{t('addHint')}</p>
+          <p className={css.hint} id={hintId}>{t(localFile === null ? 'addHint' : 'localFileHint')}</p>
+          <input ref={filePicker} type="file" hidden accept={PLUGIN_ARCHIVE_ACCEPT} aria-label={t('chooseLocalFile')}
+            disabled={pending !== null} onChange={event => { chooseFile(event.currentTarget.files?.[0]) }} />
+          <div className={fileCss.actions}>
+            <Button variant="outline" size="sm" icon={<IconArchiveOutlineRegular size={16} />} disabled={pending !== null}
+              onClick={() => { if (filePicker.current !== null) { filePicker.current.value = ''; filePicker.current.click() } }}>{t('chooseLocalFile')}</Button>
+            {localFile !== null ? <Button variant="ghost" size="sm" disabled={pending !== null}
+              onClick={() => { setLocalFile(null); setError(null); requestAnimationFrame(() => sourceInput.current?.focus()) }}>{t('removeLocalFile')}</Button> : null}
+          </div>
+          {localFile !== null ? <div className={fileCss.selected} role="status"><strong title={localFile.name}>{localFile.name}</strong><span>{(localFile.size / (1024 * 1024)).toFixed(1)} MiB</span></div>
+            : <p className={css.hint}>{t('localFileHint')}</p>}
         </div>
       ) : (
         <div className={css.selection}>
@@ -158,7 +204,7 @@ export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialo
                     <code>{candidate.id}</code>
                     {candidate.description ? <span>{candidate.description}</span> : null}
                     <span className={css.candidateMeta}>
-                      <span>{candidate.formats.map(format => formatLabel(format, t)).join(' · ')}</span>
+                      <span>{candidate.formats.map(format => formatLabel(format, categories, resolveText)).join(' · ')}</span>
                       {!candidate.installable ? <span>{t('unavailable')}</span> : null}
                       {candidate.errors > 0 ? <span className={css.errorText}>{t('candidateErrors', { count: candidate.errors })}</span> : null}
                       {candidate.warnings > 0 ? <span className={css.warningText}>{t('warningCount', { count: candidate.warnings })}</span> : null}
@@ -172,7 +218,7 @@ export function AddPluginDialog({ api, t, onClose, onInstalled }: AddPluginDialo
           <button type="button" className={css.textButton} disabled={pending !== null} onClick={() => { void release(false) }}>{t('changeSource')}</button>
         </div>
       )}
-      {pending !== null ? <p className={css.srOnly} role="status">{t(pending === 'cancel' ? 'cancelling' : pending === 'fetch' ? 'fetching' : 'installing')}</p> : null}
+      {pending !== null ? <p className={css.srOnly} role="status">{t(pending === 'cancel' ? 'cancelling' : pending === 'upload' ? 'uploadingFile' : pending === 'fetch' ? 'fetching' : 'installing')}</p> : null}
       {error !== null ? <p id={errorId} className={css.formError} role="alert">{error}</p> : null}
     </Modal>
   )

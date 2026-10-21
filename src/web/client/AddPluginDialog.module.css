@@ -1,0 +1,4 @@
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.selected { display: flex; align-items: baseline; gap: 12px; padding: 9px 11px; border: 1px solid var(--dsw-alias-border-l2); border-radius: 8px; color: var(--dsw-alias-label-secondary); font-size: 12px; line-height: 19px; }
+.selected strong { flex: 1; min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.selected > span { flex: none; color: var(--dsw-alias-label-tertiary); font-variant-numeric: tabular-nums; }

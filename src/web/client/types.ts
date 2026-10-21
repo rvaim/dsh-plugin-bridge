@@ -1,6 +1,7 @@
 import type {
   CompatWebAddResult,
   CompatWebCancelAddResult,
+  CompatWebCategory,
   CompatWebCheckUpdatesResult,
   CompatWebListResult,
   CompatWebPlugin,
@@ -10,8 +11,13 @@ import type {
 } from '../../types/web.js'
 import type { PluginBridgeLocaleKey } from './locales.js'
 
+/** Labels follow the Host catalog and resolve through the native locale service. */
+export type ResolveText = (label: CompatWebCategory['label']) => string
+
 /** Browser operations supplied by the plugin registration. */
 export interface PluginBridgeInjected {
+  resolveText: ResolveText
+  uploadArchive(file: File, signal: AbortSignal): Promise<CompatWebAddResult>
   list: () => Promise<CompatWebListResult>
   checkUpdates: () => Promise<CompatWebCheckUpdatesResult>
   update: (pluginId: string, confirmShared: boolean) => Promise<CompatWebUpdateResult>
@@ -25,7 +31,7 @@ export interface PluginBridgeInjected {
 export type PanelView =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; plugins: CompatWebPlugin[] }
+  | { status: 'ready'; plugins: CompatWebPlugin[]; categories: CompatWebCategory[] }
 
 export type PendingAction = {
   pluginId: string

@@ -7,9 +7,9 @@
 
 > 从 **0.5.0** 起，包名为 `@rvaim/dsh-plugin-bridge`，Cordis 插件 ID 为 `plugin-bridge`。当前 GitHub 上游为 [rvaim/dsh-plugin-bridge](https://github.com/rvaim/dsh-plugin-bridge)，数据目录仍为 `$DSH_HOME/dsh-compat/`；仓库更名不自动修改 profile 或迁移数据。详见[包更名说明](<docs/包更名说明.md>)。
 
-> 当前版本：`0.6.0`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
+> 当前版本：`0.7.0`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
 >
-> `0.6.0` 仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。解析实现及其模型版本保持不变。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
+> 从 `0.6.0` 起，仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。解析实现及其模型版本保持不变。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
 
 ![更名前的 DSH Web 插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-plugin-bridge/main/docs/assets/compat-settings.png)
 
@@ -22,7 +22,7 @@
 从 npm 安装指定版本：
 
 ```bash
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.6.0
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.7.0
 ```
 
 也可以使用本地构建包：
@@ -31,7 +31,7 @@ dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.6.0
 npm install
 npm run verify
 npm pack --ignore-scripts
-dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.6.0.tgz
+dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.7.0.tgz
 ```
 
 公开发布地址：[npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。`0.5.0` 使用旧 DSH 基线，不包含当前 SDK 适配。
@@ -42,10 +42,18 @@ dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.6.0.tgz
 
 ```bash
 dsh plugin --profile web remove @rvaim/dsh-compat
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.6.0
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.7.0
 ```
 
 如果此前通过 GitHub 安装的是未加 scope 的 `dsh-compat`，移除命令改为 `dsh plugin --profile web remove dsh-compat`。这只替换 DSH bundle 依赖，不会删除 `$DSH_HOME/dsh-compat/` 中已安装插件的数据。
+
+## 0.7.0 新增功能
+
+插件桥页面增加由当前解析器注册目录生成的分类导航。解析器自行声明名称与排序，新增或移除模块时无需修改导航组件；“全部”保留已安装记录，混合格式插件可属于多个分类，窄屏使用同一目录的分类选择框。
+
+添加来源弹窗增加“选择本地文件”，使用浏览器标准选择器和 DSH 已认证的流式传输，支持 Windows、macOS、Linux 浏览器选择 ZIP、TAR、TGZ、TAR.GZ 归档，单文件上限 30 MiB。客户端与 Host 不需要共享文件系统；目录仍可输入 Host 本地路径。上传原件由 Source 持有，完成、取消及来源删除按统一所有权清理。
+
+菜单、Skill、MCP、Hook 的贡献注册和撤销架构、扩展步骤与验收见[动态贡献与本地文件选择](docs/动态贡献与本地文件选择.md)。这些功能从 `0.7.0` 起提供；升级插件桥本体后需重启 profile 并刷新 Web 页面。
 
 ## 使用
 
@@ -79,6 +87,8 @@ ctx.pluginBridge.sourceList()
 ctx.pluginBridge.sourceInspect(sourceId)
 
 ctx.pluginBridge.prepareInstall(source, options?)
+ctx.pluginBridge.prepareArchiveInstall(archivePath)
+ctx.pluginBridge.listCategories()
 ctx.pluginBridge.completeInstallPreparation(preparationId, plugins)
 ctx.pluginBridge.releaseInstallPreparation(preparationId)
 ctx.pluginBridge.install(sourceOrSourceId, options?)

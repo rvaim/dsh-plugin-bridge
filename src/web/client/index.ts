@@ -1,18 +1,22 @@
-/** Browser half: native DSH settings registration and typed Host RPC mount. */
+/** Browser half: native DSH sidebar panel and typed Host RPC mount. */
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-runtime/client'
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import compatRemote from '../../../dist/typert.remote-client.js'
-import { CompatSettingsSection, type CompatSettingsInjected } from './CompatSettingsSection.js'
+import { PluginBridgePanel } from './PluginBridgePanel.js'
+import type { PluginBridgeInjected } from './types.js'
+import { PluginBridgePanelIcon } from './PluginBridgePanelIcon.js'
 import { en, zh } from './locales.js'
 
-const NS = 'settings.pluginBridge'
+const NS = 'pluginBridge'
+const PANEL_ID = 'plugin-bridge'
 
-/** Client services required before the Settings contribution can mount. */
+/** Client services required before the management panel can mount. */
 export const inject = ['slots', 'locale', 'remote']
 
 function unwrap<T>(result: RemoteResult<T>, operation: string): T {
@@ -20,7 +24,7 @@ function unwrap<T>(result: RemoteResult<T>, operation: string): T {
   return result.value
 }
 
-/** Mount the plugin-bridge Remote namespace and contribute its Settings section. */
+/** Mount the plugin-bridge Remote namespace and contribute its management panel. */
 export async function apply(ctx: Context): Promise<() => Promise<void>> {
   const disposeRemote = await ctx.remote.$mount(compatRemote)
   try {
@@ -31,10 +35,10 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
     if (pluginBridgeAdmin === undefined) throw new Error('pluginBridgeAdmin Remote 挂载后不可用')
     ctx.effect(
       () => ctx.locale.register(NS, { zh, en }),
-      'plugin-bridge: Web 设置字典',
+      'plugin-bridge: Web 管理面板字典',
     )
     const t = ctx.locale.bind(NS)
-    const injected: CompatSettingsInjected = {
+    const injected: PluginBridgeInjected = {
       list: async () => unwrap(await pluginBridgeAdmin.list(), 'pluginBridgeAdmin.list'),
       checkUpdates: async () => unwrap(await pluginBridgeAdmin.checkUpdates(), 'pluginBridgeAdmin.checkUpdates'),
       update: async (pluginId, confirmShared) => unwrap(
@@ -62,14 +66,19 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         'pluginBridgeAdmin.uninstall',
       ),
     }
-    ctx.slots.inject('settings.section', () => ctx.slots.register({
-      name: 'settings.section',
-      id: 'plugin-bridge',
+    ctx.slots.inject('main', () => ctx.slots.register({
+      name: 'main',
+      key: PANEL_ID,
+      locale: NS,
+      inject: () => injected,
+    }, PluginBridgePanel))
+    ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+      name: 'sidebar.panellist',
+      id: PANEL_ID,
       order: 30,
       label: () => t('nav'),
       locale: NS,
-      inject: () => injected,
-    }, CompatSettingsSection))
+    }, PluginBridgePanelIcon))
   } catch (error) {
     await disposeRemote()
     throw error
@@ -78,6 +87,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
   return disposeRemote
 }
 
-export { CompatSettingsSection } from './CompatSettingsSection.js'
-export type { CompatSettingsInjected, CompatSettingsSectionProps } from './CompatSettingsSection.js'
-export { NS }
+export { PluginBridgePanel } from './PluginBridgePanel.js'
+export type { PluginBridgeInjected } from './types.js'
+export type { PluginBridgePanelProps } from './PluginBridgePanel.js'
+export { NS, PANEL_ID }

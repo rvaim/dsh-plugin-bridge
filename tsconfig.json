@@ -20,7 +20,6 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
-    "baseUrl": ".",
     "paths": {
       "@rvaim/dsh-plugin-bridge/types": ["./src/types/index.ts"]
     },

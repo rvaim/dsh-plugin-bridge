@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import type { CompatPlugin } from '../../types/plugin.js'
 import type { CompatSkill } from '../../types/skill.js'
 import { parseFrontmatter } from '../../shared/frontmatter.js'
-import type { DshContextLike, SkillRegistryLike } from '../context.js'
+import type { DshContextLike } from '../context.js'
 
 const COMPAT_SKILL_RANK = 600
 
@@ -16,7 +16,7 @@ export function registerSkillProvider(
   if (plugin.skills.length === 0) return undefined
   const blocked = plugin.skills.find(skill => (skill.runtimeUnsupported?.length ?? 0) > 0)
   if (blocked !== undefined) throw new Error(`Skill ${blocked.name} 的运行语义尚未适配：${blocked.runtimeUnsupported!.join(', ')}`)
-  const registry = (ctx.skills ?? ctx.get?.('skills')) as SkillRegistryLike | undefined
+  const registry = ctx.skills
   if (registry === undefined) throw new Error('DSH 未提供 ctx.skills，无法注册 Skill')
   const providerName = `plugin-bridge:${plugin.id}`
   const byName = new Map(plugin.skills.map(skill => [skill.name, skill]))

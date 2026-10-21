@@ -17,7 +17,6 @@ const PLATFORM_MODULES = [
   '@deepseek-ai/dsh-client-ui-primitives',
   '@deepseek-ai/dsh-client-ui-attachment',
   '@deepseek-ai/dsh-client-schema-form',
-  '@deepseek-ai/dsh-client-runtime/client',
 ] as const
 
 export default defineConfig({
@@ -33,8 +32,8 @@ export default defineConfig({
   clean: false,
   deps: {
     neverBundle: [...PLATFORM_MODULES],
-    alwaysBundle: ['zod'],
-    onlyBundle: ['zod'],
+    alwaysBundle: ['zod', '@deepseek-ai/dsh-typert-protocol/remote-info'],
+    onlyBundle: ['zod', '@deepseek-ai/dsh-typert-protocol'],
   },
   plugins: [{
     name: 'dsh-plugin-bridge-css-modules-inline',

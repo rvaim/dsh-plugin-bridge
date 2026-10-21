@@ -1,5 +1,15 @@
 # 更新日志
 
+## 0.6.0 — 未发布
+
+- SDK、Hook Protocol 和 Typert 生成器统一到 `engines.dsh` 声明的当前 DSH 版本；重新生成使用 `create()` 工厂的严格 Host/Remote codec，不保留旧格式转换。
+- 插件桥从设置页迁至侧边栏 `sidebar.panellist`，点击后在 `main` 打开独立管理面板；Client locale namespace 改为 `pluginBridge`，删除旧入口与组件别名。
+- 运行层改用当前 Shell、Session projection 和官方事件/消息类型，删除 `shell.run` 与 `session.events` 的旧 Host 回退。
+- 契约探针使用真实 SDK 注册器和 Host/Client dispatcher，验证 RPC 往返、非法输入与卸载；Client 测试验证实际浏览器 bundle 的入口注册和资源释放。
+- 管理面板拆分查询/变更状态、插件行、添加流程与操作确认；增加本地检索、状态筛选、持续错误与重试、共享来源更新影响确认，复用宿主 Switch 和 Modal 焦点管理。
+- 本轮架构审查记录了慢 I/O 与仓库锁、临时来源所有权、显式运行协调等后续建议；未扩大为核心或解析器改造。
+- 解析代码、解析模型版本、协议模块及磁盘数据目录不变。本次不自动安装、发布或修改用户 profile。
+
 ## 0.5.0 — 2026-10-21
 
 此版本以新包名 `@rvaim/dsh-plugin-bridge` 交付，包含不兼容的服务命名和开发 API 调整；旧包不会自动升级或迁移 profile。支持的解析能力与当前 Desktop 运行边界分别记录，见[包更名说明](<docs/包更名说明.md>)和[验证报告](<docs/解析器解耦验证报告.md>)。

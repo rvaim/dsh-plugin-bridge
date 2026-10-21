@@ -7,7 +7,7 @@ import test from 'node:test'
 test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', async () => {
   const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as any
   assert.equal(packageJson.name, '@rvaim/dsh-plugin-bridge')
-  assert.equal(packageJson.version, '0.5.0')
+  assert.equal(packageJson.version, '0.6.0')
   assert.equal(packageJson.publishConfig.access, 'public')
   assert.equal(packageJson.publishConfig.registry, 'https://registry.npmjs.org/')
   assert.equal(packageJson.repository.url, 'git+https://github.com/rvaim/dsh-compat.git')
@@ -16,13 +16,23 @@ test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', 
   assert(packageJson.files.includes('dist/src/'))
   assert.equal(packageJson.files.includes('dist/'), false)
   assert.equal(packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'], undefined)
-  assert.equal(packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'], '0.1.0-rc.6')
+  assert.equal(packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'], packageJson.engines.dsh)
+  assert.equal(packageJson.devDependencies?.['@deepseek-ai/dsh-typert-generator'], packageJson.engines.dsh)
+  for (const [name, range] of Object.entries(packageJson.peerDependencies)) {
+    if (name.startsWith('@deepseek-ai/dsh-')) assert.equal(range, packageJson.engines.dsh, name)
+  }
   assert.equal(packageJson.dependencies?.['ajv'], '8.20.0')
   assert.equal(packageJson.dependencies?.['@clack/prompts'], undefined)
   assert.equal(packageJson.peerDependencies?.['@deepseek-ai/dsh-hook-protocol'], undefined)
   assert.equal(packageJson.peerDependenciesMeta?.['@deepseek-ai/dsh-hook-protocol'], undefined)
   assert.equal(packageJson.dsh.client.platform, 'web')
-  assert(packageJson.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-settings'))
+  assert(packageJson.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-sidebar'))
+  assert(packageJson.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-layout'))
+  for (const name of ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-settings']) {
+    assert.equal(packageJson.dsh.client.inject.includes(name), false)
+    assert.equal(packageJson.peerDependencies[name], undefined)
+    assert.equal(packageJson.devDependencies[name], undefined)
+  }
   assert.equal(packageJson.exports['./client'].types, './dist/src/web/client/index.d.ts')
   assert.equal(packageJson.exports['./client'].default, './dist/client.js')
   assert.equal(packageJson.exports['./typert'].default, './dist/typert.host.js')

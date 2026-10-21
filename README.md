@@ -7,23 +7,28 @@
 
 > 从 **0.5.0** 起，包名为 `@rvaim/dsh-plugin-bridge`，Cordis 插件 ID 为 `plugin-bridge`。GitHub 仓库仍为 [rvaim/dsh-compat](https://github.com/rvaim/dsh-compat)，数据目录仍为 `$DSH_HOME/dsh-compat/`；更名不自动修改 profile。详见[包更名说明](<docs/包更名说明.md>)。
 
-> 当前包版本：`0.5.0`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
+> 当前开发版本：`0.6.0`（尚未发布）。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
 >
-> DSH 构建依赖仍为 rc.6；本轮补充当前 Shell / Agent Hook 接口，**尚未完成当前 Desktop Web 的 Typert 与页面端到端兼容验证**，不能把解析测试通过视为当前 GUI 可直接安装使用。详见[本轮验证报告](docs/插件协议兼容验证报告.md)。
+> `0.6.0` 仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。解析实现及其模型版本保持不变。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
 
 ![更名前的 DSH Web 插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-compat/main/docs/assets/compat-settings.png)
 
-截图保留更名前的界面；当前设置页中文名为“插件桥”，英文名为“Plugin Bridge”。
+截图保留更名前的设置页界面。`0.6.0` 的入口已移至侧边栏“插件桥 / Plugin Bridge”，点击后在主区域打开管理面板。
 
 ## 安装
 
 要求 Node.js `^22.19.0` 或 `>=24.0.0`；使用 Git 来源时还需要 Git。
 
-从 [npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge) 安装指定版本：
+当前开发版 `0.6.0` 尚未发布到 npm；先在项目中构建并打包，再安装生成的归档：
 
 ```bash
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.5.0
+npm install
+npm run verify
+npm pack --ignore-scripts
+dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.6.0.tgz
 ```
+
+公开发布地址仍为 [npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。已发布的 `0.5.0` 使用旧 DSH 基线，不包含这次适配。
 
 把 `web` 换成实际 profile 名称即可。首次安装或升级 `@rvaim/dsh-plugin-bridge` 后，需要重启该 profile 并重新加载 Web 页面，因为 DSH 的 Host/Client 插件图发生了变化。
 
@@ -31,14 +36,14 @@ dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.5.0
 
 ```bash
 dsh plugin --profile web remove @rvaim/dsh-compat
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.5.0
+dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.6.0.tgz
 ```
 
 如果此前通过 GitHub 安装的是未加 scope 的 `dsh-compat`，移除命令改为 `dsh plugin --profile web remove dsh-compat`。这只替换 DSH bundle 依赖，不会删除 `$DSH_HOME/dsh-compat/` 中已安装插件的数据。
 
 ## 使用
 
-1. 启动 profile，在 DSH Web 中打开“设置 → 插件桥”。
+1. 启动 profile，在 DSH Web 侧边栏点击“插件桥”，在主区域打开管理面板。
 2. 点击“添加”，输入 Git URL、`github:owner/repo#ref`、本地目录或 ZIP/TAR/TGZ 归档。
 3. 单插件来源会直接安装；多插件来源会显示复选列表，确认后从同一份固定快照安装所选插件，不会再次拉取。
 4. 使用开关在线启用或停用整个插件；使用删除按钮卸载。错误或警告数量可以展开查看说明、诊断代码、能力类型与关联文件。
@@ -46,7 +51,9 @@ dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.5.0
 
 旧插件的添加、启用、停用和卸载会立即作用于当前 DSH 进程，通常无需重启。只有安装、升级或删除 `@rvaim/dsh-plugin-bridge` 本体时需要重启 profile。
 
-本包不提供独立 CLI。常用操作在 Web 设置页完成；批量与自动化场景使用 `ctx.pluginBridge` 服务 API。
+列表支持按名称、ID 或来源搜索，以及已启用、已停用、需要关注和可更新筛选。更新检查独立于列表显示；检查或刷新失败会保留已知数据并提供重试。共享 Source 更新前会列出受影响插件，确认后才提交。
+
+本包不提供独立 CLI。常用操作在侧边栏打开的管理面板完成；批量与自动化场景使用 `ctx.pluginBridge` 服务 API。
 
 ## 服务 API
 
@@ -76,7 +83,7 @@ ctx.pluginBridge.list()
 ctx.pluginBridge.inspect(pluginId)
 ```
 
-服务 API 直接通知运行管理器，适合对正在运行的 DSH 实例执行生命周期操作。服务注入名为 `pluginBridge`，Web RPC namespace 为 `pluginBridgeAdmin`，Client locale namespace 为 `settings.pluginBridge`，Settings section ID 为 `plugin-bridge`；旧服务名、RPC 和 Client namespace 不提供兼容别名。内部 `Compat*` 类型和 `parseCompat*` 函数保留原名。
+服务 API 直接通知运行管理器，适合对正在运行的 DSH 实例执行生命周期操作。服务注入名为 `pluginBridge`，Web RPC namespace 为 `pluginBridgeAdmin`，Client locale namespace 为 `pluginBridge`，侧边栏 ID 与主面板 key 均为 `plugin-bridge`；不保留设置页入口或旧 Client namespace 别名。内部 `Compat*` 类型和 `parseCompat*` 函数保留原名。
 
 ## Source 与 Plugin
 
@@ -137,7 +144,8 @@ Git / Directory / ZIP / TAR / TGZ
 - Claude Code / Codex Skill 发现、frontmatter、动态 Skill Provider，以及正文和资源按需读取。
 - MCP stdio 与 streamable-http，通过 DSH `dsh-mcp-client` 接入。
 - Claude Code / Codex Hook parser、参数边界、事件映射、matcher、超时、取消、stdout/退出码和结果合并。
-- Codex Stop Hook 会提取当前 turn 最后一条 `assistant/message` 作为 `last_assistant_message`。
+- Codex Stop Hook 通过当前 DSH session projection 提取本轮最后一条 `assistant/message` 作为 `last_assistant_message`。
+- 当前 DSH 公开持久化 API 不提供 transcript 文件路径，`transcript_path` 按协议配置为空字符串或 `null`；不猜测内部存储路径。
 - Command / Agent 可识别并产生 warning，但当前版本不执行。
 - Workflow、Output Style、LSP、Theme、Monitor、Channel、userConfig、插件依赖等未可靠适配能力会产生结构化诊断。
 
@@ -199,11 +207,10 @@ Plugin 安装不会把源码复制到 `installed/<pluginId>/package/`；事实�
 ```bash
 npm install
 npm run verify
-npm run verify:dsh
 npm pack --ignore-scripts
 ```
 
-`npm run verify` 执行严格 TypeScript 编译、自动化测试、DSH Client/Typert 构建、八种解析器组合的物理移除编译/公共入口加载，以及发布白名单检查。`npm run verify:parsers` 可单独重跑可移除性验收。`npm run verify:dsh` 额外核对工作区 DSH `0.1.0-rc.6` 依赖的关键导出契约。
+`npm run verify` 执行严格 TypeScript 编译、自动化测试、DSH Client/Typert 构建、真实 SDK 的 Host/Client 注册与 RPC 往返、八种解析器组合的物理移除编译/公共入口加载，以及发布白名单检查。`npm run verify:parsers` 可单独重跑可移除性验收。`npm run verify:dsh` 会检查 SDK 与目标版本一致、当前安装器接受包清单、旧 codec 被拒绝、非法 RPC 参数被拦截和卸载后 namespace 被撤回；使用内存载体，不修改用户 profile，也不代表浏览器视觉实测通过。
 
 ## 文档
 

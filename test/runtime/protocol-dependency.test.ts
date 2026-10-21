@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { registerHooks } from '../../src/runtime/adapters/hooks.js'
 import { defaultRuntimeDependencies } from '../../src/runtime/dependencies.js'
-import type { DshContextLike } from '../../src/runtime/context.js'
+import type { DshContextLike, RuntimeServices } from '../../src/runtime/context.js'
+import type { ShellExecSpec } from '@deepseek-ai/dsh-shell'
+import { Context } from '@deepseek-ai/cordis'
+import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
+import { createFakeShell, createTestSession, fakeShellResult } from '../helpers/fake-dsh.js'
 import type { CompatPlugin } from '../../src/types/plugin.js'
 
 test('发布运行依赖可直接加载并执行 Hook Protocol', async () => {
@@ -11,20 +15,11 @@ test('发布运行依赖可直接加载并执行 Hook Protocol', async () => {
   assert.equal(typeof protocol.mergeHookOutputs, 'function')
   assert.equal(typeof protocol.createDetachedRuns, 'function')
 
-  let resolved: Record<string, unknown> | undefined
-  const shell = {
-    resolve(request: Record<string, unknown>) {
-      resolved = request
-      return request
-    },
-    async run() {
-      return {
-        exitCode: 2,
-        stdout: { text: '' },
-        stderr: { text: '已阻止' },
-      }
-    },
-  }
+  let resolved: ShellExecSpec | undefined
+  const shell = createFakeShell(async request => {
+    resolved = request
+    return { ...fakeShellResult('', 2), stderr: { text: '已阻止', truncated: false } }
+  })
   let now = 0
   const result = await protocol.runHook(shell, { command: 'fixture-hook' }, {
     payload: { hook_event_name: 'PreToolUse' },
@@ -44,22 +39,14 @@ test('发布运行依赖可直接加载并执行 Hook Protocol', async () => {
 test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () => {
   const listeners = new Map<string, (...args: any[]) => unknown>()
   const disposers: Array<() => unknown> = []
-  let shellRequest: Record<string, unknown> | undefined
+  let shellRequest: ShellExecSpec | undefined
+  const services: Partial<RuntimeServices> = { sessionProjections: new SessionProjectionRegistry(new Context()) }
   const ctx: DshContextLike = {
     logger: { warn() {} },
-    shell: {
-      resolve(request: Record<string, unknown>) {
-        shellRequest = request
-        return request
-      },
-      async run() {
-        return {
-          exitCode: 2,
-          stdout: { text: '' },
-          stderr: { text: '真实 Protocol 已阻止' },
-        }
-      },
-    },
+    shell: createFakeShell(async request => {
+      shellRequest = request
+      return { ...fakeShellResult('', 2), stderr: { text: '真实 Protocol 已阻止', truncated: false } }
+    }),
     on(event, listener) {
       listeners.set(event, listener)
     },
@@ -67,7 +54,7 @@ test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () 
       const dispose = setup()
       if (typeof dispose === 'function') disposers.push(dispose)
     },
-    get() { return undefined },
+    get(name) { return services[name] },
   }
   const plugin: CompatPlugin = {
     id: 'real-protocol-hook',
@@ -118,14 +105,7 @@ test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () 
   assert.deepEqual(health, [{ capability: 'hook', name: 'claude-code:fixture', status: 'running' }])
   const listener = listeners.get('tools/pre-execute')
   assert(listener)
-  const sessionEvents: unknown[] = [{ type: 'turn/start', data: { turn: 1 } }]
-  const agent = {
-    session: {
-      header: { id: 'session-real-protocol', cwd: '/fixture/workspace' },
-      events: sessionEvents,
-      append(type: string, data: unknown) { sessionEvents.push({ type, data }) },
-    },
-  }
+  const agent = { session: createTestSession('/fixture/workspace', 'session-real-protocol') }
   const decision = await listener({
     name: 'danger',
     arguments: { command: 'rm -rf fixture' },

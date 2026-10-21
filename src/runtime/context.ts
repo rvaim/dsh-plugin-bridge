@@ -1,3 +1,12 @@
+import type { Events } from '@deepseek-ai/cordis'
+import type { AgentRegistry } from '@deepseek-ai/dsh-agent'
+import type { WorkingDirectoryService } from '@deepseek-ai/dsh-working-directory'
+import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
+import type { ShellExecutor } from '@deepseek-ai/dsh-shell'
+import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
+import type {} from '@deepseek-ai/dsh-tools'
+import type {} from '@deepseek-ai/dsh-subagent'
+
 export interface LoggerLike {
   debug?(...args: unknown[]): void
   info?(...args: unknown[]): void
@@ -23,30 +32,29 @@ export interface CredentialsLike {
   resolve(ref: string): Promise<{ value: string; source: string } | undefined>
 }
 
-export interface DshContextLike {
+export type HookEventName = 'agent/created' | 'agent/pre-step' | 'agent/turn-stopping'
+  | 'tools/pre-execute' | 'tools/post-execute' | 'subagent/start'
+
+export interface RuntimeServices {
+  subprocess: Pick<SubprocessRuntime, 'resolveExecutable' | 'spawn'>
+  sessionProjections: Pick<SessionProjectionRegistry, 'register' | 'stateOf'>
+  workingDirectory: Pick<WorkingDirectoryService, 'get'>
+  agents: Pick<AgentRegistry, 'get'>
+  credentials: CredentialsLike
+}
+
+export interface DshContextLike extends Partial<RuntimeServices> {
   logger: LoggerLike
   skills?: SkillRegistryLike
-  shell?: unknown
-  /** Optional direct argv execution service; no shell fallback for exec-form Hooks. */
-  subprocess?: {
-    resolveExecutable(command: string, env?: Readonly<Record<string, string>>, signal?: AbortSignal): Promise<string>
-    spawn(spec: {
-      argv: readonly string[]
-      cwd: string
-      stdio: { stdin: { data: string }; stdout: { maxBytes: number }; stderr: { maxBytes: number } }
-      graceMs: number
-      signal?: AbortSignal
-      env?: Record<string, string>
-    }): {
-      done: Promise<{ exitCode: number | null; signal?: string | null }>
-      collected: { stdout?: { readFrom(offset: number): { text: string; lossy: boolean } }; stderr?: { readFrom(offset: number): { text: string; lossy: boolean } } }
-      terminate(): void
-      waitForExit(signal?: AbortSignal): Promise<boolean>
-    }
-  }
+  shell?: Pick<ShellExecutor, 'resolve' | 'execute'>
+  /** Optional direct argv execution service; exec-form Hooks require it. */
+  subprocess?: Pick<SubprocessRuntime, 'resolveExecutable' | 'spawn'>
+  sessionProjections?: Pick<SessionProjectionRegistry, 'register' | 'stateOf'>
+  workingDirectory?: Pick<WorkingDirectoryService, 'get'>
+  agents?: Pick<AgentRegistry, 'get'>
   credentials?: CredentialsLike
   plugin?(plugin: unknown, config?: unknown): FiberLike
-  on?(event: string, listener: (...args: any[]) => unknown): unknown
+  get?<K extends keyof RuntimeServices>(name: K): RuntimeServices[K] | undefined
+  on?<K extends HookEventName>(event: K, listener: Events[K]): unknown
   effect?(setup: () => void | (() => unknown), label?: string): unknown
-  get?(name: string): any
 }

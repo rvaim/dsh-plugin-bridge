@@ -54,7 +54,7 @@ for (const [locale, title] of [['zh', '插件桥'], ['en', 'Plugin Bridge']]) {
 }
 const icon = await readFile(new URL('icon.png', root))
 if (icon.length > 256 * 1024 || icon.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('包图标必须为有效大小的 PNG')
-if (packageJson.version !== '0.5.0') throw new Error('交付版本必须为 0.5.0')
+if (packageJson.version !== '0.6.0') throw new Error('交付版本必须为 0.6.0')
 if (packageJson.publishConfig?.access !== 'public') throw new Error('npm 组织包必须公开发布')
 if (packageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error('npm 发布 registry 配置错误')
 if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-compat.git') {
@@ -65,8 +65,8 @@ if (packageJson.dsh?.bundle?.patch !== './cordis.patch.yml') throw new Error('ds
 if (packageJson.dsh?.client?.platform !== 'web') throw new Error('dsh.client.platform 必须为 web')
 for (const dependency of [
   '@deepseek-ai/dsh-api-remotes',
-  '@deepseek-ai/dsh-client-runtime',
-  '@deepseek-ai/dsh-client-ui-settings',
+  '@deepseek-ai/dsh-client-ui-layout',
+  '@deepseek-ai/dsh-client-ui-sidebar',
   '@deepseek-ai/dsh-client-locale',
 ]) {
   if (!packageJson.dsh.client.inject.includes(dependency)) {
@@ -89,8 +89,16 @@ if (!packageJson.files?.includes('dist/src/')) throw new Error('发布清单缺�
 if (packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'] !== undefined) {
   throw new Error('Schemastery 是静态导入，不能声明为 optional peer')
 }
-if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== '0.1.0-rc.6') {
-  throw new Error('Hook Protocol 必须作为与目标 DSH 对齐的运行依赖安装')
+if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== packageJson.engines?.dsh
+  || packageJson.devDependencies?.['@deepseek-ai/dsh-typert-generator'] !== packageJson.engines?.dsh) {
+  throw new Error('Hook Protocol、Typert Generator 必须与目标 DSH 对齐')
+}
+for (const [name, range] of Object.entries(packageJson.peerDependencies ?? {})) {
+  if (name.startsWith('@deepseek-ai/dsh-') && range !== packageJson.engines?.dsh) throw new Error(`${name} 未与目标 DSH 对齐`)
+}
+for (const name of ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-settings']) {
+  if (packageJson.dsh.client.inject.includes(name) || packageJson.peerDependencies[name] !== undefined
+    || packageJson.devDependencies[name] !== undefined) throw new Error(`残留旧客户端依赖 ${name}`)
 }
 if (packageJson.dependencies?.ajv !== '8.20.0') throw new Error('Agent Plugins 离线 schema 校验器必须是固定运行依赖')
 if (packageJson.dependencies?.['@clack/prompts'] !== undefined) {

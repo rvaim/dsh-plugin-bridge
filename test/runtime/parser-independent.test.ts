@@ -10,7 +10,7 @@ import type { CompatHook } from '../../src/types/hook.js'
 import type { CompatMcpServer } from '../../src/types/mcp.js'
 import type { CompatDeferredJsonValue, CompatRuntimeValue } from '../../src/types/path.js'
 import type { CompatPlugin } from '../../src/types/plugin.js'
-import { FakeContext, fakeRuntimeDependencies } from '../helpers/fake-dsh.js'
+import { FakeContext, createTestSession, fakeRuntimeDependencies, recordedPluginData } from '../helpers/fake-dsh.js'
 import { temporaryDirectory } from '../helpers/temp.js'
 
 const literal = (value: string): CompatRuntimeValue => ({ type: 'template', parts: [{ type: 'text', value }] })
@@ -123,7 +123,7 @@ test('standard MCP profile preserves explicit environment and header/token prece
 })
 
 test('Hook matching, timeout and environment follow the neutral profile while dialect remains metadata', async () => {
-  for (const dialect of ['claude-code', 'codex'] as const) {
+  for (const dialect of sourceFormats) {
     const ctx = FakeContext.create()
     try {
       const hook: CompatHook = {
@@ -139,7 +139,7 @@ test('Hook matching, timeout and environment follow the neutral profile while di
         commands: [{ command: literal('allow:neutral') }],
       }
       await registerHooks(ctx, plugin([], [hook]), '/plugin', '/data', fakeRuntimeDependencies(ctx.shared), { workspaceRoot: '/workspace' })
-      const agent = { session: { header: { id: 'session', cwd: '/workspace' }, events: [] } }
+      const agent = { session: createTestSession('/workspace', 'session') }
       for (const name of ['Read', 'Read,Write', 'Bash', 'Read,WriteSuffix']) {
         await ctx.intercept('tools/pre-execute', [{ name, arguments: {}, agent, signal: new AbortController().signal }], async () => ({ kind: 'allow' }))
       }
@@ -149,7 +149,9 @@ test('Hook matching, timeout and environment follow the neutral profile while di
         assert.equal(run.options.defaultTimeoutMs, 7_000)
         assert.deepEqual(run.options.env, { ROOT: '/plugin', WORK: '/workspace' })
       }
-      assert(ctx.shared.hookInvoked.every(record => record.dialect === dialect))
+      const invoked = recordedPluginData(agent.session, 'plugin:plugin-bridge/hook-invoked')
+      assert.equal(invoked.length, 2)
+      assert(invoked.every(record => record.dialect === dialect))
     } finally { await ctx.dispose() }
   }
 })

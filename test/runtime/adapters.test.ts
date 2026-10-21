@@ -6,7 +6,8 @@ import { parseCompatPlugin } from '../../src/composition/defaults.js'
 import { copyPluginDirectory } from '../../src/source/directory.js'
 import { CompatLayout } from '../../src/store/layout.js'
 import { CompatRuntimeManager } from '../../src/runtime/manager.js'
-import { FakeContext, fakeRuntimeDependencies } from '../helpers/fake-dsh.js'
+import { FakeContext, createTestSession, fakeRuntimeDependencies, recordedPluginData } from '../helpers/fake-dsh.js'
+import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import { temporaryDirectory } from '../helpers/temp.js'
 
 const claudeFixture = resolve('test/fixtures/claude-code/full')
@@ -16,11 +17,7 @@ function fakeAgent(cwd: string): any {
   const injected: any[] = []
   const steered: any[] = []
   return {
-    session: {
-      header: { id: 'session-1', cwd },
-      events: [{ type: 'turn/start', data: { turn: 1 } }],
-      append(this: any, type: string, data: unknown) { this.events.push({ type, data }) },
-    },
+    session: createTestSession(cwd),
     injected,
     steered,
     inject(value: unknown) { injected.push(value) },
@@ -106,8 +103,11 @@ test('父运行实例注册 Skill、MCP、Hook，停止时整体撤销', async (
     await ctx.emit('agent/created', { agent, source: 'startup' })
     await tick()
     assert.equal(agent.injected[0].content[0].text, '会话初始化完成')
-    assert(ctx.shared.hookInvoked.length > 0)
-    assert.equal(ctx.shared.hookInvoked.length, ctx.shared.hookResults.length)
+    const invoked = recordedPluginData(agent.session, 'plugin:plugin-bridge/hook-invoked')
+    const results = recordedPluginData(agent.session, 'plugin:plugin-bridge/hook-result')
+    assert(invoked.length > 0)
+    assert.equal(invoked.length, results.length)
+    assert(invoked.some(record => record.point === 'SessionStart' && !('turn' in record)))
 
     const stopped = await runtime.stop(plugin.id)
     assert.equal(stopped.status, 'disabled')
@@ -221,18 +221,16 @@ test('Codex Hook 保留完整 payload，并明确阻断不支持的 ask', async 
     assert.equal(promptRun.options.expectedEventName, 'UserPromptSubmit')
     assert.equal((promptRun.options.payload as any).prompt, '请分析')
 
-    agent.session.events.push({
-      type: 'assistant/message',
-      data: {
-        turn: 1,
-        message: {
-          content: [
-            { type: 'reasoning', text: '不能进入 Hook payload 的私有推理' },
-            { type: 'text', text: '这是本轮最终回复' },
-          ],
-        },
-      },
-    })
+    agent.session.append('assistant/message', {
+      turn: 1, step: 1, stream: [],
+      message: createAssistantMessage({
+        source: { provider: 'fixture', model: 'fixture' },
+        content: [
+          { type: 'reasoning', text: '不能进入 Hook payload 的私有推理' },
+          { type: 'text', text: '这是本轮最终回复' },
+        ],
+      }),
+    }, { surfaceOp: 'append' })
     await ctx.emit('agent/turn-stopping', { agent, turn: 1, signal: new AbortController().signal })
     assert.equal(agent.steered[0].content[0].text, '继续执行')
     const stopRun = ctx.shared.hookRuns.find(item => item.hook.command === 'deny:继续执行')
@@ -297,8 +295,8 @@ test('Claude Hook 的 command + args 保留直接执行参数边界', async () =
 
     assert.equal(ctx.shared.hookRuns.length, 1)
     assert.equal(ctx.shared.hookRuns[0].hook.command, 'node')
-    assert.deepEqual(ctx.shared.hookRuns[0].hook.args, [
-      resolve(packageRoot, 'bin/dispatch file.js'), '--host', 'claude', "quote'value",
+    assert.deepEqual(ctx.shared.subprocessSpawns[0].argv, [
+      'node', resolve(packageRoot, 'bin/dispatch file.js'), '--host', 'claude', "quote'value",
     ])
   } finally {
     await ctx.dispose()

@@ -7,7 +7,7 @@ import { CompatManager } from '../../src/manager/manager.js'
 import { CompatRuntimeManager } from '../../src/runtime/manager.js'
 import { CompatLayout } from '../../src/store/layout.js'
 import { parseCompatPlugin } from '../../src/composition/defaults.js'
-import { FakeContext, fakeRuntimeDependencies } from '../helpers/fake-dsh.js'
+import { createTestSession, FakeContext, fakeRuntimeDependencies } from '../helpers/fake-dsh.js'
 import { buildClaudePlugin } from '../helpers/plugin-builder.js'
 import { temporaryDirectory } from '../helpers/temp.js'
 
@@ -58,7 +58,7 @@ test('Marketplace 内联 MCP 和 Hook 使用 Source 来源，安装更新后不�
     assert.equal((ctx.shared.mcpConfigs.get('source_server')?.env as any).SOURCE_VALUE, 'private-source-v2')
     await manager.disable('nested')
     await manager.enable('nested')
-    const agent = { session: { header: { id: 'provenance', cwd: temp.path }, events: [{ type: 'turn/start', data: { turn: 1 } }] } }
+    const agent = { session: createTestSession(temp.path, 'provenance') }
     const result = await ctx.intercept('tools/pre-execute', [{ name: 'fixture', arguments: {}, callId: 'source-call', agent,
       signal: new AbortController().signal }], async () => ({ kind: 'allow' }))
     assert.deepEqual(result, { kind: 'deny', reason: 'source-policy-v2' })

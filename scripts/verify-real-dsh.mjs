@@ -1,82 +1,152 @@
 #!/usr/bin/env node
 
-/**
- * 在目标 DSH profile/checkout 已安装 peerDependencies 后运行。
- * 该探针只核对当前发布包的关键导出契约；完整行为仍由 test/ 中的生命周期测试覆盖。
- */
-const failures = []
+/** Exercise the pinned SDK's real registries and Host/Client dispatch in memory. */
+import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { Context } from '@deepseek-ai/cordis'
+import { TypertRegistry } from '@deepseek-ai/dsh-typert-registry'
+import { TypertGatewayService } from '@deepseek-ai/dsh-api-gateway'
+import { apply as applyClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
+import { evaluatePluginCompatibility } from '@deepseek-ai/dsh-app-boot'
+import { TYPERT } from '../dist/typert.host.js'
+import remote from '../dist/typert.remote-client.js'
+import { CompatWebGateway } from '../dist/src/web/host/gateway.js'
+import { createHookSessionReader } from '../dist/src/runtime/hook-session.js'
 
-async function load(name) {
-  try {
-    console.log(`探针依赖 ${name} → ${import.meta.resolve(name)}`)
-    return await import(name)
-  } catch (error) {
-    failures.push(`${name} 无法导入：${error instanceof Error ? error.message : String(error)}`)
-    return undefined
+const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
+const target = manifest.engines.dsh
+for (const name of Object.keys({ ...manifest.dependencies, ...manifest.devDependencies })) {
+  if (!name.startsWith('@deepseek-ai/dsh-')) continue
+  const installed = JSON.parse(await readFile(new URL(import.meta.resolve(`${name}/package.json`)), 'utf8'))
+  assert.equal(installed.version, target, `${name} must match engines.dsh`)
+}
+assert.equal(evaluatePluginCompatibility(manifest, {}, target), undefined)
+assert.notEqual(evaluatePluginCompatibility(manifest, {}, '0.1.0-rc.6'), undefined)
+
+const expected = ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'list', 'setEnabled', 'uninstall', 'update']
+assert.deepEqual(TYPERT.invocations.map(item => item.method).sort(), expected)
+assert.deepEqual(remote.descriptors.map(item => item.method).sort(), expected)
+for (const descriptor of [...TYPERT.invocations, ...remote.descriptors]) {
+  for (const codec of [descriptor.result, ...descriptor.parameters.map(parameter => parameter.codec)]) {
+    assert.equal(codec.mode, 'strict')
+    assert.equal(typeof codec.create, 'function')
+    assert.equal(Object.hasOwn(codec, 'schema'), false)
+    assert.equal(typeof codec.create().safeParse, 'function')
   }
 }
 
-const [cordis, schemaModule, hookProtocol, mcpClient] = await Promise.all([
-  load('@deepseek-ai/cordis'),
-  load('@deepseek-ai/schemastery'),
-  load('@deepseek-ai/dsh-hook-protocol'),
-  load('@deepseek-ai/dsh-mcp-client'),
-])
-
-if (cordis !== undefined && typeof cordis.Service !== 'function') failures.push('@deepseek-ai/cordis 未导出 Service')
-const schema = schemaModule?.default ?? schemaModule
-if (schema !== undefined && typeof schema.object !== 'function') failures.push('@deepseek-ai/schemastery 未导出 object()')
-for (const name of ['runHook', 'matchesMatcher', 'mergeHookOutputs', 'createDetachedRuns']) {
-  if (hookProtocol !== undefined && typeof hookProtocol[name] !== 'function') {
-    failures.push(`@deepseek-ai/dsh-hook-protocol 未导出 ${name}()`)
-  }
-}
-if (mcpClient !== undefined) {
-  const plugin = mcpClient.default ?? mcpClient
-  if (typeof plugin !== 'function' && typeof plugin?.apply !== 'function') {
-    failures.push('@deepseek-ai/dsh-mcp-client 不是 Cordis 可挂载插件')
-  }
-}
-
+const host = new Context()
+const client = new Context()
+const peerController = new AbortController()
+let admin
 try {
-  const compat = await import('../dist/src/index.js')
-  if (typeof compat.apply !== 'function') failures.push('plugin-bridge 未导出 apply()')
-  if (!Array.isArray(compat.inject) || !compat.inject.includes('skills') || !compat.inject.includes('shell')) {
-    failures.push('plugin-bridge 的 inject 未声明 skills/shell')
-  }
-  if (compat.Config === undefined) failures.push('plugin-bridge 未导出 Config schema')
-  if (typeof compat.CompatWebGateway !== 'function') failures.push('plugin-bridge 未导出 CompatWebGateway')
-  if (typeof compat.CompatManager?.prototype?.prepareInstall !== 'function') {
-    failures.push('CompatManager 未导出分步 Web 安装的 prepareInstall()')
-  }
-  if (typeof compat.CompatManager?.prototype?.checkUpdates !== 'function') {
-    failures.push('CompatManager 未导出 Web 更新检测的 checkUpdates()')
-  }
-} catch (error) {
-  failures.push(`plugin-bridge 构建入口无法导入：${error instanceof Error ? error.message : String(error)}`)
-}
+  const hostRegistry = new TypertRegistry(host)
+  const clientRegistry = new TypertRegistry(client)
+  const disposeHost = hostRegistry.register(TYPERT)
+  assert.equal(hostRegistry.local.list().length, expected.length)
 
-try {
-  const [{ TYPERT }, { default: remote }] = await Promise.all([
-    import('../dist/typert.host.js'),
-    import('../dist/typert.remote-client.js'),
-  ])
-  const hostMethods = new Set(TYPERT?.invocations?.map(item => `${item.namespace}/${item.method}`) ?? [])
-  const remoteMethods = new Set(remote?.descriptors?.map(item => `${item.namespace}/${item.method}`) ?? [])
-  for (const method of ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'list', 'setEnabled', 'uninstall', 'update']) {
-    const endpoint = `pluginBridgeAdmin/${method}`
-    if (!hostMethods.has(endpoint)) failures.push(`Typert Host 缺少 ${endpoint}`)
-    if (!remoteMethods.has(endpoint)) failures.push(`Typert Remote 缺少 ${endpoint}`)
-  }
-} catch (error) {
-  failures.push(`plugin-bridge Typert 产物无法导入：${error instanceof Error ? error.message : String(error)}`)
-}
+  // Regress the original failure against the real SDK validation boundary.
+  const first = remote.descriptors[0]
+  assert.throws(() => clientRegistry.remotes.register({
+    package: remote.package,
+    descriptors: [{ ...first, result: {
+      mode: 'strict', typeSymbol: first.result.typeSymbol, schema: first.result.create(),
+    } }],
+  }), /strict codec has no create\(\) factory/)
+  assert.equal(clientRegistry.remotes.list().length, 0)
 
-if (failures.length > 0) {
-  console.error('真实 DSH 契约探针失败：')
-  for (const failure of failures) console.error(`- ${failure}`)
-  console.error('\n请在安装了目标 DeepSeek Harness 依赖的 profile 或源码 checkout 中重试。')
-  process.exitCode = 1
-} else {
-  console.log('当前解析环境的 DSH 关键导出检查通过；这不是当前 Desktop 挂载、RPC 往返或浏览器验证')
+  const hookState = { turn: 3, assistantTurn: 3, assistantText: 'Contract reply' }
+  const projectionProvider = host.plugin({
+    name: 'plugin-bridge-contract-projections',
+    apply(ctx) { ctx.provide('sessionProjections', {
+      register() {}, stateOf() { return hookState },
+    }) },
+  })
+  await projectionProvider
+  const hookFiber = host.plugin({
+    name: 'plugin-bridge-contract-scope',
+    apply(ctx) {
+      assert.throws(() => ctx.sessionProjections, /without inject/)
+      const read = createHookSessionReader(ctx, 'contract')
+      assert.deepEqual(read({ session: {} }), hookState)
+    },
+  })
+  await hookFiber
+  await hookFiber.dispose()
+  await projectionProvider.dispose()
+
+  const removed = []
+  let listFailure = false
+  host.provide('pluginBridge', {
+    async list() {
+      if (listFailure) throw new Error('Controlled list failure')
+      return []
+    },
+    async checkUpdates() { return [] },
+    async uninstall(id) { removed.push(id) },
+  })
+  admin = new CompatWebGateway(host)
+  const gateway = new TypertGatewayService(host, {})
+  const peer = {
+    id: 'plugin-bridge-contract-owner', ctx: host,
+    principal: { kind: 'owner' }, signal: peerController.signal,
+    interactions: 'none', async dispose() { peerController.abort() },
+  }
+  let calls = 0
+  client.provide('connection', {
+    interactions: 'none', isLoopback: true,
+    generation: { getSnapshot: () => undefined },
+    rpc: {
+      // A local carrier avoids opening sockets while exercising actual dispatch.
+      open() { throw new Error('No stream belongs to the unary contract probe') },
+      async call(path, endpoint, payload, signal) {
+        assert.equal(path, '/api')
+        const [namespace, method] = endpoint.split('/')
+        calls++
+        try {
+          const value = await gateway.invoke({ namespace, method, args: payload.args, peer, signal })
+          return { ok: true, value }
+        } catch (error) {
+          return { ok: false, error: {
+            code: error.code ?? 'gateway/internal', message: error.message, details: error.details ?? {},
+          } }
+        }
+      },
+    },
+  })
+  applyClientRemote(client)
+  const api = client.get('remote')
+  const disposeRemote = await api.$mount(remote)
+  const namespace = client.get('remote.pluginBridgeAdmin')
+  assert.notEqual(namespace, undefined)
+  const retainedList = namespace.list
+  assert.deepEqual(await namespace.list(), { ok: true, value: { kind: 'ready', plugins: [] } })
+  assert.deepEqual(await namespace.uninstall('contract-plugin'), {
+    ok: true, value: { kind: 'removed', pluginId: 'contract-plugin' },
+  })
+  assert.deepEqual(removed, ['contract-plugin'])
+  const invalid = await namespace.setEnabled(42, true)
+  assert.equal(invalid.ok, false)
+  assert.equal(invalid.error.code, 'gateway/input-invalid')
+  listFailure = true
+  assert.deepEqual(await namespace.list(), {
+    ok: true, value: { kind: 'error', message: 'Controlled list failure' },
+  })
+  assert.equal(calls, 4)
+
+  await disposeRemote()
+  assert.equal(clientRegistry.remotes.list().length, 0)
+  assert.equal(client.get('remote.pluginBridgeAdmin'), undefined)
+  const withdrawn = await retainedList()
+  assert.equal(withdrawn.ok, false)
+  assert.equal(calls, 4, 'withdrawn namespace must not call the Host')
+  await disposeHost()
+  assert.equal(hostRegistry.local.list().length, 0)
+  console.log(`DSH ${target}: strict Host/Client registration, ${calls} RPC round trips, invalid input and disposal passed`)
+  console.log('This probe uses the pinned SDK in memory; it does not install into a Desktop profile or verify browser rendering.')
+} finally {
+  peerController.abort()
+  await admin?.dispose()
+  await client.fiber.dispose()
+  await host.fiber.dispose()
 }

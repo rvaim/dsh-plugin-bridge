@@ -1,4 +1,8 @@
 import { randomUUID } from 'node:crypto'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import { MessageId } from '@deepseek-ai/dsh-llm'
+import type { UserMessage } from '@deepseek-ai/dsh-llm'
+import { appendPluginRecord } from '@deepseek-ai/dsh-session'
 import type { CompatHook } from '../../types/hook.js'
 import type { CompatPlugin } from '../../types/plugin.js'
 import type { CapabilityRuntimeHealth } from '../../types/runtime.js'
@@ -10,6 +14,37 @@ import { createHookSessionReader } from '../hook-session.js'
 import { redactSensitiveText } from '../redaction.js'
 import { resolveRuntimeValue } from '../value.js'
 
+declare module '@deepseek-ai/dsh-llm' {
+  interface MessageSourceMap {
+    'plugin-bridge': { kind: 'plugin-bridge'; plugin: string }
+  }
+}
+
+interface BridgeHookInvocation {
+  turn?: number
+  point: string
+  handlerId: string
+  dialect: string
+  matcher?: string
+}
+
+interface BridgeHookResult {
+  turn?: number
+  point: string
+  handlerId: string
+  decision: string
+  exitCode?: number
+  stderrSummary?: string
+  durationMs: number
+}
+
+declare module '@deepseek-ai/dsh-session' {
+  interface PluginRecordMap {
+    'plugin:plugin-bridge/hook-invoked': BridgeHookInvocation
+    'plugin:plugin-bridge/hook-result': BridgeHookResult
+  }
+}
+
 interface HookAdapterOptions {
   workspaceRoot: string
   sourceRoot?: string
@@ -20,28 +55,22 @@ interface HookAdapterOptions {
 }
 
 interface RunPointOptions {
-  agent?: any
+  agent?: Agent
   turn?: number
   signal: AbortSignal
 }
 
-function flattenText(content: unknown): string {
-  if (!Array.isArray(content)) return typeof content === 'string' ? content : ''
-  return content.filter(item => item?.type === 'text' && typeof item.text === 'string')
-    .map(item => item.text).join('')
+function flattenText(content: UserMessage['content']): string {
+  return content.filter(item => item.type === 'text').map(item => item.text).join('')
 }
 
-function transcriptPath(ctx: DshContextLike, agent: any): string | null {
-  try { return ctx.get?.('sessionPersistence')?.locate?.(agent?.session?.header)?.path ?? null } catch { return null }
-}
-
-function injectedContext(pluginId: string, texts: readonly string[]): any | undefined {
+function injectedContext(pluginId: string, texts: readonly string[]): UserMessage | undefined {
   if (texts.length === 0) return undefined
   return {
-    id: randomUUID(),
+    id: MessageId(randomUUID()),
     role: 'user',
     content: texts.map(text => ({ type: 'text', text })),
-    source: { kind: 'plugin', plugin: `plugin-bridge:${pluginId}` },
+    source: { kind: 'plugin-bridge', plugin: `plugin-bridge:${pluginId}` },
   }
 }
 
@@ -61,12 +90,14 @@ function blockOutput(reason: string, output?: HookOutputLike): HookOutputLike {
 
 /** Recognized output that the Host cannot faithfully honor must never become an allow. */
 function applyOutput(hook: CompatHook, output: HookOutputLike): HookOutputLike {
-  let raw: any
+  let raw: unknown
   if (/^[\[{]/.test(output.stdout.trim())) {
     try { raw = JSON.parse(output.stdout) } catch { return output }
   }
-  const specific = raw?.hookSpecificOutput
-  if (specific?.updatedInput !== undefined || specific?.updatedMCPToolOutput !== undefined || specific?.permissionDecision === 'defer') {
+  const specific = typeof raw === 'object' && raw !== null && 'hookSpecificOutput' in raw ? raw.hookSpecificOutput : undefined
+  if (typeof specific === 'object' && specific !== null
+    && ('updatedInput' in specific || 'updatedMCPToolOutput' in specific
+      || ('permissionDecision' in specific && specific.permissionDecision === 'defer'))) {
     return blockOutput('Hook 请求了当前 DSH 未适配的输入、结果重写或延迟执行，已阻止继续', output)
   }
   if (hook.event === 'pre-tool-use' && output.decision === 'ask' && !hook.runtime.honorPreToolAsk) {
@@ -106,7 +137,10 @@ export async function registerHooks(
   options: HookAdapterOptions,
 ): Promise<CapabilityRuntimeHealth[]> {
   if (plugin.hooks.length === 0) return []
-  if (ctx.on === undefined || ctx.shell === undefined) throw new Error('DSH 未提供 ctx.on/ctx.shell，无法注册 Hook')
+  if (ctx.on === undefined) throw new Error('DSH 未提供 ctx.on，无法注册 Hook')
+  if (ctx.shell === undefined && plugin.hooks.some(hook => hook.commands.some(command => command.args === undefined))) {
+    throw new Error('DSH 未提供 ctx.shell，无法注册 Shell Hook')
+  }
   if (plugin.hooks.some(hook => hook.runtimeSupport === 'unsupported' || hook.dshEvent === 'unsupported' || (hook.handlers?.length ?? 0) > 0)) {
     throw new Error('插件含运行未适配的 Hook，不能部分注册后宣称整体运行')
   }
@@ -121,20 +155,21 @@ export async function registerHooks(
     list.push(hook)
     byEvent.set(hook.dshEvent, list)
   }
-  const workspaceOf = (agent: any): string => agent?.session === undefined
+  const workspaceOf = (agent?: Agent): string => agent === undefined
     ? options.workspaceRoot
-    : ctx.get?.('workingDirectory')?.get?.(agent.session) ?? agent.session.header?.cwd ?? options.workspaceRoot
-  const lastTurn = (agent: any): number => agent?.session === undefined ? 0 : sessionState(agent).turn
-  const basePayload = (agent: any, hook: CompatHook, turn?: number): Record<string, unknown> => ({
+    : ctx.get?.('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? options.workspaceRoot
+  const lastTurn = (agent?: Agent): number => agent === undefined ? 0 : sessionState(agent).turn
+  const basePayload = (agent: Agent | undefined, hook: CompatHook, turn?: number): Record<string, unknown> => ({
     session_id: agent?.session?.header?.id ?? '',
-    transcript_path: transcriptPath(ctx, agent) ?? (hook.runtime.missingTranscriptPath === 'null' ? null : ''),
+    // Current persistence handles expose no transcript location.
+    transcript_path: hook.runtime.missingTranscriptPath === 'null' ? null : '',
     cwd: workspaceOf(agent),
     hook_event_name: hook.runtime.wireEventName,
     ...(hook.runtime.includeModelPermissionFields ? { model: options.modelName ?? '', permission_mode: 'default' } : {}),
     ...(hook.runtime.includeTurnId ? { turn_id: String(turn ?? lastTurn(agent)) } : {}),
   })
-  const cancel = (agent: any, merged: MergedHookOutcomeLike): void => {
-    if (merged.stop) agent?.cancel?.({ kind: 'hook', reason: merged.stopReason ?? 'Hook 请求停止' })
+  const cancel = (agent: Agent | undefined, merged: MergedHookOutcomeLike): void => {
+    if (merged.stop) agent?.cancel({ kind: 'hook', reason: merged.stopReason ?? 'Hook 请求停止' })
   }
   const report = (hook: CompatHook, failure?: string): void => {
     options.onHealth?.({ capability: 'hook', name: hook.id, status: failure === undefined ? 'running' : 'degraded',
@@ -160,9 +195,10 @@ export async function registerHooks(
           const started = performance.now()
           let output: HookOutputLike
           let failure: string | undefined
-          const writeRecord = session !== undefined && run.turn !== undefined && typeof session.append === 'function'
-          if (writeRecord) protocol.appendHookInvoked?.(session, {
-            turn: run.turn, point, dialect: hook.dialect, handlerId,
+          const recordTurn = run.turn
+          const writeRecord = session !== undefined
+          if (writeRecord) appendPluginRecord(session, 'plugin:plugin-bridge/hook-invoked', {
+            ...(recordTurn === undefined ? {} : { turn: recordTurn }), point, handlerId, dialect: hook.dialect,
             ...(hook.matcher === undefined ? {} : { matcher: hook.matcher }),
           })
           try {
@@ -174,7 +210,6 @@ export async function registerHooks(
             const executor = createHookExecutor(ctx, { args, shell: command.shell, signal })
             const result = await protocol.runHook(executor, {
               command: resolvedCommand,
-              ...(args === undefined ? {} : { args }),
               ...(command.timeoutSec === undefined ? {} : { timeoutSec: command.timeoutSec }),
             }, {
               payload: payloadFactory(hook),
@@ -210,13 +245,11 @@ export async function registerHooks(
             ctx.logger.warn(`plugin-bridge: ${plugin.id}/${point}：${summary}`)
           }
           if (output.systemMessage !== undefined) ctx.logger.warn(`plugin-bridge: ${plugin.id}/${point}：${redactSensitiveText(output.systemMessage, sensitive)}`)
-          if (writeRecord && failure !== undefined) session.append('hook/result', {
-            turn: run.turn, point, handlerId, decision: output.decision ?? 'error',
+          if (writeRecord) appendPluginRecord(session, 'plugin:plugin-bridge/hook-result', {
+            ...(recordTurn === undefined ? {} : { turn: recordTurn }), point, handlerId,
+            decision: output.decision ?? (failure === undefined ? output.continue === false ? 'stop' : 'pass' : 'error'),
             ...(output.exitCode === undefined ? {} : { exitCode: output.exitCode }),
             stderrSummary: output.stderr.slice(0, stderrSummaryMaxChars), durationMs: performance.now() - started,
-          })
-          else if (writeRecord) protocol.appendHookResult?.(session, {
-            turn: run.turn, point, handlerId, output, stderrSummaryMaxChars, durationMs: performance.now() - started,
           })
           return output
         }
@@ -240,7 +273,7 @@ export async function registerHooks(
 
   const on = ctx.on.bind(ctx)
   if (byEvent.has('agent/created')) {
-    on('agent/created', async ({ agent, source, signal }: any) => {
+    on('agent/created', async ({ agent, source, signal }) => {
       const merged = await runPoint('agent/created', String(source ?? ''), hook => ({ ...basePayload(agent, hook), source }),
         { agent, signal: signal ?? detached.signal })
       cancel(agent, merged)
@@ -250,9 +283,9 @@ export async function registerHooks(
     })
   }
   if (byEvent.has('agent/pre-step')) {
-    on('agent/pre-step', async ({ agent, messages, turn, signal }: any, next: () => Promise<any>) => {
+    on('agent/pre-step', async ({ agent, messages, turn, signal }, next) => {
       if (!Array.isArray(messages) || messages.length === 0) return await next()
-      const prompt = messages.map((message: any) => flattenText(message.content)).join('')
+      const prompt = messages.map(message => flattenText(message.content)).join('')
       const merged = await runPoint('agent/pre-step', '', hook => ({ ...basePayload(agent, hook, turn), prompt }), { agent, turn, signal })
       cancel(agent, merged)
       if (merged.decision === 'deny' || merged.stop) return { kind: 'reject' }
@@ -263,7 +296,7 @@ export async function registerHooks(
     })
   }
   if (byEvent.has('tools/pre-execute')) {
-    on('tools/pre-execute', async (exec: any, next: () => Promise<any>) => {
+    on('tools/pre-execute', async (exec, next) => {
       const agent = exec.agent
       const turn = lastTurn(agent)
       const merged = await runPoint('tools/pre-execute', String(exec.name ?? ''), hook => ({
@@ -278,7 +311,7 @@ export async function registerHooks(
     })
   }
   if (byEvent.has('tools/post-execute')) {
-    on('tools/post-execute', async (exec: any, result: any, next: () => Promise<any>) => {
+    on('tools/post-execute', async (exec, result, next) => {
       if (result?.isError === true) return await next()
       const agent = exec.agent
       const turn = lastTurn(agent)
@@ -298,7 +331,7 @@ export async function registerHooks(
   }
   const stopContinuations = new WeakMap<object, { turn: number; count: number }>()
   if (byEvent.has('agent/turn-stopping')) {
-    on('agent/turn-stopping', async ({ agent, turn, signal }: any) => {
+    on('agent/turn-stopping', async ({ agent, turn, signal }) => {
       const state = sessionState(agent)
       const prior = stopContinuations.get(agent)
       const count = prior !== undefined && prior.turn === turn ? prior.count : 0
@@ -312,13 +345,14 @@ export async function registerHooks(
         if (count >= 8) ctx.logger.warn(`plugin-bridge: ${plugin.id} Stop Hook 已达到八次续步上限`)
         else {
           stopContinuations.set(agent, { turn, count: count + 1 })
-          agent?.steer?.(injectedContext(plugin.id, feedback))
+          const context = injectedContext(plugin.id, feedback)
+          if (context !== undefined) agent.steer(context)
         }
       } else stopContinuations.delete(agent)
     })
   }
-  if (byEvent.has('subagent/start')) on('subagent/start', (info: any) => {
-    const child = ctx.get?.('agents')?.get?.(info.id)
+  if (byEvent.has('subagent/start')) on('subagent/start', info => {
+    const child = ctx.get?.('agents')?.get(info.id)
     detached.track(runPoint('subagent/start', 'general-purpose', hook => ({
       ...basePayload(child, hook), agent_id: info.id, agent_type: 'general-purpose',
     }), { agent: child, signal: detached.signal }).then(merged => {

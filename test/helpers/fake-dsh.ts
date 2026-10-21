@@ -1,5 +1,69 @@
-import type { DshContextLike, FiberLike, LoggerLike, SkillProviderLike } from '../../src/runtime/context.js'
-import type { HookOutputLike, HookProtocolLike, MergedHookOutcomeLike, RuntimeDependencies } from '../../src/runtime/dependencies.js'
+import { Context } from '@deepseek-ai/cordis'
+import { SessionId, SessionStore, pluginRecordOf, type PluginRecordMap, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
+import * as hookProtocol from '@deepseek-ai/dsh-hook-protocol'
+import type { ShellExecSpec, ShellExecution, ShellExecutor, ShellRunResult } from '@deepseek-ai/dsh-shell'
+import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
+import type { DshContextLike, FiberLike, LoggerLike, RuntimeServices, SkillProviderLike } from '../../src/runtime/context.js'
+import type { HookOutputLike, RuntimeDependencies } from '../../src/runtime/dependencies.js'
+
+const sessionRecords = new WeakMap<Session, SessionEvent[]>()
+
+/** Real current SDK sessions without persistence, processes, or user state. */
+export function createTestSession(cwd: string, id = 'session-1', turn = 1): Session {
+  const ctx = new Context()
+  new SessionStore(ctx)
+  const records: SessionEvent[] = []
+  ctx.on('session/event', (_session, event) => { records.push(event) })
+  const session = ctx.sessions.create(SessionId(id), { meta: { cwd } })
+  sessionRecords.set(session, records)
+  if (turn > 0) session.append('turn/start', { turn })
+  return session
+}
+
+export function recordedSessionEvents(session: Session): readonly SessionEvent[] {
+  return sessionRecords.get(session) ?? []
+}
+
+export function recordedPluginData<K extends keyof PluginRecordMap>(session: Session, type: K): PluginRecordMap[K][] {
+  return recordedSessionEvents(session).map(pluginRecordOf)
+    .filter(record => record?.type === type).map(record => record!.data as PluginRecordMap[K])
+}
+
+export function fakeShellResult(stdout = '', exitCode = 0): ShellRunResult {
+  return { exitCode, signal: null, timedOut: false, aborted: false, timeoutMs: 600_000,
+    stdout: { text: stdout, truncated: false }, stderr: { text: '', truncated: false } }
+}
+
+/** Deterministic Shell implementation using the current resolve/execute/result contract. */
+export function createFakeShell(run: (spec: ShellExecSpec) => Promise<ShellRunResult>): Pick<ShellExecutor, 'resolve' | 'execute'> {
+  return {
+    resolve(request) {
+      return { ...request, workdir: request.workdir ?? '/fixture', timeoutMs: request.timeoutMs ?? 600_000,
+        stdoutMaxBytes: request.stdoutMaxBytes ?? 1_048_576, onExpiry: request.onExpiry ?? 'kill', sandboxPolicy: request.sandboxPolicy }
+    },
+    async execute(spec) {
+      let settled: ShellRunResult | undefined
+      let failed = false
+      const result = Promise.resolve().then(() => run(spec)).then(value => { settled = value; return value }, error => { failed = true; throw error })
+      const read = (stream: 'stdout' | 'stderr', offset: number) => {
+        const output = settled?.[stream]
+        return { text: output?.text.slice(offset) ?? '', nextOffset: output?.text.length ?? offset, lossy: output?.truncated ?? false }
+      }
+      const execution: ShellExecution = {
+        get status() { return failed || settled?.exitCode === null ? 'killed' : settled === undefined ? 'running' : 'completed' },
+        get exitCode() { return settled?.exitCode ?? null },
+        get signal() { return settled?.signal ?? null },
+        done: result.then(() => {}, () => {}),
+        observed: { stdout: { readFrom: offset => read('stdout', offset) }, stderr: { readFrom: offset => read('stderr', offset) } },
+        readOutput() { return { delta: '', lossy: false } },
+        kill() { return settled === undefined && !failed },
+        result: () => result,
+      }
+      return execution
+    },
+  }
+}
 
 interface ListenerRecord {
   owner: FakeContext
@@ -14,28 +78,13 @@ interface SharedState {
   credentials: Map<string, string>
   mcpConfigs: Map<string, Record<string, unknown>>
   tools: Set<string>
-  hookInvoked: Record<string, unknown>[]
-  hookResults: Record<string, unknown>[]
-  hookRuns: Array<{
-    hook: { command: string; timeoutSec?: number; args?: readonly string[] }
-    options: {
-      payload: unknown
-      env?: Record<string, string>
-      cwd?: string
-      signal: AbortSignal
-      trailingNewline: boolean
-      defaultTimeoutMs: number
-      expectedEventName?: string
-    }
-  }>
-  agents: Map<string, unknown>
+  hookRuns: Array<{ hook: hookProtocol.CommandHook; options: hookProtocol.RunHookOptions }>
+  subprocessSpawns: SubprocessSpawnSpec[]
+  agents: Map<SessionId, import('@deepseek-ai/dsh-agent').Agent>
 }
 
 class FakeFiber implements FiberLike {
-  constructor(
-    private readonly ready: Promise<unknown>,
-    private readonly context: FakeContext,
-  ) {}
+  constructor(private readonly ready: Promise<unknown>, private readonly context: FakeContext) {}
 
   then<TResult1 = unknown, TResult2 = never>(
     onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
@@ -45,23 +94,27 @@ class FakeFiber implements FiberLike {
   }
 
   async dispose(): Promise<void> {
-    try { await this.ready } catch { /* 启动失败的 Fiber 仍需清理已注册资源。 */ }
+    try { await this.ready } catch { /* Failed setup still needs to release its registrations. */ }
     await this.context.dispose()
   }
 }
 
 export class FakeContext implements DshContextLike {
   readonly logger: LoggerLike
-  readonly shell = {}
+  readonly shell = createFakeShell(async spec => resultForCommand(spec.command, spec.stdin))
+  readonly sessionProjections = new SessionProjectionRegistry(new Context())
+  readonly agents: SharedState['agents']
   readonly credentials: { resolve(ref: string): Promise<{ value: string; source: string } | undefined> }
   readonly skills: {
     registerProvider(create: (control: { signal: AbortSignal; invalidate(): void }) => SkillProviderLike): () => void
   }
+  readonly subprocess: NonNullable<DshContextLike['subprocess']>
   private readonly effects: Array<() => unknown> = []
   private readonly children: FakeFiber[] = []
   private disposed = false
 
   constructor(readonly shared: SharedState = createSharedState()) {
+    this.agents = shared.agents
     this.logger = {
       warn: (...args: unknown[]) => shared.logs.push(args.map(String).join(' ')),
       info: (...args: unknown[]) => shared.logs.push(args.map(String).join(' ')),
@@ -69,9 +122,24 @@ export class FakeContext implements DshContextLike {
       debug: (...args: unknown[]) => shared.logs.push(args.map(String).join(' ')),
     }
     this.credentials = {
-      resolve: async (ref: string) => {
+      resolve: async ref => {
         const value = shared.credentials.get(ref)
         return value === undefined ? undefined : { value, source: 'fake' }
+      },
+    }
+    this.subprocess = {
+      async resolveExecutable(command) { return command },
+      spawn(spec) {
+        shared.subprocessSpawns.push(spec)
+        const stdin = typeof spec.stdio.stdin === 'object' ? spec.stdio.stdin.data : undefined
+        const result = resultForCommand(spec.argv[0], stdin)
+        const read = (stream: 'stdout' | 'stderr', offset: number) => ({
+          text: result[stream].text.slice(offset), nextOffset: result[stream].text.length, lossy: result[stream].truncated,
+        })
+        return { stdin: undefined, stdout: undefined, stderr: undefined, control: undefined,
+          collected: { stdout: { readFrom: offset => read('stdout', offset) }, stderr: { readFrom: offset => read('stderr', offset) } },
+          done: Promise.resolve({ exitCode: result.exitCode, signal: result.signal }),
+          terminate() {}, async waitForExit() { return true } }
       },
     }
     this.skills = {
@@ -95,9 +163,7 @@ export class FakeContext implements DshContextLike {
     }
   }
 
-  static create(): FakeContext {
-    return new FakeContext()
-  }
+  static create(): FakeContext { return new FakeContext() }
 
   plugin(plugin: unknown, config?: unknown): FiberLike {
     const child = new FakeContext(this.shared)
@@ -135,11 +201,11 @@ export class FakeContext implements DshContextLike {
     return dispose
   }
 
-  get(name: string): any {
-    if (name === 'credentials') return this.credentials
-    if (name === 'skills') return this.skills
-    if (name === 'agents') return this.shared.agents
-    return undefined
+  get<K extends keyof RuntimeServices>(name: K): RuntimeServices[K] | undefined {
+    const services: Partial<RuntimeServices> = {
+      subprocess: this.subprocess, sessionProjections: this.sessionProjections, agents: this.agents, credentials: this.credentials,
+    }
+    return services[name]
   }
 
   async emit(event: string, ...args: any[]): Promise<void> {
@@ -171,9 +237,7 @@ export class FakeContext implements DshContextLike {
     return undefined
   }
 
-  setCredential(name: string, value: string): void {
-    this.shared.credentials.set(name, value)
-  }
+  setCredential(name: string, value: string): void { this.shared.credentials.set(name, value) }
 
   async dispose(): Promise<void> {
     if (this.disposed) return
@@ -184,53 +248,8 @@ export class FakeContext implements DshContextLike {
 }
 
 function createSharedState(): SharedState {
-  return {
-    listeners: new Map(),
-    providers: new Map(),
-    providerControllers: new Map(),
-    logs: [],
-    credentials: new Map(),
-    mcpConfigs: new Map(),
-    tools: new Set(),
-    hookInvoked: [],
-    hookResults: [],
-    hookRuns: [],
-    agents: new Map(),
-  }
-}
-
-function mergeHookOutputs(outputs: HookOutputLike[]): MergedHookOutcomeLike {
-  let rank = 0
-  const reasons = new Map<number, string[]>()
-  let stop = false
-  let stopReason: string | undefined
-  const additionalContext: string[] = []
-  const systemMessages: string[] = []
-  for (const output of outputs) {
-    const current = output.decision === 'deny' || output.decision === 'block'
-      ? 3
-      : output.decision === 'ask'
-        ? 2
-        : output.decision === 'allow' || output.decision === 'approve'
-          ? 1
-          : 0
-    rank = Math.max(rank, current)
-    if (current >= 2 && output.reason) reasons.set(current, [...reasons.get(current) ?? [], output.reason])
-    if (output.continue === false && !stop) {
-      stop = true
-      stopReason = output.stopReason
-    }
-    if (output.additionalContext) additionalContext.push(output.additionalContext)
-    if (output.systemMessage) systemMessages.push(output.systemMessage)
-  }
-  return {
-    decision: rank === 3 ? 'deny' : rank === 2 ? 'ask' : rank === 1 ? 'allow' : 'none',
-    ...((reasons.get(rank)?.length ?? 0) > 0 ? { reason: reasons.get(rank)?.join('\n\n') } : {}),
-    stop,
-    ...(stopReason === undefined ? {} : { stopReason }),
-    additionalContext,
-    systemMessages,
-  }
+  return { listeners: new Map(), providers: new Map(), providerControllers: new Map(), logs: [], credentials: new Map(),
+    mcpConfigs: new Map(), tools: new Set(), hookRuns: [], subprocessSpawns: [], agents: new Map() }
 }
 
 function outputForCommand(command: string): HookOutputLike {
@@ -243,36 +262,31 @@ function outputForCommand(command: string): HookOutputLike {
   return { exitCode: 0, stdout: '', stderr: '' }
 }
 
+function resultForCommand(command: string, stdin?: string): ShellRunResult {
+  const output = outputForCommand(command)
+  if (output.stdout !== '' || (output.decision === undefined && output.additionalContext === undefined && output.continue === undefined)) {
+    return fakeShellResult(output.stdout)
+  }
+  const payload = stdin === undefined ? {} : JSON.parse(stdin)
+  return fakeShellResult(JSON.stringify({
+    ...(output.continue === undefined ? {} : { continue: output.continue, stopReason: output.stopReason }),
+    hookSpecificOutput: { hookEventName: payload.hook_event_name,
+      ...(output.decision === undefined ? {} : { permissionDecision: output.decision, permissionDecisionReason: output.reason }),
+      ...(output.additionalContext === undefined ? {} : { additionalContext: output.additionalContext }),
+    },
+  }))
+}
+
 export function fakeRuntimeDependencies(shared: SharedState): RuntimeDependencies {
-  const hookProtocol: HookProtocolLike = {
-    DEFAULT_HOOK_TIMEOUT_MS: 600_000,
-    DEFAULT_STDERR_SUMMARY_MAX_CHARS: 500,
-    createDetachedRuns() {
-      const controller = new AbortController()
-      const pending = new Set<Promise<unknown>>()
-      return {
-        signal: controller.signal,
-        track(run) {
-          pending.add(run)
-          const settled = (): void => { pending.delete(run) }
-          run.then(settled, settled)
-        },
-        async drain() {
-          controller.abort(new Error('fake Hook bridge disposed'))
-          while (pending.size > 0) await Promise.allSettled([...pending])
+  return {
+    async loadHookProtocol() {
+      return { ...hookProtocol,
+        async runHook(shell, hook, options, now) {
+          shared.hookRuns.push({ hook, options })
+          return await hookProtocol.runHook(shell, hook, options, now)
         },
       }
     },
-    appendHookInvoked(_session, data) { shared.hookInvoked.push(data) },
-    appendHookResult(_session, data) { shared.hookResults.push(data) },
-    mergeHookOutputs,
-    async runHook(_shell, hook, options) {
-      shared.hookRuns.push({ hook, options })
-      return { output: outputForCommand(hook.command), durationMs: 1 }
-    },
-  }
-  return {
-    async loadHookProtocol() { return hookProtocol },
     async loadMcpClient() {
       return {
         name: 'fake-mcp-client',
@@ -284,10 +298,7 @@ export function fakeRuntimeDependencies(shared: SharedState): RuntimeDependencie
           if (command.includes('fail-mcp')) throw new Error('故障注入：MCP 启动失败')
           shared.mcpConfigs.set(serverName, config)
           shared.tools.add(`mcp__${serverName}__fixture`)
-          ctx.effect(() => () => {
-            shared.mcpConfigs.delete(serverName)
-            shared.tools.delete(`mcp__${serverName}__fixture`)
-          })
+          ctx.effect(() => () => { shared.mcpConfigs.delete(serverName); shared.tools.delete(`mcp__${serverName}__fixture`) })
           if (command.includes('partial-fail-mcp')) throw new Error('故障注入：部分注册后失败')
         },
       }

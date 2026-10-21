@@ -1,29 +1,11 @@
-import type {
-  CommandHook,
-  DetachedRuns,
-  HookOutput,
-  MergedHookOutcome,
-  RunHookOptions,
-  RunHookResult,
-} from '@deepseek-ai/dsh-hook-protocol'
+import type { HookOutput, MergedHookOutcome } from '@deepseek-ai/dsh-hook-protocol'
 
 export type HookOutputLike = HookOutput
 export type MergedHookOutcomeLike = MergedHookOutcome
 
-export interface HookProtocolLike {
-  DEFAULT_HOOK_TIMEOUT_MS?: number
-  DEFAULT_STDERR_SUMMARY_MAX_CHARS?: number
-  createDetachedRuns(): DetachedRuns
-  appendHookInvoked?(session: unknown, data: Record<string, unknown>): void
-  appendHookResult?(session: unknown, data: Record<string, unknown>): void
-  runHook(
-    shell: unknown,
-    hook: CommandHook & { args?: readonly string[] },
-    options: RunHookOptions,
-    now: () => number,
-  ): Promise<RunHookResult>
-  mergeHookOutputs(outputs: HookOutputLike[]): MergedHookOutcomeLike
-}
+export type HookProtocolLike = Pick<typeof import('@deepseek-ai/dsh-hook-protocol'),
+  'DEFAULT_HOOK_TIMEOUT_MS' | 'DEFAULT_STDERR_SUMMARY_MAX_CHARS' | 'createDetachedRuns'
+  | 'runHook' | 'mergeHookOutputs'>
 
 export interface RuntimeDependencies {
   loadMcpClient(): Promise<unknown>
@@ -35,6 +17,6 @@ export const defaultRuntimeDependencies: RuntimeDependencies = {
     return await import('@deepseek-ai/dsh-mcp-client')
   },
   async loadHookProtocol(): Promise<HookProtocolLike> {
-    return await import('@deepseek-ai/dsh-hook-protocol') as unknown as HookProtocolLike
+    return await import('@deepseek-ai/dsh-hook-protocol')
   },
 }

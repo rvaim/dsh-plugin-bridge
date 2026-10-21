@@ -5,13 +5,13 @@
 
 插件桥（Plugin Bridge）是 DeepSeek Harness（DSH）的外部插件管理工具，支持独立 Agent Plugins 1.0.0、传统 Codex 与 Claude Code 插件。插件作为完整生命周期单元接入 DSH，复用 Source 快照、Skill Provider 和 MCP 子实例。
 
-> 从 **0.5.0** 起，包名为 `@rvaim/dsh-plugin-bridge`，Cordis 插件 ID 为 `plugin-bridge`。GitHub 仓库仍为 [rvaim/dsh-compat](https://github.com/rvaim/dsh-compat)，数据目录仍为 `$DSH_HOME/dsh-compat/`；更名不自动修改 profile。详见[包更名说明](<docs/包更名说明.md>)。
+> 从 **0.5.0** 起，包名为 `@rvaim/dsh-plugin-bridge`，Cordis 插件 ID 为 `plugin-bridge`。当前 GitHub 上游为 [rvaim/dsh-plugin-bridge](https://github.com/rvaim/dsh-plugin-bridge)，数据目录仍为 `$DSH_HOME/dsh-compat/`；仓库更名不自动修改 profile 或迁移数据。详见[包更名说明](<docs/包更名说明.md>)。
 
-> 当前开发版本：`0.6.0`（尚未发布）。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
+> 当前版本：`0.6.0`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
 >
 > `0.6.0` 仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。解析实现及其模型版本保持不变。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
 
-![更名前的 DSH Web 插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-compat/main/docs/assets/compat-settings.png)
+![更名前的 DSH Web 插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-plugin-bridge/main/docs/assets/compat-settings.png)
 
 截图保留更名前的设置页界面。`0.6.0` 的入口已移至侧边栏“插件桥 / Plugin Bridge”，点击后在主区域打开管理面板。
 
@@ -19,7 +19,13 @@
 
 要求 Node.js `^22.19.0` 或 `>=24.0.0`；使用 Git 来源时还需要 Git。
 
-当前开发版 `0.6.0` 尚未发布到 npm；先在项目中构建并打包，再安装生成的归档：
+从 npm 安装指定版本：
+
+```bash
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.6.0
+```
+
+也可以使用本地构建包：
 
 ```bash
 npm install
@@ -28,7 +34,7 @@ npm pack --ignore-scripts
 dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.6.0.tgz
 ```
 
-公开发布地址仍为 [npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。已发布的 `0.5.0` 使用旧 DSH 基线，不包含这次适配。
+公开发布地址：[npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。`0.5.0` 使用旧 DSH 基线，不包含当前 SDK 适配。
 
 把 `web` 换成实际 profile 名称即可。首次安装或升级 `@rvaim/dsh-plugin-bridge` 后，需要重启该 profile 并重新加载 Web 页面，因为 DSH 的 Host/Client 插件图发生了变化。
 
@@ -36,7 +42,7 @@ dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.6.0.tgz
 
 ```bash
 dsh plugin --profile web remove @rvaim/dsh-compat
-dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.6.0.tgz
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.6.0
 ```
 
 如果此前通过 GitHub 安装的是未加 scope 的 `dsh-compat`，移除命令改为 `dsh plugin --profile web remove dsh-compat`。这只替换 DSH bundle 依赖，不会删除 `$DSH_HOME/dsh-compat/` 中已安装插件的数据。

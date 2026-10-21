@@ -10,13 +10,13 @@
     "plugin",
     "compatibility"
   ],
-  "homepage": "https://github.com/rvaim/dsh-compat#readme",
+  "homepage": "https://github.com/rvaim/dsh-plugin-bridge#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/rvaim/dsh-compat.git"
+    "url": "git+https://github.com/rvaim/dsh-plugin-bridge.git"
   },
   "bugs": {
-    "url": "https://github.com/rvaim/dsh-compat/issues"
+    "url": "https://github.com/rvaim/dsh-plugin-bridge/issues"
   },
   "publishConfig": {
     "access": "public",

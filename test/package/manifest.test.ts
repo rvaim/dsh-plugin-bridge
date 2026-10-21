@@ -10,7 +10,7 @@ test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', 
   assert.equal(packageJson.version, '0.6.0')
   assert.equal(packageJson.publishConfig.access, 'public')
   assert.equal(packageJson.publishConfig.registry, 'https://registry.npmjs.org/')
-  assert.equal(packageJson.repository.url, 'git+https://github.com/rvaim/dsh-compat.git')
+  assert.equal(packageJson.repository.url, 'git+https://github.com/rvaim/dsh-plugin-bridge.git')
   assert.equal(packageJson.dsh.bundle.patch, './cordis.patch.yml')
   assert.equal(packageJson.bin, undefined)
   assert(packageJson.files.includes('dist/src/'))

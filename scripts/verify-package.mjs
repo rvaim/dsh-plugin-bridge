@@ -57,7 +57,7 @@ if (icon.length > 256 * 1024 || icon.subarray(0, 8).toString('hex') !== '89504e4
 if (packageJson.version !== '0.6.0') throw new Error('交付版本必须为 0.6.0')
 if (packageJson.publishConfig?.access !== 'public') throw new Error('npm 组织包必须公开发布')
 if (packageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error('npm 发布 registry 配置错误')
-if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-compat.git') {
+if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-plugin-bridge.git') {
   throw new Error('npm 包缺少正确的 GitHub repository')
 }
 if (packageJson.bin !== undefined) throw new Error('独立 CLI 已移除，package.json 不得再配置 bin')

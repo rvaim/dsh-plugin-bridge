@@ -1,6 +1,8 @@
 # 更新日志
 
-## 0.6.0 — 未发布
+## 0.6.0 — 2026-10-21
+
+- GitHub 上游迁至 `https://github.com/rvaim/dsh-plugin-bridge`，同步 npm repository/homepage/issues 与当前安装文档；稳定数据目录保持 `$DSH_HOME/dsh-compat/`。
 
 - SDK、Hook Protocol 和 Typert 生成器统一到 `engines.dsh` 声明的当前 DSH 版本；重新生成使用 `create()` 工厂的严格 Host/Remote codec，不保留旧格式转换。
 - 插件桥从设置页迁至侧边栏 `sidebar.panellist`，点击后在 `main` 打开独立管理面板；Client locale namespace 改为 `pluginBridge`，删除旧入口与组件别名。

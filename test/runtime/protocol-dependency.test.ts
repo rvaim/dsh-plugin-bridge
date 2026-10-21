@@ -38,7 +38,7 @@ test('发布运行依赖可直接加载并执行 Hook Protocol', async () => {
 
 test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () => {
   const listeners = new Map<string, (...args: any[]) => unknown>()
-  const disposers: Array<() => unknown> = []
+  const lifecycle = new Context()
   let shellRequest: ShellExecSpec | undefined
   const services: Partial<RuntimeServices> = { sessionProjections: new SessionProjectionRegistry(new Context()) }
   const ctx: DshContextLike = {
@@ -47,13 +47,12 @@ test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () 
       shellRequest = request
       return { ...fakeShellResult('', 2), stderr: { text: '真实 Protocol 已阻止', truncated: false } }
     }),
+    plugin: lifecycle.plugin.bind(lifecycle),
     on(event, listener) {
       listeners.set(event, listener)
+      return () => listeners.delete(event)
     },
-    effect(setup) {
-      const dispose = setup()
-      if (typeof dispose === 'function') disposers.push(dispose)
-    },
+    effect: lifecycle.effect.bind(lifecycle),
     get(name) { return services[name] },
   }
   const plugin: CompatPlugin = {
@@ -123,5 +122,5 @@ test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () 
     CLAUDE_PLUGIN_ROOT: '/fixture/plugin',
     CLAUDE_PLUGIN_DATA: '/fixture/data',
   })
-  for (const dispose of disposers.reverse()) await dispose()
+  await lifecycle.fiber.dispose()
 })

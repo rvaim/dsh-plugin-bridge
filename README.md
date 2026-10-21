@@ -73,6 +73,8 @@ ctx.pluginBridge.sourceList()
 ctx.pluginBridge.sourceInspect(sourceId)
 
 ctx.pluginBridge.prepareInstall(source, options?)
+ctx.pluginBridge.completeInstallPreparation(preparationId, plugins)
+ctx.pluginBridge.releaseInstallPreparation(preparationId)
 ctx.pluginBridge.install(sourceOrSourceId, options?)
 ctx.pluginBridge.checkUpdates()
 ctx.pluginBridge.update(pluginId, options?)
@@ -214,6 +216,8 @@ npm pack --ignore-scripts
 
 ## 文档
 
+- [核心架构优化实施与验收](docs/核心架构优化实施.md)
+- [架构与界面优化审查](docs/架构与界面优化审查.md)
 - [包更名说明](<docs/包更名说明.md>)
 - [解析器解耦重构说明](docs/解析器解耦重构说明.md)
 - [解析器解耦验证报告](docs/解析器解耦验证报告.md)

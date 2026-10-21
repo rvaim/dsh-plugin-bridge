@@ -1,10 +1,9 @@
-import { mkdir, rename, rm } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
+import { randomUUID } from 'node:crypto'
+import { mkdir, rename, rm, stat } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import type { CompatParserEngine } from '../parser/contracts.js'
-import { withAdditionalDiagnostics } from '../parser/model.js'
 import type { SourceDiscovery, SourcePluginCandidate } from '../types/catalog.js'
 import { normalizeManagementId } from '../shared/id.js'
-import { validateSourceDirectory } from '../shared/source-path.js'
 import { copyPluginDirectory } from '../source/directory.js'
 import { pathExists } from '../source/filesystem.js'
 import { resolveInstallSource } from '../source/resolver.js'
@@ -14,45 +13,85 @@ import { listPluginIds, listSourceIds, readInstalledPlugin, readInstalledSource,
 import { writeJsonAtomic } from '../store/json.js'
 import { commitDirectory, createTransactionDir, removeDirectoryTransactionally } from '../store/transaction.js'
 import { hasErrorDiagnostics } from '../types/diagnostic.js'
-import type { CompatPlugin, InstallMetadata, InstalledPluginRecord } from '../types/plugin.js'
+import type { InstalledPluginRecord } from '../types/plugin.js'
 import type { PluginRuntimeSnapshot } from '../types/runtime.js'
 import type { InstalledSourceRecord, ResolvedInstallSource, SourceMetadata, SourceOwnership } from '../types/source.js'
 import type { CompatRuntimeManager } from '../runtime/manager.js'
-import { acquireSource, cleanAcquisition, materializeExternalPlugin } from './acquire.js'
-import { findCapabilityConflicts, findCapabilityConflictsWithin, stripConflictDiagnostics } from './conflicts.js'
+import { acquireSource, cleanAcquisition } from './acquire.js'
 import { CompatibilityError, SharedSourceUpdateError } from './errors.js'
-import { candidateBySelector, candidateWantsEnable, compareInstalledPriority, externalDirectoryName, hasNonConflictErrors, latestRevisionFor, resolvedFromStored, runtimeDisabled, stateOf } from './helpers.js'
+import { candidateBySelector, compareInstalledPriority, externalDirectoryName, latestRevisionFor, resolvedFromStored, runtimeDisabled } from './helpers.js'
 import { CompatRepository } from './repository.js'
+import { buildParsedCandidates } from './plugin-preparation.js'
 import { updateSourceUnlocked } from './source-update.js'
-import type { InstallOptions, InstallPreparation, InstallResult, ParsedInstallCandidate, PluginInspection, PluginInstallResult, PluginListEntry, PreparedPlugin, SourceAddOptions, SourceInspection, SourceListEntry, SourceUpdateCheck, SourceUpdateOptions, SourceUpdateResult, UpdateOptions } from './types.js'
-import { createPluginScan, createSourceScan, resolveInstalledPluginPackageRoot } from './plugin-loader.js'
+import type { InstallOptions, InstallPreparation, InstallResult, ParsedInstallCandidate, PluginInspection, PluginInstallResult, PluginListEntry, SourceAddOptions, SourceInspection, SourceListEntry, SourceUpdateCheck, SourceUpdateOptions, SourceUpdateResult, UpdateOptions } from './types.js'
+import { createSourceScan, resolveInstalledPluginPackageRoot } from './plugin-loader.js'
+
+interface SourceSnapshot {
+  sourceId: string
+  identity: string
+  createdAt: string
+  revision: string
+  origin: SourceMetadata['origin']
+}
+
+interface PreparedSource {
+  snapshot: SourceSnapshot
+  cleanupSource: boolean
+  preparations: Set<string>
+}
+
+export interface CompatManagerOptions {
+  /** Read-only origin probe; injection keeps lock and race tests deterministic. */
+  probeRevision?: (source: ResolvedInstallSource) => Promise<string>
+}
+
+class RuntimeSynchronizationError extends Error {
+  constructor(readonly pluginId: string, cause: unknown) {
+    super(`插件 ${pluginId} 运行状态同步失败：${String(cause)}`, { cause })
+    this.name = 'RuntimeSynchronizationError'
+  }
+}
 
 export class CompatManager {
+  private readonly preparations = new Map<string, PreparedSource>()
+  private readonly preparedSources = new Set<PreparedSource>()
+
   constructor(
     readonly layout: CompatLayout,
     readonly runtime: CompatRuntimeManager | undefined,
     readonly parsers: CompatParserEngine,
+    private readonly options: CompatManagerOptions = {},
   ) {
-    this.repository = new CompatRepository(layout, parsers, async record => {
-      if (this.runtime === undefined) return
-      const status = this.runtime.get(record.install.pluginId).status
-      if (status !== 'running' && status !== 'degraded' && status !== 'starting') return
-      if (hasErrorDiagnostics(record.scan.plugin.diagnostics)) {
-        await this.runtime.stop(record.install.pluginId)
-        this.runtime.noteFailure(record.install.pluginId, '插件存在兼容 error，已阻止运行；启用意愿已保留')
-      } else if (record.state.enabled) {
-        const packageRoot = await resolveInstalledPluginPackageRoot(this.layout, record.install)
-        const unchanged = this.runtime.isCurrent(record.scan.plugin, packageRoot)
-        if (!unchanged) await this.runtime.start(record.scan.plugin, packageRoot)
-      } else {
-        await this.runtime.stop(record.install.pluginId)
-      }
-    })
+    this.repository = new CompatRepository(layout, parsers)
   }
 
   private readonly repository: CompatRepository
 
-  /** 所有管理操作共享同一个仓库锁，避免 Source/Plugin 事务交叉。 */
+  private async synchronizeRuntime(record: InstalledPluginRecord): Promise<void> {
+    if (this.runtime === undefined) return
+    const pluginId = record.install.pluginId
+    try {
+      const status = this.runtime.get(pluginId).status
+      if (status !== 'running' && status !== 'degraded' && status !== 'starting') return
+      if (hasErrorDiagnostics(record.scan.plugin.diagnostics)) {
+        await this.runtime.stop(pluginId)
+        this.runtime.noteFailure(pluginId, '插件存在兼容 error，已阻止运行；启用意愿已保留')
+      } else if (record.state.enabled) {
+        const packageRoot = await resolveInstalledPluginPackageRoot(this.layout, record.install)
+        if (!this.runtime.isCurrent(record.scan.plugin, packageRoot)) await this.runtime.start(record.scan.plugin, packageRoot)
+      } else await this.runtime.stop(pluginId)
+    } catch (error) {
+      throw new RuntimeSynchronizationError(pluginId, error)
+    }
+  }
+
+  private async readAndSynchronizeRecord(pluginId: string): Promise<InstalledPluginRecord> {
+    const record = await this.repository.readCurrentRecord(pluginId)
+    await this.synchronizeRuntime(record)
+    return record
+  }
+
+  /** Serialize repository snapshots and mutations; slow read-only origin probes run outside it. */
   private async withManagedRepository<T>(operation: () => Promise<T>): Promise<T> {
     return await withRepositoryLock(this.layout, operation)
   }
@@ -62,27 +101,6 @@ export class CompatManager {
     return enabled
       ? { pluginId, status: 'disabled', capabilities: [], error: '离线管理模式：将在 DSH 下次加载时启用' }
       : runtimeDisabled(pluginId)
-  }
-
-  private async parseAndCheck(
-    packageRoot: string,
-    sourceId: string,
-    sourcePluginId: string,
-    suggestedId: string | undefined,
-    asId: string | undefined,
-    excludePluginIds: readonly string[] = [],
-    candidate?: SourcePluginCandidate,
-  ): Promise<CompatPlugin> {
-    const parsed = stripConflictDiagnostics(await this.parsers.parsePlugin(packageRoot, {
-      sourceId,
-      sourcePluginId,
-      ...(suggestedId === undefined ? {} : { suggestedId }),
-      ...(asId === undefined ? {} : { asId }),
-      ...(candidate?.displayName === undefined ? {} : { displayName: candidate.displayName }),
-      ...(candidate === undefined ? {} : { marketplaceDefinitions: candidate.definitions }),
-    }))
-    const conflicts = await findCapabilityConflicts(this.layout, parsed, excludePluginIds, this.parsers)
-    return withAdditionalDiagnostics(parsed, conflicts)
   }
 
   /**
@@ -169,120 +187,6 @@ export class CompatManager {
       selected.push(candidate)
     }
     return selected
-  }
-
-  private async preparePluginContent(
-    sourceRoot: string,
-    candidate: SourcePluginCandidate,
-    transactionRoot: string,
-    existingExternalRoot?: string,
-  ): Promise<PreparedPlugin> {
-    if (candidate.location.type === 'source-path') {
-      const path = await validateSourceDirectory(join(sourceRoot, 'package'), candidate.location.path)
-      return {
-        candidate,
-        packageRoot: resolve(sourceRoot, 'package', path),
-        location: { type: 'source-path', path },
-      }
-    }
-
-    if (candidate.location.type !== 'git' && candidate.location.type !== 'git-subdir') {
-      throw new CompatibilityError(`插件 ${candidate.id} 的来源类型 ${candidate.location.type} 当前不支持`, candidate.diagnostics)
-    }
-
-    const key = externalDirectoryName(candidate.id)
-    const official = existingExternalRoot === undefined ? undefined : join(existingExternalRoot, key)
-    if (official !== undefined && await pathExists(join(official, 'package'))) {
-      const packageRoot = candidate.location.type === 'git'
-        ? join(official, 'package')
-        : resolve(official, 'package', candidate.location.path)
-      await validateSourceDirectory(join(official, 'package'), candidate.location.type === 'git' ? '.' : candidate.location.path)
-      return {
-        candidate,
-        packageRoot,
-        location: candidate.location,
-        ...(candidate.location.sha === undefined ? {} : { materialization: { commit: candidate.location.sha } }),
-      }
-    }
-
-    const staged = join(transactionRoot, 'materialized-external', key)
-    const materialized = await materializeExternalPlugin(candidate.location, staged)
-    const packageRoot = materialized.location.type === 'git'
-      ? materialized.packageRoot
-      : resolve(materialized.packageRoot, materialized.location.path)
-    await validateSourceDirectory(
-      materialized.packageRoot,
-      materialized.location.type === 'git' ? '.' : materialized.location.path,
-    )
-    return {
-      candidate,
-      packageRoot,
-      location: materialized.location,
-      materialization: { commit: materialized.location.sha },
-      newlyMaterializedExternal: staged,
-    }
-  }
-
-  private async buildParsedCandidates(
-    sourceId: string,
-    sourceRoot: string,
-    candidates: readonly SourcePluginCandidate[],
-    sourceRevision: string,
-    transactionRoot: string,
-    options: InstallOptions,
-    existingExternalRoot?: string,
-  ): Promise<ParsedInstallCandidate[]> {
-    if (options.as !== undefined && candidates.length !== 1) throw new Error('--as 只能用于一次安装一个插件')
-    const parsed: ParsedInstallCandidate[] = []
-
-    for (const candidate of candidates) {
-      const prepared = await this.preparePluginContent(sourceRoot, candidate, transactionRoot, existingExternalRoot)
-      let plugin = await this.parseAndCheck(
-        prepared.packageRoot,
-        sourceId,
-        candidate.id,
-        candidate.id,
-        options.as,
-        [],
-        candidate,
-      )
-      plugin = withAdditionalDiagnostics(plugin, candidate.diagnostics)
-      const install: InstallMetadata = {
-        pluginId: plugin.id,
-        sourceId,
-        sourcePluginId: candidate.id,
-        location: prepared.location,
-        ...(prepared.materialization === undefined ? {} : { materialization: prepared.materialization }),
-        installedAt: new Date().toISOString(),
-      }
-      parsed.push({
-        prepared,
-        plugin,
-        install,
-        state: stateOf(false, options.priority ?? 0),
-        scan: createPluginScan(plugin, sourceRevision, this.parsers),
-      })
-    }
-
-    const duplicate = parsed.find((item, index) =>
-      parsed.findIndex(other => other.plugin.id === item.plugin.id) !== index)
-    if (duplicate !== undefined) throw new Error(`一次安装中产生重复 pluginId：${duplicate.plugin.id}`)
-
-    // 只有本次确实准备启用的 Plugin 才形成活动能力冲突。--no-enable 或
-    // Marketplace 默认禁用的 Plugin 仍可整体安装，之后 enable 时重新检查。
-    const within = findCapabilityConflictsWithin(
-      parsed
-        .filter(item => candidateWantsEnable(item, options.enable) && !hasNonConflictErrors(item.plugin))
-        .map(item => item.plugin),
-    )
-    for (const item of parsed) {
-      const diagnostics = within.get(item.plugin.id) ?? []
-      if (diagnostics.length > 0) {
-        item.plugin = withAdditionalDiagnostics(item.plugin, diagnostics)
-        item.scan = createPluginScan(item.plugin, sourceRevision, this.parsers)
-      }
-    }
-    return parsed
   }
 
   private async startInstalledCandidates(
@@ -423,18 +327,86 @@ export class CompatManager {
       (await this.ensureStoredSource(input, options, 'explicit')).source)
   }
 
-  /**
-   * 拉取并固定一次 Source，供需要先展示候选再安装的前端使用。
-   * 新 Source 保持 implicit；调用方取消时应通过 sourceRemove 回收它。
-   */
+  private async sourceSnapshot(source: SourceMetadata): Promise<SourceSnapshot> {
+    const info = await stat(this.layout.sourceRoot(source.id), { bigint: true })
+    return {
+      sourceId: source.id,
+      identity: `${info.dev}:${info.ino}:${info.birthtimeNs}`,
+      createdAt: source.createdAt,
+      revision: source.revision,
+      origin: source.origin,
+    }
+  }
+
+  private async snapshotIsCurrent(snapshot: SourceSnapshot): Promise<boolean> {
+    if (!await pathExists(this.layout.sourceRoot(snapshot.sourceId))) return false
+    const record = await readInstalledSource(this.layout, snapshot.sourceId)
+    const current = await this.sourceSnapshot(record.source)
+    return current.identity === snapshot.identity && current.createdAt === snapshot.createdAt
+      && current.revision === snapshot.revision && JSON.stringify(current.origin) === JSON.stringify(snapshot.origin)
+  }
+
+  /** Prepare one fixed Source; callers complete or release this Manager-owned session. */
   async prepareInstall(input: string, options: SourceAddOptions = {}): Promise<InstallPreparation> {
     return await this.withManagedRepository(async () => {
       const prepared = await this.ensureStoredSource(input, options, 'implicit')
+      const snapshot = await this.sourceSnapshot(prepared.source.source)
+      let group = [...this.preparedSources].find(item => item.snapshot.sourceId === snapshot.sourceId
+        && item.snapshot.identity === snapshot.identity && item.snapshot.revision === snapshot.revision
+        && item.snapshot.createdAt === snapshot.createdAt
+        && JSON.stringify(item.snapshot.origin) === JSON.stringify(snapshot.origin))
+      if (group === undefined) {
+        group = { snapshot, cleanupSource: prepared.created, preparations: new Set() }
+        this.preparedSources.add(group)
+      }
+      const preparationId = randomUUID()
+      group.preparations.add(preparationId)
+      this.preparations.set(preparationId, group)
       return {
+        preparationId,
         sourceId: prepared.source.source.id,
         sourceCreated: prepared.created,
         plugins: prepared.source.compat.plugins,
       }
+    })
+  }
+
+  private finishPreparation(preparationId: string, group: PreparedSource): void {
+    this.preparations.delete(preparationId)
+    group.preparations.delete(preparationId)
+    if (group.preparations.size === 0) this.preparedSources.delete(group)
+  }
+
+  /** Validate and install the captured revision in the same repository transaction. */
+  async completeInstallPreparation(preparationId: string, plugins: string[]): Promise<InstallResult> {
+    return await this.withManagedRepository(async () => {
+      const group = this.preparations.get(preparationId)
+      if (group === undefined) throw new Error('该添加请求已结束，请重新拉取来源')
+      if (plugins.length === 0) throw new Error('请至少选择一个可安装插件')
+      if (!await this.snapshotIsCurrent(group.snapshot)) throw new Error('准备安装的 Source 已变化，请重新拉取来源')
+      const result = await this.installUnlocked(group.snapshot.sourceId, { plugins })
+      this.finishPreparation(preparationId, group)
+      return result
+    })
+  }
+
+  /** Release only this session; the last owner may reclaim its original implicit Source. */
+  async releaseInstallPreparation(preparationId: string): Promise<void> {
+    await this.withManagedRepository(async () => {
+      const group = this.preparations.get(preparationId)
+      if (group === undefined) return
+      if (group.preparations.size === 1 && group.cleanupSource) {
+        await withSourceLock(this.layout, group.snapshot.sourceId, async () => {
+          if (!await this.snapshotIsCurrent(group.snapshot)) return
+          const record = await readInstalledSource(this.layout, group.snapshot.sourceId)
+          if (record.source.ownership !== 'implicit') return
+          const scan = await scanPluginSourceReferences(this.layout)
+          if (scan.unreadablePluginIds.length > 0) throw new Error('存在无法读取的插件引用，临时 Source 未清理')
+          if (scan.references.some(item => item.sourceId === group.snapshot.sourceId)) return
+          await this.removeSourceStorage(group.snapshot.sourceId, `releasing-source-${group.snapshot.sourceId}`)
+        })
+      }
+      this.finishPreparation(preparationId, group)
     })
   }
 
@@ -514,190 +486,193 @@ export class CompatManager {
   }
 
   async install(input: string, options: InstallOptions = {}): Promise<InstallResult> {
-    return await this.withManagedRepository( async () => {
-      const reference = await this.resolveInstallInput(input, options)
-      const transaction = await createTransactionDir(this.layout, 'install')
-      let committedNewSourceId: string | undefined
-      const committedPluginIds: string[] = []
-      const committedExternalPaths: string[] = []
-      try {
-        let sourceId: string
-        let sourceRecord: InstalledSourceRecord
-        let discovery: SourceDiscovery
-        let stagedSourceRoot: string | undefined
-        let newSource = false
+    return await this.withManagedRepository(() => this.installUnlocked(input, options))
+  }
 
-        if (reference.sourceId !== undefined) {
-          sourceId = reference.sourceId
-          if (
-            options.sourceAs !== undefined
-            && normalizeManagementId(options.sourceAs, 'source') !== sourceId
-          ) {
-            throw new Error(
-              `该来源已登记为 Source ${sourceId}，--source-as ${options.sourceAs} 不会被静默忽略`,
-            )
-          }
-          sourceRecord = await this.repository.readCurrentSourceRecord(sourceId)
-          discovery = await this.repository.parseStoredSource(sourceId, sourceRecord)
-          if ((options.paths?.length ?? 0) > 0) {
-            const oldPaths = [...(sourceRecord.scan.manualPaths ?? [])].sort()
-            const newPaths = [...new Set(options.paths)].sort()
-            if (JSON.stringify(oldPaths) !== JSON.stringify(newPaths)) {
-              throw new Error('已有 Source 的 paths 定义不能在 install 时改变；请更新或重新添加 Source')
-            }
-          }
-        } else {
-          const created = await this.createSourceRecord(reference.resolved!, 'implicit', {
-            ...(options.sourceAs === undefined ? {} : { as: options.sourceAs }),
-            ...(options.paths === undefined ? {} : { paths: options.paths }),
-          }, transaction)
-          sourceId = created.sourceId
-          sourceRecord = created.record
-          discovery = created.discovery
-          stagedSourceRoot = created.recordRoot
-          newSource = true
-          if (await pathExists(this.layout.sourceRoot(sourceId))) {
-            throw new Error(`Source ${sourceId} 已存在；请使用 --source-as 指定其他 ID`)
-          }
-        }
+  private async installUnlocked(input: string, options: InstallOptions): Promise<InstallResult> {
+    const reference = await this.resolveInstallInput(input, options)
+    const transaction = await createTransactionDir(this.layout, 'install')
+    let committedNewSourceId: string | undefined
+    const committedPluginIds: string[] = []
+    const committedExternalPaths: string[] = []
+    try {
+      let sourceId: string
+      let sourceRecord: InstalledSourceRecord
+      let discovery: SourceDiscovery
+      let stagedSourceRoot: string | undefined
+      let newSource = false
 
-        const selectors = reference.forcedPlugin === undefined
-          ? options.plugins ?? []
-          : [reference.forcedPlugin, ...(options.plugins ?? [])]
-        const selected = this.chooseCandidates(sourceId, discovery.candidates, selectors)
-        const referenceScan = await scanPluginSourceReferences(this.layout)
-        if (referenceScan.unreadablePluginIds.length > 0) {
+      if (reference.sourceId !== undefined) {
+        sourceId = reference.sourceId
+        if (
+          options.sourceAs !== undefined
+          && normalizeManagementId(options.sourceAs, 'source') !== sourceId
+        ) {
           throw new Error(
-            `存在无法读取 install.json 的插件目录，不能安全判断重复安装：${referenceScan.unreadablePluginIds.join(', ')}`,
+            `该来源已登记为 Source ${sourceId}，--source-as ${options.sourceAs} 不会被静默忽略`,
           )
         }
-        for (const candidate of selected) {
-          const existing = referenceScan.references.find(item =>
-            item.sourceId === sourceId && item.sourcePluginId === candidate.id)
-          if (existing !== undefined) {
-            throw new Error(
-              `Source ${sourceId} 中的 Plugin ${candidate.id} 已安装为 ${existing.pluginId}；一个具体 Plugin 不能重复安装`,
-            )
+        sourceRecord = await this.repository.readCurrentSourceRecord(sourceId)
+        discovery = await this.repository.parseStoredSource(sourceId, sourceRecord)
+        if ((options.paths?.length ?? 0) > 0) {
+          const oldPaths = [...(sourceRecord.scan.manualPaths ?? [])].sort()
+          const newPaths = [...new Set(options.paths)].sort()
+          if (JSON.stringify(oldPaths) !== JSON.stringify(newPaths)) {
+            throw new Error('已有 Source 的 paths 定义不能在 install 时改变；请更新或重新添加 Source')
           }
         }
-        const sourceRoot = stagedSourceRoot ?? this.layout.sourceRoot(sourceId)
-        const parsed = await this.buildParsedCandidates(
-          sourceId,
-          sourceRoot,
-          selected,
-          sourceRecord.source.revision,
-          transaction,
-          options,
-          newSource ? undefined : this.layout.sourceExternalRoot(sourceId),
-        )
-
-        for (const item of parsed) {
-          if (await pathExists(this.layout.pluginRoot(item.plugin.id))) {
-            throw new Error(`插件 ${item.plugin.id} 已安装；请使用 update`)
-          }
+      } else {
+        const created = await this.createSourceRecord(reference.resolved!, 'implicit', {
+          ...(options.sourceAs === undefined ? {} : { as: options.sourceAs }),
+          ...(options.paths === undefined ? {} : { paths: options.paths }),
+        }, transaction)
+        sourceId = created.sourceId
+        sourceRecord = created.record
+        discovery = created.discovery
+        stagedSourceRoot = created.recordRoot
+        newSource = true
+        if (await pathExists(this.layout.sourceRoot(sourceId))) {
+          throw new Error(`Source ${sourceId} 已存在；请使用 --source-as 指定其他 ID`)
         }
-
-        return await withSourceLock(this.layout, sourceId, () => withPluginLocks(
-          this.layout,
-          parsed.map(item => item.plugin.id),
-          async () => {
-            const stagedRecords = join(transaction, 'installed-records')
-            await mkdir(stagedRecords, { recursive: true, mode: 0o700 })
-            for (const item of parsed) {
-              const root = join(stagedRecords, item.plugin.id)
-              await Promise.all([
-                mkdir(join(root, 'data'), { recursive: true, mode: 0o700 }),
-                mkdir(join(root, 'cache'), { recursive: true, mode: 0o700 }),
-              ])
-              await writeInstalledPlugin(root, item.install, item.state, item.scan)
-            }
-
-            try {
-              if (newSource) {
-                await commitDirectory(sourceRoot, this.layout.sourceRoot(sourceId))
-                committedNewSourceId = sourceId
-              }
-
-              // Marketplace 外部 Git Plugin 统一保存在顶层 external/<sourceId>/，
-              // 不混入 Source 原始快照。提交失败时与 Source、Plugin 记录一起回滚。
-              for (const item of parsed) {
-                const staged = item.prepared.newlyMaterializedExternal
-                if (staged === undefined) continue
-                const destination = this.layout.sourceExternalPluginRoot(
-                  sourceId,
-                  externalDirectoryName(item.prepared.candidate.id),
-                )
-                await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
-                if (await pathExists(destination)) {
-                  throw new Error(`外部插件缓存目录已存在但未被当前安装记录复用：${destination}`)
-                }
-                await commitDirectory(staged, destination)
-                committedExternalPaths.push(destination)
-              }
-
-              for (const item of parsed) {
-                await commitDirectory(join(stagedRecords, item.plugin.id), this.layout.pluginRoot(item.plugin.id))
-                committedPluginIds.push(item.plugin.id)
-              }
-            } catch (error) {
-              for (const pluginId of committedPluginIds.reverse()) {
-                await rm(this.layout.pluginRoot(pluginId), { recursive: true, force: true })
-              }
-              if (committedNewSourceId !== undefined) {
-                await rm(this.layout.sourceRoot(committedNewSourceId), { recursive: true, force: true })
-                await rm(this.layout.sourceExternalRoot(committedNewSourceId), { recursive: true, force: true })
-              } else {
-                for (const path of committedExternalPaths.reverse()) {
-                  await rm(path, { recursive: true, force: true })
-                }
-              }
-              throw error
-            }
-
-            let results: PluginInstallResult[]
-            try {
-              results = await this.startInstalledCandidates(parsed, options.enable)
-            } catch (error) {
-              let stopError: unknown
-              if (this.runtime !== undefined) {
-                for (const item of [...parsed].reverse()) {
-                  try {
-                    await this.runtime.stop(item.plugin.id)
-                  } catch (failure) {
-                    stopError ??= failure
-                  }
-                }
-              }
-              if (stopError !== undefined) {
-                throw new AggregateError(
-                  [error, stopError],
-                  '安装提交后的启用阶段失败，且运行实例未能完全停止；为避免删除仍在使用的源码，安装记录已保留',
-                )
-              }
-              for (const pluginId of [...committedPluginIds].reverse()) {
-                await rm(this.layout.pluginRoot(pluginId), { recursive: true, force: true })
-              }
-              if (committedNewSourceId !== undefined) {
-                await rm(this.layout.sourceRoot(committedNewSourceId), { recursive: true, force: true })
-                await rm(this.layout.sourceExternalRoot(committedNewSourceId), { recursive: true, force: true })
-              } else {
-                for (const path of [...committedExternalPaths].reverse()) {
-                  await rm(path, { recursive: true, force: true })
-                }
-              }
-              throw error
-            }
-            if (results.length === 0) throw new Error('安装事务未产生插件结果')
-            return {
-              source: await this.repository.inspectSourceUnlocked(sourceId),
-              plugins: results,
-            }
-          },
-        ))
-      } finally {
-        await cleanAcquisition(transaction)
       }
-    })
+
+      const selectors = reference.forcedPlugin === undefined
+        ? options.plugins ?? []
+        : [reference.forcedPlugin, ...(options.plugins ?? [])]
+      const selected = this.chooseCandidates(sourceId, discovery.candidates, selectors)
+      const referenceScan = await scanPluginSourceReferences(this.layout)
+      if (referenceScan.unreadablePluginIds.length > 0) {
+        throw new Error(
+          `存在无法读取 install.json 的插件目录，不能安全判断重复安装：${referenceScan.unreadablePluginIds.join(', ')}`,
+        )
+      }
+      for (const candidate of selected) {
+        const existing = referenceScan.references.find(item =>
+          item.sourceId === sourceId && item.sourcePluginId === candidate.id)
+        if (existing !== undefined) {
+          throw new Error(
+            `Source ${sourceId} 中的 Plugin ${candidate.id} 已安装为 ${existing.pluginId}；一个具体 Plugin 不能重复安装`,
+          )
+        }
+      }
+      const sourceRoot = stagedSourceRoot ?? this.layout.sourceRoot(sourceId)
+      const parsed = await buildParsedCandidates(
+        this,
+        sourceId,
+        sourceRoot,
+        selected,
+        sourceRecord.source.revision,
+        transaction,
+        options,
+        newSource ? undefined : this.layout.sourceExternalRoot(sourceId),
+      )
+
+      for (const item of parsed) {
+        if (await pathExists(this.layout.pluginRoot(item.plugin.id))) {
+          throw new Error(`插件 ${item.plugin.id} 已安装；请使用 update`)
+        }
+      }
+
+      return await withSourceLock(this.layout, sourceId, () => withPluginLocks(
+        this.layout,
+        parsed.map(item => item.plugin.id),
+        async () => {
+          const stagedRecords = join(transaction, 'installed-records')
+          await mkdir(stagedRecords, { recursive: true, mode: 0o700 })
+          for (const item of parsed) {
+            const root = join(stagedRecords, item.plugin.id)
+            await Promise.all([
+              mkdir(join(root, 'data'), { recursive: true, mode: 0o700 }),
+              mkdir(join(root, 'cache'), { recursive: true, mode: 0o700 }),
+            ])
+            await writeInstalledPlugin(root, item.install, item.state, item.scan)
+          }
+
+          try {
+            if (newSource) {
+              await commitDirectory(sourceRoot, this.layout.sourceRoot(sourceId))
+              committedNewSourceId = sourceId
+            }
+
+            // Marketplace 外部 Git Plugin 统一保存在顶层 external/<sourceId>/，
+            // 不混入 Source 原始快照。提交失败时与 Source、Plugin 记录一起回滚。
+            for (const item of parsed) {
+              const staged = item.prepared.newlyMaterializedExternal
+              if (staged === undefined) continue
+              const destination = this.layout.sourceExternalPluginRoot(
+                sourceId,
+                externalDirectoryName(item.prepared.candidate.id),
+              )
+              await mkdir(dirname(destination), { recursive: true, mode: 0o700 })
+              if (await pathExists(destination)) {
+                throw new Error(`外部插件缓存目录已存在但未被当前安装记录复用：${destination}`)
+              }
+              await commitDirectory(staged, destination)
+              committedExternalPaths.push(destination)
+            }
+
+            for (const item of parsed) {
+              await commitDirectory(join(stagedRecords, item.plugin.id), this.layout.pluginRoot(item.plugin.id))
+              committedPluginIds.push(item.plugin.id)
+            }
+          } catch (error) {
+            for (const pluginId of committedPluginIds.reverse()) {
+              await rm(this.layout.pluginRoot(pluginId), { recursive: true, force: true })
+            }
+            if (committedNewSourceId !== undefined) {
+              await rm(this.layout.sourceRoot(committedNewSourceId), { recursive: true, force: true })
+              await rm(this.layout.sourceExternalRoot(committedNewSourceId), { recursive: true, force: true })
+            } else {
+              for (const path of committedExternalPaths.reverse()) {
+                await rm(path, { recursive: true, force: true })
+              }
+            }
+            throw error
+          }
+
+          let results: PluginInstallResult[]
+          try {
+            results = await this.startInstalledCandidates(parsed, options.enable)
+          } catch (error) {
+            let stopError: unknown
+            if (this.runtime !== undefined) {
+              for (const item of [...parsed].reverse()) {
+                try {
+                  await this.runtime.stop(item.plugin.id)
+                } catch (failure) {
+                  stopError ??= failure
+                }
+              }
+            }
+            if (stopError !== undefined) {
+              throw new AggregateError(
+                [error, stopError],
+                '安装提交后的启用阶段失败，且运行实例未能完全停止；为避免删除仍在使用的源码，安装记录已保留',
+              )
+            }
+            for (const pluginId of [...committedPluginIds].reverse()) {
+              await rm(this.layout.pluginRoot(pluginId), { recursive: true, force: true })
+            }
+            if (committedNewSourceId !== undefined) {
+              await rm(this.layout.sourceRoot(committedNewSourceId), { recursive: true, force: true })
+              await rm(this.layout.sourceExternalRoot(committedNewSourceId), { recursive: true, force: true })
+            } else {
+              for (const path of [...committedExternalPaths].reverse()) {
+                await rm(path, { recursive: true, force: true })
+              }
+            }
+            throw error
+          }
+          if (results.length === 0) throw new Error('安装事务未产生插件结果')
+          return {
+            source: await this.repository.inspectSourceUnlocked(sourceId),
+            plugins: results,
+          }
+        },
+      ))
+    } finally {
+      await cleanAcquisition(transaction)
+    }
   }
 
   async enable(pluginId: string): Promise<PluginInspection> {
@@ -818,8 +793,7 @@ export class CompatManager {
       runtime: this.runtime,
       parsers: this.parsers,
       repository: this.repository,
-      preparePluginContent: this.preparePluginContent.bind(this),
-      parseAndCheck: this.parseAndCheck.bind(this),
+      readPluginRecord: this.readAndSynchronizeRecord.bind(this),
       inspectPlugin: this.inspectUnlocked.bind(this),
     }, sourceId, options)
   }
@@ -856,37 +830,50 @@ export class CompatManager {
     })
   }
 
-  /** 探测每个已安装 Plugin 的 Source 远端/本地来源是否有新 revision。 */
+  /** Capture under a short lock, probe origins without locks, then validate the snapshot. */
   async checkUpdates(): Promise<SourceUpdateCheck[]> {
-    return await this.withManagedRepository( async () => {
-      const referenceScan = await scanPluginSourceReferences(this.layout)
-      const checks: SourceUpdateCheck[] = []
+    const captured = await this.withManagedRepository(async () => {
+      const references = await scanPluginSourceReferences(this.layout)
+      const checks: Array<{ check: SourceUpdateCheck; snapshot?: SourceSnapshot }> = []
       for (const sourceId of await listSourceIds(this.layout)) {
-        const affectedPluginIds = referenceScan.references
-          .filter(item => item.sourceId === sourceId)
-          .map(item => item.pluginId)
-          .sort()
+        const affectedPluginIds = references.references.filter(item => item.sourceId === sourceId)
+          .map(item => item.pluginId).sort()
         if (affectedPluginIds.length === 0) continue
-
+        const check: SourceUpdateCheck = { sourceId, currentRevision: '', affectedPluginIds, updateAvailable: false }
         try {
           const record = await readInstalledSource(this.layout, sourceId)
-          const currentRevision = record.source.revision
-          const latestRevision = await latestRevisionFor(resolvedFromStored(record.source.origin))
-          checks.push({
-            sourceId,
-            currentRevision,
-            latestRevision,
-            updateAvailable: latestRevision !== currentRevision,
-            affectedPluginIds,
-          })
+          check.currentRevision = record.source.revision
+          checks.push({ check, snapshot: await this.sourceSnapshot(record.source) })
         } catch (error) {
-          checks.push({
-            sourceId,
-            updateAvailable: false,
-            currentRevision: '',
-            affectedPluginIds,
-            error: error instanceof Error ? error.message : String(error),
-          })
+          checks.push({ check: { ...check, error: error instanceof Error ? error.message : String(error) } })
+        }
+      }
+      return checks
+    })
+    const probe = this.options.probeRevision ?? latestRevisionFor
+    const completed = await Promise.all(captured.map(async ({ check, snapshot }) => {
+      if (snapshot === undefined) return { check, snapshot }
+      try {
+        const latestRevision = await probe(resolvedFromStored(snapshot.origin))
+        return { snapshot, check: { ...check, latestRevision, updateAvailable: latestRevision !== snapshot.revision } }
+      } catch (error) {
+        return { snapshot, check: { ...check, error: error instanceof Error ? error.message : String(error) } }
+      }
+    }))
+    return await this.withManagedRepository(async () => {
+      const references = await scanPluginSourceReferences(this.layout)
+      const checks: SourceUpdateCheck[] = []
+      for (const { check, snapshot } of completed) {
+        if (snapshot === undefined) { checks.push(check); continue }
+        const ids = references.references.filter(item => item.sourceId === check.sourceId).map(item => item.pluginId).sort()
+        try {
+          if (!await this.snapshotIsCurrent(snapshot) || JSON.stringify(ids) !== JSON.stringify(check.affectedPluginIds)) {
+            checks.push({ sourceId: check.sourceId, currentRevision: check.currentRevision,
+              affectedPluginIds: ids, updateAvailable: false, error: 'Source 或插件引用在更新检查期间已变化，请重新检查' })
+          } else checks.push(check)
+        } catch (error) {
+          checks.push({ sourceId: check.sourceId, currentRevision: check.currentRevision,
+            affectedPluginIds: ids, updateAvailable: false, error: `更新检查快照失效：${String(error)}` })
         }
       }
       return checks.sort((left, right) => left.sourceId.localeCompare(right.sourceId))
@@ -900,6 +887,14 @@ export class CompatManager {
         try {
           const record = await this.repository.readCurrentRecord(pluginId)
           const plugin = record.scan.plugin
+          let runtimeError: string | undefined
+          try { await this.synchronizeRuntime(record) } catch (error) {
+            if (!(error instanceof RuntimeSynchronizationError)) throw error
+            runtimeError = error.message
+          }
+          const diagnostics = runtimeError === undefined ? plugin.diagnostics : [...plugin.diagnostics, {
+            level: 'error' as const, code: 'PLUGIN_RUNTIME_SYNC_FAILED', capability: 'plugin' as const, message: runtimeError,
+          }]
           const snapshot = this.runtimeSnapshot(pluginId, record.state.enabled)
           entries.push({
             id: plugin.id,
@@ -908,14 +903,15 @@ export class CompatManager {
             sourceId: record.install.sourceId,
             enabled: record.state.enabled,
             priority: record.state.priority,
-            runtimeStatus: record.state.enabled && this.runtime === undefined ? 'pending-restart' : snapshot.status,
+            runtimeStatus: runtimeError !== undefined ? 'failed'
+              : record.state.enabled && this.runtime === undefined ? 'pending-restart' : snapshot.status,
             formats: plugin.formats,
             skills: plugin.skills.length,
             mcpServers: plugin.mcpServers.length,
             hooks: plugin.hooks.length,
-            errors: plugin.diagnostics.filter(item => item.level === 'error').length,
-            warnings: plugin.diagnostics.filter(item => item.level === 'warning').length,
-            diagnostics: plugin.diagnostics.flatMap((item) => {
+            errors: diagnostics.filter(item => item.level === 'error').length,
+            warnings: diagnostics.filter(item => item.level === 'warning').length,
+            diagnostics: diagnostics.flatMap((item) => {
               if (item.level === 'info') return []
               return [{
                 level: item.level,
@@ -955,7 +951,7 @@ export class CompatManager {
   }
 
   private async inspectUnlocked(pluginId: string): Promise<PluginInspection> {
-    const record = await this.repository.readCurrentRecord(pluginId)
+    const record = await this.readAndSynchronizeRecord(pluginId)
     return {
       ...record,
       packageRoot: await resolveInstalledPluginPackageRoot(this.layout, record.install),
@@ -977,7 +973,7 @@ export class CompatManager {
       const records: InstalledPluginRecord[] = []
       for (const pluginId of await listPluginIds(this.layout)) {
         try {
-          const record = await this.repository.readCurrentRecord(pluginId)
+          const record = await this.readAndSynchronizeRecord(pluginId)
           if (record.state.enabled) records.push(record)
         } catch (error) {
           if (this.runtime !== undefined) {

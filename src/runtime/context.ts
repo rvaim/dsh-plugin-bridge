@@ -1,40 +1,24 @@
-import type { Events } from '@deepseek-ai/cordis'
+import type { Context, Fiber, LoggerService } from '@deepseek-ai/cordis'
 import type { AgentRegistry } from '@deepseek-ai/dsh-agent'
+import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import type { WorkingDirectoryService } from '@deepseek-ai/dsh-working-directory'
 import type { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import type { ShellExecutor } from '@deepseek-ai/dsh-shell'
+import type { SkillProvider, SkillRegistry } from '@deepseek-ai/dsh-skill'
 import type { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
 import type {} from '@deepseek-ai/dsh-tools'
 import type {} from '@deepseek-ai/dsh-subagent'
 
-export interface LoggerLike {
-  debug?(...args: unknown[]): void
-  info?(...args: unknown[]): void
-  warn(...args: unknown[]): void
-  error?(...args: unknown[]): void
-}
-
-export interface FiberLike extends PromiseLike<unknown> {
-  dispose(): Promise<unknown> | unknown
-}
-
-export interface SkillRegistryLike {
-  registerProvider(create: (control: { signal: AbortSignal; invalidate(): void }) => SkillProviderLike): () => void
-}
-
-export interface SkillProviderLike {
-  name: string
-  list(options?: { cwd?: string; signal?: AbortSignal }): Promise<unknown[]> | unknown[]
-  get(candidate: unknown, options?: { cwd?: string; signal?: AbortSignal }): Promise<unknown> | unknown
-}
-
-export interface CredentialsLike {
-  resolve(ref: string): Promise<{ value: string; source: string } | undefined>
-}
+export type LoggerLike = Pick<LoggerService, 'warn'> & Partial<Pick<LoggerService, 'debug' | 'info' | 'error'>>
+export type FiberLike = Pick<Fiber, 'dispose'> & PromiseLike<Fiber>
+export type SkillRegistryLike = Pick<SkillRegistry, 'registerProvider'>
+export type SkillProviderLike = SkillProvider
+export type CredentialsLike = Pick<CredentialProvider, 'resolve'>
 
 export type HookEventName = 'agent/created' | 'agent/pre-step' | 'agent/turn-stopping'
   | 'tools/pre-execute' | 'tools/post-execute' | 'subagent/start'
 
+/** Only the SDK service members consumed by runtime adapters. */
 export interface RuntimeServices {
   subprocess: Pick<SubprocessRuntime, 'resolveExecutable' | 'spawn'>
   sessionProjections: Pick<SessionProjectionRegistry, 'register' | 'stateOf'>
@@ -43,18 +27,11 @@ export interface RuntimeServices {
   credentials: CredentialsLike
 }
 
-export interface DshContextLike extends Partial<RuntimeServices> {
+/** Cordis owns mounting, effects and typed optional-service lookup. */
+export interface DshContextLike extends Pick<Context, 'plugin' | 'on' | 'effect'>, Partial<RuntimeServices> {
   logger: LoggerLike
   skills?: SkillRegistryLike
   shell?: Pick<ShellExecutor, 'resolve' | 'execute'>
-  /** Optional direct argv execution service; exec-form Hooks require it. */
-  subprocess?: Pick<SubprocessRuntime, 'resolveExecutable' | 'spawn'>
-  sessionProjections?: Pick<SessionProjectionRegistry, 'register' | 'stateOf'>
-  workingDirectory?: Pick<WorkingDirectoryService, 'get'>
-  agents?: Pick<AgentRegistry, 'get'>
-  credentials?: CredentialsLike
-  plugin?(plugin: unknown, config?: unknown): FiberLike
-  get?<K extends keyof RuntimeServices>(name: K): RuntimeServices[K] | undefined
-  on?<K extends HookEventName>(event: K, listener: Events[K]): unknown
-  effect?(setup: () => void | (() => unknown), label?: string): unknown
+  /** Narrow typed Context.get overload, without its untyped string-name fallback. */
+  get<K extends keyof RuntimeServices>(name: K, strict?: Parameters<Context['get']>[1]): RuntimeServices[K] | undefined
 }

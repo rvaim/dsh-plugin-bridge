@@ -66,7 +66,7 @@ export function createHookExecutor(ctx: DshContextLike, options: ExecutionOption
 }
 
 async function executeExec(ctx: DshContextLike, spec: ShellExecSpec, args: readonly string[]): Promise<ShellExecution> {
-  const subprocess = ctx.get?.('subprocess')
+  const subprocess = ctx.get('subprocess')
   if (subprocess === undefined) {
     throw new Error('当前 DSH 未提供直接执行 Hook args 所需的 subprocess 服务；不会降级为 Shell')
   }

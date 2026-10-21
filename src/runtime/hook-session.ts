@@ -16,7 +16,7 @@ declare module '@deepseek-ai/dsh-session-projection' {
 
 /** Current DSH owns folding and replay; Hooks consume its registered state. */
 export function createHookSessionReader(ctx: DshContextLike, pluginId: string): (agent: Agent) => HookSessionState {
-  const projections = ctx.get?.('sessionProjections')
+  const projections = ctx.get('sessionProjections')
   if (projections === undefined) throw new Error('DSH 未提供 ctx.sessionProjections，无法读取 Hook 会话状态')
   const key = `plugin-bridge:${pluginId}:hooks` as const
   projections.register({

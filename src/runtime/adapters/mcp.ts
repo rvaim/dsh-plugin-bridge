@@ -1,3 +1,4 @@
+import type { Config as McpConfig } from '@deepseek-ai/dsh-mcp-client'
 import type { CompatMcpServer } from '../../types/mcp.js'
 import type { CompatRuntimeValue } from '../../types/path.js'
 import type { CompatPlugin } from '../../types/plugin.js'
@@ -18,7 +19,7 @@ export interface McpMountResult {
 }
 
 interface BuiltMcpConfig {
-  config: Record<string, unknown>
+  config: McpConfig
   sensitiveValues: Set<string>
 }
 
@@ -32,7 +33,6 @@ async function buildMcpConfig(
   sourceRoot?: string,
 ): Promise<BuiltMcpConfig> {
   const common = {
-    transport: server.transport,
     serverName: server.serverName,
     toolCallTimeoutMs: server.toolCallTimeoutMs ?? 60_000,
     failOnStartupError: server.failOnStartupError ?? false,
@@ -53,7 +53,7 @@ async function buildMcpConfig(
       return {
         sensitiveValues,
         config: {
-          ...common, failOnStartupError: true,
+          ...common, transport: 'stdio', failOnStartupError: true,
           command: await resolveContainedCommand(roots.pluginRoot, command),
           args: await Promise.all(server.args.map(value => containedValue(value, roots.pluginRoot, roots.dataRoot))),
           env: buildProcessEnvironment(env,
@@ -66,7 +66,7 @@ async function buildMcpConfig(
     if (server.envHeaders !== undefined || server.bearerToken !== undefined) throw new Error('受限 MCP 不支持配置之外的认证字段')
     const url = await containedValue(server.url)
     validateEndpointUrl(url)
-    return { sensitiveValues, config: { ...common, failOnStartupError: true, url, headers: {} } }
+    return { sensitiveValues, config: { ...common, transport: server.transport, failOnStartupError: true, url, headers: {} } }
   }
   const resolveValues = async (values: Record<string, CompatRuntimeValue>) => Object.fromEntries(
     await Promise.all(Object.entries(values).map(async ([key, value]) => [
@@ -79,6 +79,7 @@ async function buildMcpConfig(
       sensitiveValues,
       config: {
         ...common,
+        transport: 'stdio',
         command: await resolveRuntimeValue(ctx, server.command, packageRoot, dataRoot, workspaceRoot, sensitiveValues, sourceRoot),
         args: await Promise.all(server.args.map(value => resolveRuntimeValue(ctx, value, packageRoot, dataRoot, workspaceRoot, sensitiveValues, sourceRoot))),
         env: {
@@ -103,6 +104,7 @@ async function buildMcpConfig(
     sensitiveValues,
     config: {
       ...common,
+      transport: server.transport,
       url: await resolveRuntimeValue(ctx, server.url, packageRoot, dataRoot, workspaceRoot, sensitiveValues, sourceRoot),
       headers: Object.fromEntries(headers.entries()),
     },
@@ -130,7 +132,26 @@ export async function mountMcpServers(
     try {
       if ((server.runtimeUnsupported?.length ?? 0) > 0) throw new Error(`MCP 运行语义尚未适配：${server.runtimeUnsupported!.join(', ')}`)
       const built = await buildMcpConfig(ctx, server, packageRoot, dataRoot, workspaceRoot, sensitiveValues, sourceRoot)
-      fiber = ctx.plugin(mcpModule, built.config)
+      const scopedModule: typeof mcpModule = {
+        ...mcpModule,
+        async apply(child, config) {
+          // The SDK schema normalizes record keys through ordinary assignment.
+          // Preserve the builder's resolved string dictionaries, including own __proto__ keys.
+          let resolved: McpConfig
+          if (config.transport === 'stdio' && built.config.transport === 'stdio') {
+            resolved = { ...config, env: Object.fromEntries(Object.entries(built.config.env)) }
+          } else if (config.transport === 'streamable-http' && built.config.transport === 'streamable-http') {
+            resolved = { ...config, headers: Object.fromEntries(Object.entries(built.config.headers)) }
+          } else throw new Error('MCP Schema 改变了已构造的 transport')
+          try {
+            await mcpModule.apply(child, resolved)
+          } catch (error) {
+            // Cordis logs startup errors before the outer adapter can redact them.
+            throw new Error(redactSensitiveText(String(error), sensitiveValues))
+          }
+        },
+      }
+      fiber = ctx.plugin(scopedModule, built.config)
       await Promise.resolve(fiber)
       fibers.push(fiber)
       health.push({ capability: 'mcp', name: server.serverName, status: 'running' })

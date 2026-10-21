@@ -1,8 +1,6 @@
-import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
-  type InstallOptions,
   type InstallPreparation,
   type InstallResult,
   type PluginInstallResult,
@@ -25,16 +23,12 @@ import type {
   CompatWebUpdateResult,
 } from '../../types/web.js'
 
+import { InstallRequests } from './install-requests.js'
+
 type CompatAdminTarget = Pick<
   CompatService,
-  'checkUpdates' | 'disable' | 'enable' | 'install' | 'list' | 'prepareInstall' | 'sourceRemove' | 'uninstall' | 'update'
+  'checkUpdates' | 'completeInstallPreparation' | 'disable' | 'enable' | 'list' | 'prepareInstall' | 'releaseInstallPreparation' | 'uninstall' | 'update'
 >
-
-interface PendingAdd {
-  preparation: InstallPreparation
-  cleanupSource: boolean
-  timer: ReturnType<typeof setTimeout>
-}
 
 const ADD_REQUEST_TTL_MS = 10 * 60 * 1000
 
@@ -112,12 +106,11 @@ function webInstalledPlugin(item: PluginInstallResult): CompatWebPlugin {
 
 /** 把现有 CompatService 生命周期映射为 Web 管理页面需要的窄接口。 */
 export class CompatWebOperations {
-  private readonly pendingAdds = new Map<string, PendingAdd>()
+  private readonly installRequests: InstallRequests
 
-  constructor(
-    private readonly compat: CompatAdminTarget,
-    private readonly requestTtlMs = ADD_REQUEST_TTL_MS,
-  ) {}
+  constructor(private readonly compat: CompatAdminTarget, requestTtlMs = ADD_REQUEST_TTL_MS) {
+    this.installRequests = new InstallRequests(compat, requestTtlMs)
+  }
 
   /** 读取当前 profile 中由 plugin-bridge 管理的插件。 */
   async list(): Promise<CompatWebListResult> {
@@ -168,38 +161,27 @@ export class CompatWebOperations {
   async beginAdd(source: string): Promise<CompatWebAddResult> {
     let preparation: InstallPreparation | undefined
     try {
-      preparation = await this.compat.prepareInstall(source)
+      preparation = await this.installRequests.prepare(source)
       if (preparation.plugins.length === 0) {
         throw new Error(`Source ${preparation.sourceId} 没有可定位的插件`)
       }
       if (preparation.plugins.length === 1) {
-        const installed = await this.compat.install(preparation.sourceId, {
-          plugins: [preparation.plugins[0].id],
-        })
+        const installed = await this.installRequests.complete(preparation.preparationId, [preparation.plugins[0].id])
         return this.installedResult(installed)
       }
-
-      const requestId = randomUUID()
-      const timer = setTimeout(() => { void this.cancelAdd(requestId) }, this.requestTtlMs)
-      timer.unref?.()
-      this.pendingAdds.set(requestId, {
-        preparation,
-        cleanupSource: preparation.sourceCreated,
-        timer,
-      })
       return {
         kind: 'selection',
-        requestId,
+        requestId: preparation.preparationId,
         candidates: preparation.plugins.map(webCandidate),
       }
     } catch (error) {
-      if (preparation?.sourceCreated === true) {
+      if (preparation !== undefined) {
         try {
-          await this.compat.sourceRemove(preparation.sourceId)
+          await this.installRequests.cancel(preparation.preparationId)
         } catch (cleanupError) {
           return {
             kind: 'error',
-            message: `${messageOf(error)}；临时 Source 清理失败：${messageOf(cleanupError)}`,
+            message: `${messageOf(error)}；安装准备释放失败：${messageOf(cleanupError)}`,
           }
         }
       }
@@ -207,52 +189,29 @@ export class CompatWebOperations {
     }
   }
 
-  /** 使用 beginAdd 返回的同一份 Source 快照安装所选插件。 */
+  /** 使用 beginAdd 返回的同一份 Source 快照安装所选插件；失败后可重试。 */
   async completeAdd(requestId: string, plugins: string[]): Promise<CompatWebAddResult> {
     if (plugins.length === 0) return { kind: 'error', message: '请至少选择一个可安装插件' }
-    const pending = this.pendingAdds.get(requestId)
-    if (pending === undefined) return { kind: 'error', message: '该添加请求已过期，请重新拉取来源' }
     try {
-      const options: InstallOptions = { plugins }
-      const installed = await this.compat.install(pending.preparation.sourceId, options)
-      for (const request of this.pendingAdds.values()) {
-        if (request.preparation.sourceId === pending.preparation.sourceId) request.cleanupSource = false
-      }
-      this.finishRequest(requestId)
-      return this.installedResult(installed)
+      return this.installedResult(await this.installRequests.complete(requestId, plugins))
     } catch (error) {
       return { kind: 'error', message: messageOf(error) }
     }
   }
 
-  /** 放弃多插件选择并回收本次新建、尚未被引用的隐式 Source。 */
+  /** 放弃多插件选择，由 manager 释放准备会话并判断 Source 是否可回收。 */
   async cancelAdd(requestId: string): Promise<CompatWebCancelAddResult> {
-    const pending = this.pendingAdds.get(requestId)
-    if (pending === undefined) return { kind: 'cancelled' }
-    const sibling = [...this.pendingAdds.entries()].find(([id, request]) =>
-      id !== requestId && request.preparation.sourceId === pending.preparation.sourceId)
-    if (sibling !== undefined) {
-      if (pending.cleanupSource) sibling[1].cleanupSource = true
-      this.finishRequest(requestId)
-      return { kind: 'cancelled' }
-    }
-    if (!pending.cleanupSource) {
-      this.finishRequest(requestId)
-      return { kind: 'cancelled' }
-    }
     try {
-      await this.compat.sourceRemove(pending.preparation.sourceId)
-      this.finishRequest(requestId)
+      await this.installRequests.cancel(requestId)
       return { kind: 'cancelled' }
     } catch (error) {
       return { kind: 'error', message: messageOf(error) }
     }
   }
 
-  /** 清理由已关闭浏览器页面遗留的选择请求。 */
-  async dispose(): Promise<void> {
-    const requestIds = [...this.pendingAdds.keys()]
-    await Promise.allSettled(requestIds.map(requestId => this.cancelAdd(requestId)))
+  /** 等待正在准备或安装的请求，再释放所有未完成会话；释放失败会报告给宿主。 */
+  dispose(): Promise<void> {
+    return this.installRequests.dispose()
   }
 
   /** 在当前进程中启用或停用一个插件并返回收敛后的列表记录。 */
@@ -280,13 +239,6 @@ export class CompatWebOperations {
 
   private installedResult(result: InstallResult): CompatWebAddResult {
     return { kind: 'installed', plugins: result.plugins.map(webInstalledPlugin) }
-  }
-
-  private finishRequest(requestId: string): void {
-    const pending = this.pendingAdds.get(requestId)
-    if (pending === undefined) return
-    clearTimeout(pending.timer)
-    this.pendingAdds.delete(requestId)
   }
 }
 

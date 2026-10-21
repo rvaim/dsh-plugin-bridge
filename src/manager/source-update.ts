@@ -2,8 +2,8 @@ import { mkdir, rename, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CompatParserEngine } from '../parser/contracts.js'
 import { withAdditionalDiagnostics } from '../parser/model.js'
-import type { SourcePluginCandidate } from '../types/catalog.js'
 import { createPluginScan, createSourceScan, loadInstalledPluginForRuntime, resolveInstalledPluginPackageRoot } from './plugin-loader.js'
+import { parseAndCheckPlugin, preparePluginContent } from './plugin-preparation.js'
 import type { CompatRuntimeManager } from '../runtime/manager.js'
 import { copyPluginDirectory } from '../source/directory.js'
 import { pathExists } from '../source/filesystem.js'
@@ -27,8 +27,7 @@ export interface SourceUpdateHost {
   runtime?: CompatRuntimeManager
   parsers: CompatParserEngine
   repository: CompatRepository
-  preparePluginContent(sourceRoot: string, candidate: SourcePluginCandidate, transactionRoot: string): Promise<PreparedPlugin>
-  parseAndCheck(packageRoot: string, sourceId: string, sourcePluginId: string, suggestedId: string | undefined, asId: string | undefined, excluded: readonly string[], candidate?: SourcePluginCandidate): Promise<CompatPlugin>
+  readPluginRecord(pluginId: string): Promise<InstalledPluginRecord>
   inspectPlugin(pluginId: string): Promise<PluginInspection>
 }
 
@@ -39,7 +38,7 @@ export async function updateSourceUnlocked(
 ): Promise<SourceUpdateResult> {
   const oldSource = await host.repository.readCurrentSourceRecord(sourceId)
   const stored = await host.repository.readSourcePluginRecordsStrict(sourceId)
-  const installed = await Promise.all(stored.map(record => host.repository.readCurrentRecord(record.install.pluginId)))
+  const installed = await Promise.all(stored.map(record => host.readPluginRecord(record.install.pluginId)))
   const pluginIds = installed.map(item => item.install.pluginId).sort()
   const resolved = options.source === undefined
     ? resolvedFromStored(oldSource.source.origin)
@@ -103,8 +102,9 @@ export async function updateSourceUnlocked(
 
       // Source 更新必须重新获取 Marketplace 外部 Git 内容，不能复用正式缓存，
       // 否则 Source 元数据与外部 Plugin 可能落在不同版本。
-      const prepared = await host.preparePluginContent(stagedSource, candidate, transaction)
-      let plugin = await host.parseAndCheck(
+      const prepared = await preparePluginContent(stagedSource, candidate, transaction)
+      let plugin = await parseAndCheckPlugin(
+        host,
         prepared.packageRoot,
         sourceId,
         candidate.id,

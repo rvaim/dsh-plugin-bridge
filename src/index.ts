@@ -1,7 +1,6 @@
 import type { Config as CompatConfig } from './config.js'
 import { Config } from './config.js'
 import { CompatService } from './service.js'
-import type { DshContextLike } from './runtime/context.js'
 import { CompatWebGateway } from './web/host/gateway.js'
 import type { Context as CordisContext } from '@deepseek-ai/cordis'
 
@@ -12,12 +11,12 @@ export { Config }
 export type { CompatConfig as ConfigType }
 
 /** DSH/Cordis 插件入口。 */
-export async function apply(ctx: DshContextLike, config: CompatConfig = {}): Promise<void> {
+export async function apply(ctx: CordisContext, config: CompatConfig = {}): Promise<void> {
   const service = new CompatService(ctx, config)
-  ctx.effect?.(() => () => service.stop(), 'plugin-bridge: 停止全部旧插件父实例')
+  ctx.effect(() => () => service.stop(), 'plugin-bridge: 停止全部旧插件父实例')
   await service.start()
-  const gateway = new CompatWebGateway(ctx as unknown as CordisContext)
-  ctx.effect?.(() => () => gateway.dispose(), 'plugin-bridge: 清理未完成的 Web 添加请求')
+  const gateway = new CompatWebGateway(ctx)
+  ctx.effect(() => () => gateway.dispose(), 'plugin-bridge: 清理未完成的 Web 添加请求')
 }
 
 export { createBuiltinParserEngine, getDefaultParserEngine, parseCompatPlugin, parseCompatSource } from './composition/defaults.js'

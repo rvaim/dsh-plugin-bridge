@@ -26,6 +26,8 @@ export interface SourceAddOptions {
 
 /** Web 等分步前端完成选择前持有的一份已固定 Source 快照。 */
 export interface InstallPreparation {
+  /** Manager-owned preparation; complete or release this exact session. */
+  preparationId: string
   sourceId: string
   sourceCreated: boolean
   plugins: CompatSourcePlugin[]

@@ -1,3 +1,4 @@
+import type { SkillCandidate } from '@deepseek-ai/dsh-skill'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CompatPlugin } from '../../types/plugin.js'
@@ -20,7 +21,7 @@ export function registerSkillProvider(
   if (registry === undefined) throw new Error('DSH 未提供 ctx.skills，无法注册 Skill')
   const providerName = `plugin-bridge:${plugin.id}`
   const byName = new Map(plugin.skills.map(skill => [skill.name, skill]))
-  const describe = (skill: CompatSkill) => ({
+  const describe = (skill: CompatSkill): Omit<SkillCandidate, 'rank' | 'locator'> & { path: string } => ({
     name: skill.name,
     description: skill.description,
     ...(skill.whenToUse === undefined ? {} : { whenToUse: skill.whenToUse }),
@@ -32,9 +33,9 @@ export function registerSkillProvider(
     ...(skill.metadata === undefined ? {} : { metadata: skill.metadata }),
   })
 
-  return registry.registerProvider((control: { signal: AbortSignal; invalidate(): void }) => ({
+  return registry.registerProvider(control => ({
     name: providerName,
-    async list(options: { cwd?: string; signal?: AbortSignal } = {}) {
+    async list(options = {}) {
       if (options.signal?.aborted === true || control.signal.aborted) throw options.signal?.reason ?? control.signal.reason
       return plugin.skills.map(skill => ({
         ...describe(skill),
@@ -42,11 +43,9 @@ export function registerSkillProvider(
         locator: skill.name,
       }))
     },
-    async get(candidate: unknown, options: { cwd?: string; signal?: AbortSignal } = {}) {
+    async get(candidate, options = {}) {
       if (options.signal?.aborted === true || control.signal.aborted) throw options.signal?.reason ?? control.signal.reason
-      const name = typeof candidate === 'object' && candidate !== null && 'locator' in candidate
-        ? String((candidate as { locator: unknown }).locator)
-        : ''
+      const name = String(candidate.locator)
       const skill = byName.get(name)
       if (skill === undefined) return undefined
       const descriptor = describe(skill)

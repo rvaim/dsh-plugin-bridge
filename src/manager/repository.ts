@@ -15,7 +15,6 @@ export class CompatRepository {
   constructor(
     readonly layout: CompatLayout,
     readonly parsers: CompatParserEngine,
-    private readonly onRefresh?: (record: InstalledPluginRecord) => Promise<void>,
   ) {}
 
   async findSourceByOrigin(origin: InstallSource): Promise<InstalledSourceRecord | undefined> {
@@ -49,15 +48,10 @@ export class CompatRepository {
   async readCurrentRecord(pluginId: string): Promise<InstalledPluginRecord> {
     const record = await readInstalledPlugin(this.layout, pluginId)
     const source = await this.readCurrentSourceRecord(record.install.sourceId)
-    if (isPluginScanCurrent(record.scan, source.source.revision, this.parsers)) {
-      await this.onRefresh?.(record)
-      return record
-    }
+    if (isPluginScanCurrent(record.scan, source.source.revision, this.parsers)) return record
     const fresh = await this.parseInstalledFresh(record, source)
     await writeJsonAtomic(this.layout.scanFile(pluginId), fresh.scan)
-    const refreshed = { ...record, scan: fresh.scan }
-    await this.onRefresh?.(refreshed)
-    return refreshed
+    return { ...record, scan: fresh.scan }
   }
 
   async inspectSourceUnlocked(sourceId: string): Promise<SourceInspection> {

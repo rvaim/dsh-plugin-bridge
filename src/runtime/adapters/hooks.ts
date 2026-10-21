@@ -148,7 +148,7 @@ export async function registerHooks(
   const detached = protocol.createDetachedRuns()
   const sessionState = createHookSessionReader(ctx, plugin.id)
   const stderrSummaryMaxChars = options.stderrSummaryMaxChars ?? protocol.DEFAULT_STDERR_SUMMARY_MAX_CHARS ?? 500
-  ctx.effect?.(() => () => detached.drain(), `plugin-bridge:${plugin.id}:清理 Hook`)
+  ctx.effect(() => () => detached.drain(), `plugin-bridge:${plugin.id}:清理 Hook`)
   const byEvent = new Map<string, CompatHook[]>()
   for (const hook of plugin.hooks) {
     const list = byEvent.get(hook.dshEvent) ?? []
@@ -157,7 +157,7 @@ export async function registerHooks(
   }
   const workspaceOf = (agent?: Agent): string => agent === undefined
     ? options.workspaceRoot
-    : ctx.get?.('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? options.workspaceRoot
+    : ctx.get('workingDirectory')?.get(agent.session) ?? agent.session.header.cwd ?? options.workspaceRoot
   const lastTurn = (agent?: Agent): number => agent === undefined ? 0 : sessionState(agent).turn
   const basePayload = (agent: Agent | undefined, hook: CompatHook, turn?: number): Record<string, unknown> => ({
     session_id: agent?.session?.header?.id ?? '',
@@ -352,7 +352,7 @@ export async function registerHooks(
     })
   }
   if (byEvent.has('subagent/start')) on('subagent/start', info => {
-    const child = ctx.get?.('agents')?.get(info.id)
+    const child = ctx.get('agents')?.get(info.id)
     detached.track(runPoint('subagent/start', 'general-purpose', hook => ({
       ...basePayload(child, hook), agent_id: info.id, agent_type: 'general-purpose',
     }), { agent: child, signal: detached.signal }).then(merged => {

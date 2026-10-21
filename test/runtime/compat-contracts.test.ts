@@ -35,7 +35,7 @@ function plugin(command: Partial<CompatHook['commands'][number]> = {}, event: 'p
 
 function harness(run: (request: ShellExecSpec) => Promise<ShellRunResult>, turn = 4) {
   const listeners = new Map<string, (...args: any[]) => any>()
-  const effects: Array<() => any> = []
+  const lifecycle = new Context()
   const logs: string[] = []
   const session = createTestSession('/original', 'contract-session', turn)
   const records = recordedSessionEvents(session)
@@ -52,8 +52,9 @@ function harness(run: (request: ShellExecSpec) => Promise<ShellRunResult>, turn 
     logger: { warn(...args) { logs.push(args.join(' ')) } },
     shell: createFakeShell(run),
     sessionProjections: new SessionProjectionRegistry(new Context()),
-    on(name, listener) { listeners.set(name, listener) },
-    effect(setup) { const disposer = setup(); if (typeof disposer === 'function') effects.push(disposer) },
+    plugin: lifecycle.plugin.bind(lifecycle),
+    on(name, listener) { listeners.set(name, listener); return () => listeners.delete(name) },
+    effect: lifecycle.effect.bind(lifecycle),
     get(name) {
       const services: Partial<RuntimeServices> = { sessionProjections: this.sessionProjections,
         workingDirectory: { get() { return '/effective' } }, subprocess: this.subprocess, credentials: this.credentials }
@@ -70,7 +71,7 @@ function harness(run: (request: ShellExecSpec) => Promise<ShellRunResult>, turn 
     return { decision, nextCalls }
   }
   return { ctx, agent, records, logs, health, injected, cancelled, listeners, mount, execute,
-    async dispose() { for (const effect of effects.reverse()) await effect() } }
+    async dispose() { await lifecycle.fiber.dispose() } }
 }
 const outcome = fakeShellResult
 

@@ -8,6 +8,9 @@ import { TypertRegistry } from '@deepseek-ai/dsh-typert-registry'
 import { TypertGatewayService } from '@deepseek-ai/dsh-api-gateway'
 import { apply as applyClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
 import { evaluatePluginCompatibility } from '@deepseek-ai/dsh-app-boot'
+import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
+import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
+import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import { TYPERT } from '../dist/typert.host.js'
 import remote from '../dist/typert.remote-client.js'
 import { CompatWebGateway } from '../dist/src/web/host/gateway.js'
@@ -56,11 +59,17 @@ try {
   assert.equal(clientRegistry.remotes.list().length, 0)
 
   const hookState = { turn: 3, assistantTurn: 3, assistantText: 'Contract reply' }
+  new SessionStore(host)
+  const hookSession = host.sessions.create(SessionId('plugin-bridge-sdk-hook'), { meta: { cwd: '/sdk-contract' } })
+  hookSession.append('turn/start', { turn: 3 })
+  hookSession.append('assistant/message', {
+    turn: 3, step: 1, stream: [],
+    message: createAssistantMessage({ source: { provider: 'sdk-contract', model: 'sdk-contract' },
+      content: [{ type: 'text', text: 'Contract reply' }] }),
+  }, { surfaceOp: 'append' })
   const projectionProvider = host.plugin({
     name: 'plugin-bridge-contract-projections',
-    apply(ctx) { ctx.provide('sessionProjections', {
-      register() {}, stateOf() { return hookState },
-    }) },
+    apply(ctx) { new SessionProjectionRegistry(ctx) },
   })
   await projectionProvider
   const hookFiber = host.plugin({
@@ -68,7 +77,7 @@ try {
     apply(ctx) {
       assert.throws(() => ctx.sessionProjections, /without inject/)
       const read = createHookSessionReader(ctx, 'contract')
-      assert.deepEqual(read({ session: {} }), hookState)
+      assert.deepEqual(read({ session: hookSession }), hookState)
     },
   })
   await hookFiber

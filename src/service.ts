@@ -17,7 +17,6 @@ import {
   type UpdateOptions,
 } from './manager/manager.js'
 import { CompatRuntimeManager } from './runtime/manager.js'
-import type { DshContextLike } from './runtime/context.js'
 import { CompatLayout } from './store/layout.js'
 
 /** 暴露给其他 DSH 插件使用的插件桥服务。 */
@@ -26,8 +25,8 @@ export class CompatService extends Service {
   readonly runtime: CompatRuntimeManager
   readonly manager: CompatManager
 
-  constructor(ctx: DshContextLike, readonly config: Config = {}) {
-    super(ctx as unknown as CordisContext, 'pluginBridge')
+  constructor(ctx: CordisContext, readonly config: Config = {}) {
+    super(ctx, 'pluginBridge')
     this.layout = new CompatLayout(config.harnessHome)
     this.runtime = new CompatRuntimeManager(ctx, this.layout, {
       workspaceRoot: config.workspaceRoot,
@@ -69,6 +68,14 @@ export class CompatService extends Service {
 
   prepareInstall(source: string, options?: SourceAddOptions): Promise<InstallPreparation> {
     return this.manager.prepareInstall(source, options)
+  }
+
+  completeInstallPreparation(preparationId: string, plugins: string[]): Promise<InstallResult> {
+    return this.manager.completeInstallPreparation(preparationId, plugins)
+  }
+
+  releaseInstallPreparation(preparationId: string): Promise<void> {
+    return this.manager.releaseInstallPreparation(preparationId)
   }
 
   install(source: string, options?: InstallOptions): Promise<InstallResult> {

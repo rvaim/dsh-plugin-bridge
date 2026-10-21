@@ -1,10 +1,12 @@
 import { Context } from '@deepseek-ai/cordis'
 import { SessionId, SessionStore, pluginRecordOf, type PluginRecordMap, type Session, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
+import { SkillRegistry, type SkillProvider } from '@deepseek-ai/dsh-skill'
+import { Config as McpConfigSchema, type Config as McpConfig, type StdioConfig, type StreamableHttpConfig } from '@deepseek-ai/dsh-mcp-client'
 import * as hookProtocol from '@deepseek-ai/dsh-hook-protocol'
 import type { ShellExecSpec, ShellExecution, ShellExecutor, ShellRunResult } from '@deepseek-ai/dsh-shell'
 import type { SubprocessSpawnSpec } from '@deepseek-ai/dsh-subprocess'
-import type { DshContextLike, FiberLike, LoggerLike, RuntimeServices, SkillProviderLike } from '../../src/runtime/context.js'
+import type { DshContextLike, RuntimeServices } from '../../src/runtime/context.js'
 import type { HookOutputLike, RuntimeDependencies } from '../../src/runtime/dependencies.js'
 
 const sessionRecords = new WeakMap<Session, SessionEvent[]>()
@@ -65,62 +67,56 @@ export function createFakeShell(run: (spec: ShellExecSpec) => Promise<ShellRunRe
   }
 }
 
-interface ListenerRecord {
-  owner: FakeContext
-  listener: (...args: any[]) => unknown
-}
+/** Read-only observation view; mounted configs still use the official discriminated union. */
+type RecordedMcpConfig = McpConfig & Partial<Omit<StdioConfig, 'transport'> & Omit<StreamableHttpConfig, 'transport'>>
 
 interface SharedState {
-  listeners: Map<string, ListenerRecord[]>
-  providers: Map<string, SkillProviderLike>
-  providerControllers: Map<string, AbortController>
+  providers: Map<string, SkillProvider>
   logs: string[]
   credentials: Map<string, string>
-  mcpConfigs: Map<string, Record<string, unknown>>
+  mcpConfigs: Map<string, RecordedMcpConfig>
   tools: Set<string>
   hookRuns: Array<{ hook: hookProtocol.CommandHook; options: hookProtocol.RunHookOptions }>
   subprocessSpawns: SubprocessSpawnSpec[]
   agents: Map<SessionId, import('@deepseek-ai/dsh-agent').Agent>
 }
 
-class FakeFiber implements FiberLike {
-  constructor(private readonly ready: Promise<unknown>, private readonly context: FakeContext) {}
+class ObservedSkillRegistry extends SkillRegistry {
+  constructor(ctx: Context, private readonly shared: SharedState) { super(ctx) }
 
-  then<TResult1 = unknown, TResult2 = never>(
-    onfulfilled?: ((value: unknown) => TResult1 | PromiseLike<TResult1>) | null,
-    onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null,
-  ): PromiseLike<TResult1 | TResult2> {
-    return this.ready.then(onfulfilled, onrejected)
-  }
-
-  async dispose(): Promise<void> {
-    try { await this.ready } catch { /* Failed setup still needs to release its registrations. */ }
-    await this.context.dispose()
+  override registerProvider(create: Parameters<SkillRegistry['registerProvider']>[0]): ReturnType<SkillRegistry['registerProvider']> {
+    return super.registerProvider(control => {
+      const provider = create(control)
+      if (this.shared.providers.has(provider.name)) throw new Error(`重复 provider：${provider.name}`)
+      this.shared.providers.set(provider.name, provider)
+      control.signal.addEventListener('abort', () => {
+        if (this.shared.providers.get(provider.name) === provider) this.shared.providers.delete(provider.name)
+      }, { once: true })
+      return provider
+    })
   }
 }
 
+/** Real Cordis lifecycle/SkillRegistry with deterministic execution and connection endpoints. */
 export class FakeContext implements DshContextLike {
-  readonly logger: LoggerLike
+  readonly context = new Context()
+  readonly logger = this.context.logger
+  readonly plugin: Context['plugin'] = this.context.plugin.bind(this.context)
+  readonly on: Context['on'] = this.context.on.bind(this.context)
+  readonly effect: Context['effect'] = this.context.effect.bind(this.context)
+  readonly get: Context['get'] = this.context.get.bind(this.context)
   readonly shell = createFakeShell(async spec => resultForCommand(spec.command, spec.stdin))
-  readonly sessionProjections = new SessionProjectionRegistry(new Context())
+  readonly sessionProjections = new SessionProjectionRegistry(this.context)
   readonly agents: SharedState['agents']
-  readonly credentials: { resolve(ref: string): Promise<{ value: string; source: string } | undefined> }
-  readonly skills: {
-    registerProvider(create: (control: { signal: AbortSignal; invalidate(): void }) => SkillProviderLike): () => void
-  }
-  readonly subprocess: NonNullable<DshContextLike['subprocess']>
-  private readonly effects: Array<() => unknown> = []
-  private readonly children: FakeFiber[] = []
-  private disposed = false
+  readonly credentials: RuntimeServices['credentials']
+  readonly skills: SkillRegistry
+  readonly subprocess: RuntimeServices['subprocess']
 
   constructor(readonly shared: SharedState = createSharedState()) {
     this.agents = shared.agents
-    this.logger = {
-      warn: (...args: unknown[]) => shared.logs.push(args.map(String).join(' ')),
-      info: (...args: unknown[]) => shared.logs.push(args.map(String).join(' ')),
-      error: (...args: unknown[]) => shared.logs.push(args.map(String).join(' ')),
-      debug: (...args: unknown[]) => shared.logs.push(args.map(String).join(' ')),
-    }
+    this.context.logger.exporter({ levels: { default: 3 }, export(message) {
+      shared.logs.push(message.args.map(String).join(' '))
+    } })
     this.credentials = {
       resolve: async ref => {
         const value = shared.credentials.get(ref)
@@ -142,114 +138,36 @@ export class FakeContext implements DshContextLike {
           terminate() {}, async waitForExit() { return true } }
       },
     }
-    this.skills = {
-      registerProvider: create => {
-        const controller = new AbortController()
-        const provider = create({ signal: controller.signal, invalidate() {} })
-        if (shared.providers.has(provider.name)) throw new Error(`重复 provider：${provider.name}`)
-        shared.providers.set(provider.name, provider)
-        shared.providerControllers.set(provider.name, controller)
-        let active = true
-        const dispose = (): void => {
-          if (!active) return
-          active = false
-          shared.providers.delete(provider.name)
-          shared.providerControllers.delete(provider.name)
-          controller.abort(new Error('provider disposed'))
-        }
-        this.effects.push(dispose)
-        return dispose
-      },
-    }
+    this.skills = new ObservedSkillRegistry(this.context, shared)
+    // Test endpoints implement exactly the SDK members consumed by the runtime.
+    this.context.provide('shell', this.shell)
+    this.context.provide('subprocess', this.subprocess)
+    this.context.provide('credentials', this.credentials)
+    this.context.provide('agents', this.agents)
   }
 
   static create(): FakeContext { return new FakeContext() }
 
-  plugin(plugin: unknown, config?: unknown): FiberLike {
-    const child = new FakeContext(this.shared)
-    const module = plugin as { apply?: (ctx: FakeContext, config: unknown) => unknown; default?: unknown }
-    const actual = module.apply === undefined && module.default !== undefined ? module.default as typeof module : module
-    const ready = Promise.resolve().then(async () => {
-      if (typeof actual === 'function') await (actual as unknown as (ctx: FakeContext, config: unknown) => unknown)(child, config)
-      else if (typeof actual.apply === 'function') await actual.apply(child, config)
-      else throw new Error('伪 Cordis 收到无 apply 的插件模块')
-    })
-    const fiber = new FakeFiber(ready, child)
-    this.children.push(fiber)
-    return fiber
-  }
-
-  on(event: string, listener: (...args: any[]) => unknown): () => void {
-    const list = this.shared.listeners.get(event) ?? []
-    const record = { owner: this, listener }
-    list.push(record)
-    this.shared.listeners.set(event, list)
-    let active = true
-    const dispose = (): void => {
-      if (!active) return
-      active = false
-      const current = this.shared.listeners.get(event) ?? []
-      this.shared.listeners.set(event, current.filter(item => item !== record))
-    }
-    this.effects.push(dispose)
-    return dispose
-  }
-
-  effect(setup: () => void | (() => unknown)): unknown {
-    const dispose = setup()
-    if (typeof dispose === 'function') this.effects.push(dispose)
-    return dispose
-  }
-
-  get<K extends keyof RuntimeServices>(name: K): RuntimeServices[K] | undefined {
-    const services: Partial<RuntimeServices> = {
-      subprocess: this.subprocess, sessionProjections: this.sessionProjections, agents: this.agents, credentials: this.credentials,
-    }
-    return services[name]
-  }
-
   async emit(event: string, ...args: any[]): Promise<void> {
-    for (const record of [...this.shared.listeners.get(event) ?? []]) await record.listener(...args)
+    await this.context.events.parallel(event, ...args)
   }
 
   async intercept(event: string, args: any[], terminal: () => Promise<any>): Promise<any> {
-    const listeners = [...this.shared.listeners.get(event) ?? []]
-    const dispatch = async (index: number): Promise<any> => {
-      const current = listeners[index]
-      if (current === undefined) return await terminal()
-      return await current.listener(...args, () => dispatch(index + 1))
-    }
-    return await dispatch(0)
+    return await this.context.events.waterfall(event, ...args, terminal)
   }
 
-  async listSkills(): Promise<any[]> {
-    const result: any[] = []
-    for (const provider of this.shared.providers.values()) result.push(...await provider.list({}))
-    return result
-  }
+  listSkills(): ReturnType<SkillRegistry['list']> { return this.skills.list() }
 
-  async getSkill(name: string): Promise<any | undefined> {
-    for (const provider of this.shared.providers.values()) {
-      const candidates = await provider.list({}) as any[]
-      const candidate = candidates.find(item => item.name === name)
-      if (candidate !== undefined) return await provider.get(candidate, {})
-    }
-    return undefined
-  }
+  getSkill(name: string): ReturnType<SkillRegistry['get']> { return this.skills.get(name) }
 
   setCredential(name: string, value: string): void { this.shared.credentials.set(name, value) }
 
-  async dispose(): Promise<void> {
-    if (this.disposed) return
-    this.disposed = true
-    for (const child of [...this.children].reverse()) await child.dispose()
-    for (const dispose of [...this.effects].reverse()) await dispose()
-  }
+  async dispose(): Promise<void> { await this.context.fiber.dispose() }
 }
 
 function createSharedState(): SharedState {
-  return { listeners: new Map(), providers: new Map(), providerControllers: new Map(), logs: [], credentials: new Map(),
-    mcpConfigs: new Map(), tools: new Set(), hookRuns: [], subprocessSpawns: [], agents: new Map() }
+  return { providers: new Map(), logs: [], credentials: new Map(), mcpConfigs: new Map(), tools: new Set(),
+    hookRuns: [], subprocessSpawns: [], agents: new Map() }
 }
 
 function outputForCommand(command: string): HookOutputLike {
@@ -290,10 +208,11 @@ export function fakeRuntimeDependencies(shared: SharedState): RuntimeDependencie
     async loadMcpClient() {
       return {
         name: 'fake-mcp-client',
-        apply(ctx: FakeContext, config: Record<string, unknown>) {
+        Config: McpConfigSchema,
+        async apply(ctx: Context, config: McpConfig) {
           const serverName = String(config.serverName)
           if (shared.mcpConfigs.has(serverName)) throw new Error(`重复 MCP：${serverName}`)
-          const command = String(config.command ?? '')
+          const command = config.transport === 'stdio' ? config.command : ''
           if (command.includes('leak-config')) throw new Error(`故障注入配置：${JSON.stringify(config)}`)
           if (command.includes('fail-mcp')) throw new Error('故障注入：MCP 启动失败')
           shared.mcpConfigs.set(serverName, config)

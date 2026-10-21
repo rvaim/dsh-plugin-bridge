@@ -1,9 +1,9 @@
+import type { Plugin } from '@deepseek-ai/cordis'
 import { registerHooks } from './adapters/hooks.js'
 import { mountMcpServers } from './adapters/mcp.js'
 import { registerSkillProvider } from './adapters/skills.js'
 import type { CompatPlugin } from '../types/plugin.js'
 import type { CapabilityRuntimeHealth, PluginRuntimeStatus } from '../types/runtime.js'
-import type { DshContextLike } from './context.js'
 import type { RuntimeDependencies } from './dependencies.js'
 
 export interface LegacyRuntimePluginConfig {
@@ -28,10 +28,7 @@ function statusFromHealth(health: readonly CapabilityRuntimeHealth[]): PluginRun
 }
 
 /** 构造一个 Cordis 父插件；所有兼容能力都注册在该父 Fiber 的上下文中。 */
-export function createLegacyRuntimePlugin(pluginId: string): {
-  name: string
-  apply(ctx: DshContextLike, config: LegacyRuntimePluginConfig): Promise<void>
-} {
+export function createLegacyRuntimePlugin(pluginId: string): Plugin.Object<LegacyRuntimePluginConfig> {
   return {
     name: `plugin-bridge-runtime-${pluginId}`,
     async apply(ctx, config): Promise<void> {

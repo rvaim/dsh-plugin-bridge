@@ -1,3 +1,4 @@
+import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { readFile, realpath } from 'node:fs/promises'
 import { isPathInside } from '../source/safety.js'
 import { isAbsolute, join, resolve } from 'node:path'
@@ -25,8 +26,10 @@ function readJsonPointer(root: unknown, pointer: string): unknown {
 
 async function resolveEnvironment(ctx: DshContextLike, name: string, fallback?: string): Promise<string> {
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) throw new Error('环境变量或凭据引用名称无效')
-  const credentials = ctx.get?.('credentials')
-  const resolved = credentials === undefined ? undefined : await credentials.resolve(name)
+  const credentials = ctx.get('credentials')
+  // The POSIX identifier check above is the SDK credentialRef validation rule.
+  const reference = name as Parameters<CredentialProvider['resolve']>[0]
+  const resolved = credentials === undefined ? undefined : await credentials.resolve(reference)
   const value = resolved?.value || process.env[name] || fallback
   if (value === undefined) throw new Error(`缺少环境变量或凭据引用：${name}`)
   return value

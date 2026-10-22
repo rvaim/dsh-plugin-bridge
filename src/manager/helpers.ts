@@ -1,6 +1,6 @@
 import { basename } from 'node:path'
+import { CAPABILITY_CONFLICT_CODES } from './conflicts.js'
 import { normalizeManagementId } from '../shared/id.js'
-import type { SourcePluginCandidate } from '../types/catalog.js'
 import { sha256File } from '../source/archive.js'
 import { probeGitSource } from '../source/git.js'
 import { hashDirectory } from '../source/snapshot.js'
@@ -72,15 +72,8 @@ export function asCompatSource(record: InstalledSourceRecord): CompatSource {
   }
 }
 
-export function candidateBySelector(
-  candidates: readonly SourcePluginCandidate[],
-  selector: string,
-): SourcePluginCandidate | undefined {
-  return candidates.find(item => item.id === selector || item.name === selector || item.displayName === selector)
-}
-
 function isConflictDiagnostic(item: CompatDiagnostic): boolean {
-  return item.code.endsWith('_CONFLICT')
+  return CAPABILITY_CONFLICT_CODES.has(item.code)
 }
 
 export function hasNonConflictErrors(plugin: CompatPlugin): boolean {

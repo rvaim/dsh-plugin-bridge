@@ -3,6 +3,19 @@ import type { CompatPlugin, InstallMetadata, InstalledPluginRecord, PluginMateri
 import type { PluginRuntimeSnapshot, PluginRuntimeStatus } from '../types/runtime.js'
 import type { CompatPluginLocation, CompatSource, CompatSourcePlugin, InstalledSourceRecord, InstallSource, SourceOwnership } from '../types/source.js'
 import type { SourcePluginCandidate } from '../types/catalog.js'
+import type { ParserMatch } from '../types/parser.js'
+import type { PluginInstallSelection } from '../types/plugin.js'
+export type { PluginInstallSelection } from '../types/plugin.js'
+
+export interface ParserChoiceRequest {
+  pluginId: string
+  name: string
+  matches: ParserMatch[]
+}
+
+export type InstallCompletion =
+  | { kind: 'installed'; result: InstallResult }
+  | { kind: 'parser-selection'; plugins: ParserChoiceRequest[] }
 
 export interface InstallOptions {
   signal?: AbortSignal
@@ -12,7 +25,7 @@ export interface InstallOptions {
   /** 新建隐式 Source 时覆盖 Source ID。 */
   sourceAs?: string
   /** 非交互选择一个或多个 Source Plugin。 */
-  plugins?: string[]
+  plugins?: PluginInstallSelection[]
   /** 无 Marketplace 时的显式插件子目录。 */
   paths?: string[]
   enable?: boolean

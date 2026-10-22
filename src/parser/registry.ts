@@ -4,7 +4,9 @@ import { resolve } from 'node:path'
 import { inspectContainedPath } from '../shared/contained-path.js'
 import type { DiagnosticCollector } from '../shared/diagnostics.js'
 import type { MarketplacePluginDefinition } from '../types/catalog.js'
-import type { CompatCategory, ParserSignature, ParserSnapshot, PluginParser } from './contracts.js'
+import { diagnostic, hasErrorDiagnostics, sortDiagnostics, uniqueDiagnostics } from '../types/diagnostic.js'
+import type { CompatDiagnostic } from '../types/diagnostic.js'
+import type { CompatCategory, ParserMatch, ParserSignature, ParserSnapshot, PluginParser } from './contracts.js'
 import { PARSER_VERSION, SOURCE_PARSER_VERSION } from './version.js'
 
 /** 仅保存分类 DTO；每次登记持有独立所有权，返回值可交给宿主 effect。 */
@@ -40,7 +42,20 @@ function parserCategory(parser: PluginParser): CompatCategory {
   return { id: parser.id, label: { en: label.en ?? label.default, ...(label.zh === undefined ? {} : { zh: label.zh }) }, order }
 }
 
-export interface DetectedParser { signature: ParserSignature; parser?: PluginParser; implicit: boolean }
+export interface DetectedParser {
+  signature: ParserSignature
+  parser?: PluginParser
+  implicit: boolean
+  name?: string
+  evidence: ParserMatch['evidence']
+  diagnostics: CompatDiagnostic[]
+}
+
+export function parserMatch(item: DetectedParser): ParserMatch {
+  const label = item.parser === undefined ? { en: item.signature.id } : parserCategory(item.parser).label
+  return { parserId: item.signature.id, label, available: item.parser !== undefined && !hasErrorDiagnostics(item.diagnostics),
+    evidence: structuredClone(item.evidence), diagnostics: structuredClone(item.diagnostics) }
+}
 
 export async function pathPresent(root: string, path: string): Promise<boolean> {
   try { await lstat(resolve(root, path)); return true } catch (error) {
@@ -138,12 +153,23 @@ export class ParserRegistry {
         selected.set(signature.id, signature)
       }
     }
-    const detected: DetectedParser[] = [...selected.values()].map(signature => ({ signature, parser: this.getParser(signature.id), implicit: false }))
+    const detected: DetectedParser[] = []
+    for (const signature of selected.values()) {
+      const evidence: ParserMatch['evidence'] = []
+      for (const file of signature.manifestPaths) {
+        if (await matchesManifest(root, { ...signature, manifestPaths: [file] })) evidence.push({ kind: 'manifest', file })
+      }
+      if (!exclusive) for (const definition of definitions.filter(item => item.format === signature.id)) {
+        if (!evidence.some(item => item.kind === 'catalog' && item.file === definition.file)) evidence.push({ kind: 'catalog', file: definition.file })
+      }
+      detected.push({ signature, parser: this.getParser(signature.id), implicit: false, evidence, diagnostics: [] })
+    }
     if (selected.size === 0) {
       for (const parser of this.modules) {
         try {
           const result = await parser.detect(root)
-          if (result.matched) detected.push({ signature: parser.signature, parser, implicit: result.implicit ?? false })
+          if (result.matched) detected.push({ signature: parser.signature, parser, implicit: result.implicit ?? false,
+            evidence: [{ kind: 'implicit' }], diagnostics: [] })
         } catch {
           collector.add('error', 'PARSER_DETECTION_FAILED', 'plugin', `解析器 ${parser.id} 的格式检测失败`, undefined, { parserId: parser.id })
         }
@@ -151,7 +177,28 @@ export class ParserRegistry {
     }
     if (detected.length === 0) collector.add('error', 'PLUGIN_FORMAT_UNKNOWN', 'plugin', '没有已注册解析器能识别此插件格式')
     for (const item of detected) {
-      if (item.parser === undefined) collector.add('error', 'PARSER_UNAVAILABLE', 'plugin', `格式 ${item.signature.id} 的解析器未注册，不能由其他格式接管`, undefined, { parserId: item.signature.id })
+      const ownDefinitions = exclusive ? [] : definitions.filter(definition => definition.format === item.signature.id)
+      item.diagnostics.push(...ownDefinitions.flatMap(definition => definition.diagnostics))
+      if (ownDefinitions.length > 1) {
+        const sameFile = new Set(ownDefinitions.map(definition => definition.file)).size < ownDefinitions.length
+        item.diagnostics.push(diagnostic('error', sameFile ? 'SOURCE_PLUGIN_ID_DUPLICATE' : 'SOURCE_PLUGIN_MARKETPLACE_CONFLICT', 'source',
+          `同格式目录声明重复，不能选择其中一份配置：${item.signature.id}`, ownDefinitions[0].file))
+      }
+      if (ownDefinitions.some(definition => !definition.installable) && !hasErrorDiagnostics(item.diagnostics)) {
+        item.diagnostics.push(diagnostic('error', 'PARSER_CATALOG_UNINSTALLABLE', 'source', `目录条目禁止安装解析器 ${item.signature.id}`, ownDefinitions[0]?.file))
+      }
+      if (item.parser === undefined) item.diagnostics.push(diagnostic('error', 'PARSER_UNAVAILABLE', 'plugin',
+        `格式 ${item.signature.id} 的解析器未注册，不能由其他格式接管`, undefined, { parserId: item.signature.id }))
+      else if (item.parser.preflight !== undefined) {
+        try {
+          const preflight = await item.parser.preflight(root, exclusive ? undefined : ownDefinitions[0])
+          item.name = preflight.name
+          item.diagnostics.push(...preflight.diagnostics)
+        } catch {
+          item.diagnostics.push(diagnostic('error', 'PARSER_PREFLIGHT_FAILED', 'plugin', `解析器 ${item.parser.id} 的清单预检失败`, undefined, { parserId: item.parser.id }))
+        }
+      }
+      item.diagnostics = sortDiagnostics(uniqueDiagnostics(item.diagnostics))
     }
     return detected.sort((a, b) => a.signature.id.localeCompare(b.signature.id))
   }

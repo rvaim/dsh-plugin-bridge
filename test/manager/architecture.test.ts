@@ -37,13 +37,13 @@ for (const promotion of ['explicit', 'referenced'] as const) {
       const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
       const prepared = await manager.prepareInstall(source)
       if (promotion === 'explicit') await manager.sourceAdd(source)
-      else await manager.install(prepared.sourceId, { plugins: ['alpha'] })
+      else await manager.install(prepared.sourceId, { plugins: [{ pluginId: 'alpha' }] })
       await manager.releaseInstallPreparation(prepared.preparationId)
       await manager.releaseInstallPreparation(prepared.preparationId)
       assert.equal((await manager.sourceList()).length, 1)
       if (promotion === 'explicit') assert.equal((await manager.sourceInspect(prepared.sourceId)).source.ownership, 'explicit')
       else assert.deepEqual((await manager.list()).map(item => item.id), ['alpha'])
-      await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, ['beta']), /已结束/)
+      await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, [{ pluginId: 'beta' }]), /已结束/)
     } finally { await temp.cleanup() }
   })
 }
@@ -76,7 +76,7 @@ test('a preparation cannot complete or reclaim a replacement directory with iden
     await rename(layout.sourceRoot(prepared.sourceId), oldRoot)
     const { cp } = await import('node:fs/promises')
     await cp(oldRoot, layout.sourceRoot(prepared.sourceId), { recursive: true })
-    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, ['alpha']), /已变化/)
+    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, [{ pluginId: 'alpha' }]), /已变化/)
     await manager.releaseInstallPreparation(prepared.preparationId)
     assert.equal((await manager.sourceList()).length, 1)
     assert.deepEqual(await manager.list(), [])
@@ -92,7 +92,7 @@ test('a changed prepared revision is rejected and its newer Source is preserved'
     const prepared = await manager.prepareInstall(source)
     await writeFile(join(source, 'revision.txt'), 'changed')
     await manager.sourceUpdate(prepared.sourceId)
-    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, ['alpha']), /已变化/)
+    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, [{ pluginId: 'alpha' }]), /已变化/)
     await manager.releaseInstallPreparation(prepared.preparationId)
     assert.equal((await manager.sourceList()).length, 1)
   } finally { await temp.cleanup() }
@@ -105,11 +105,13 @@ test('failed completion can retry; completion and release share the repository t
     await marketplace(source)
     const manager = new CompatManager(new CompatLayout(join(temp.path, 'home')), undefined, createBuiltinParserEngine())
     const prepared = await manager.prepareInstall(source)
-    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, ['missing']), /不包含/)
-    const completed = await manager.completeInstallPreparation(prepared.preparationId, ['alpha'])
-    assert.equal(completed.plugins[0].plugin.id, 'alpha')
+    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, [{ pluginId: 'missing' }]), /不包含/)
+    const completed = await manager.completeInstallPreparation(prepared.preparationId, [{ pluginId: 'alpha' }])
+    assert.equal(completed.kind, 'installed')
+    if (completed.kind !== 'installed') assert.fail('expected installed completion')
+    assert.equal(completed.result.plugins[0].plugin.id, 'alpha')
     await manager.releaseInstallPreparation(prepared.preparationId)
-    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, ['alpha']), /已结束/)
+    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, [{ pluginId: 'alpha' }]), /已结束/)
     assert.equal((await manager.list()).length, 1)
   } finally { await temp.cleanup() }
 })
@@ -122,7 +124,7 @@ for (const releaseFirst of [false, true]) {
       await marketplace(source)
       const manager = new CompatManager(new CompatLayout(join(temp.path, 'home')), undefined, createBuiltinParserEngine())
       const prepared = await manager.prepareInstall(source)
-      const complete = () => manager.completeInstallPreparation(prepared.preparationId, ['alpha'])
+      const complete = () => manager.completeInstallPreparation(prepared.preparationId, [{ pluginId: 'alpha' }])
       const release = () => manager.releaseInstallPreparation(prepared.preparationId)
       const results = await Promise.allSettled(releaseFirst ? [release(), complete()] : [complete(), release()])
       assert.equal(results[releaseFirst ? 0 : 1].status, 'fulfilled')
@@ -196,10 +198,10 @@ test('a changed reference set invalidates a probe even when its Source revision 
     const manager = new CompatManager(new CompatLayout(join(temp.path, 'home')), undefined, createBuiltinParserEngine(), {
       async probeRevision() { started.resolve(); return await gate.promise },
     })
-    await manager.install(source, { plugins: ['alpha'] })
+    await manager.install(source, { plugins: [{ pluginId: 'alpha' }] })
     checking = manager.checkUpdates()
     await started.promise
-    await manager.install(source, { plugins: ['beta'] })
+    await manager.install(source, { plugins: [{ pluginId: 'beta' }] })
     gate.resolve('directory:new')
     const [result] = await checking as Awaited<ReturnType<CompatManager['checkUpdates']>>
     assert.equal(result.updateAvailable, false)

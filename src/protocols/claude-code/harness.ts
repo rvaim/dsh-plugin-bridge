@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import type { MarketplacePluginDefinition } from '../../types/catalog.js'
-import type { DiagnosticCollector } from '../../shared/diagnostics.js'
+import { DiagnosticCollector } from '../../shared/diagnostics.js'
 import { pathExists, readJson } from '../../shared/fs.js'
 import { asObject } from '../../shared/object.js'
 import { escapeJsonPointer } from './template.js'
@@ -80,6 +80,23 @@ async function diagnoseUnsupportedClaudeCapabilities(
   for (const entry of defaults) {
     if (await pathExists(resolve(packageRoot, entry.path))) add(entry.item, entry.path)
   }
+}
+
+export async function preflightClaudeHarness(packageRoot: string, definition?: MarketplacePluginDefinition) {
+  const collector = new DiagnosticCollector()
+  const manifestPath = '.claude-plugin/plugin.json'
+  const hasManifest = await pathExists(resolve(packageRoot, manifestPath))
+  const manifest = hasManifest ? await loadManifest(packageRoot, manifestPath, collector) : definition?.manifestFields ?? {}
+  const file = hasManifest ? manifestPath : definition?.file
+  validateMetadata(manifest, collector, file, 'claude-code', !hasManifest && definition !== undefined)
+  if (hasManifest && definition !== undefined) validateMetadata(definition.manifestFields, collector, definition.file, 'claude-code', true)
+  if (definition?.strict === false && hasManifest) {
+    const conflicts = COMPONENT_FIELDS.filter(field => definition.manifestFields[field] !== undefined || (definition as unknown as Record<string, unknown>)[field] !== undefined)
+    if (conflicts.length > 0) collector.add('error', 'CLAUDE_MARKETPLACE_NON_STRICT_CONFLICT', 'plugin', `Claude Marketplace strict=false 时，条目不能为已有 plugin.json 声明能力字段：${conflicts.join(', ')}`, definition.file)
+  }
+  await diagnoseUnsupportedClaudeCapabilities(packageRoot, manifest, file, definition, collector, false)
+  const name = typeof manifest.name === 'string' && manifest.name.trim() !== '' ? manifest.name.trim() : definition?.name
+  return { name, diagnostics: collector.items }
 }
 
 export async function parseClaudeHarness(

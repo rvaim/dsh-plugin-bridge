@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import type { MarketplacePluginDefinition } from '../../types/catalog.js'
-import type { DiagnosticCollector } from '../../shared/diagnostics.js'
+import { DiagnosticCollector } from '../../shared/diagnostics.js'
 import { pathExists } from '../../shared/fs.js'
 import { asObject } from '../../shared/object.js'
 import { collectConfigSources, declaredPathList, loadManifest, manifestRelativePath, normalizeDeclaredPaths, validateMetadata } from './harness-common.js'
@@ -79,6 +79,21 @@ function diagnoseCodexMetadata(manifest: Record<string, unknown>, collector: Dia
     if (typeof onboarding !== 'string' || manifestRelativePath(`./${onboarding.replace(/^\.\//, '')}`) === undefined) collector.add('warning', 'CODEX_ONBOARDING_PATH_INVALID', 'plugin', 'extensions["com.openai"].onboardingSkill 必须是插件内相对路径', file)
     else collector.add('warning', 'CODEX_ONBOARDING_UNSUPPORTED', 'plugin', '已识别传统 Codex onboardingSkill 扩展；当前不执行上游首次启用流程', file)
   }
+}
+
+export async function preflightCodexHarness(packageRoot: string, definition?: MarketplacePluginDefinition) {
+  const collector = new DiagnosticCollector()
+  const manifestPath = '.codex-plugin/plugin.json'
+  const hasManifest = await pathExists(resolve(packageRoot, manifestPath))
+  const manifest = hasManifest ? await loadManifest(packageRoot, manifestPath, collector) : definition?.manifestFields ?? {}
+  const file = hasManifest ? manifestPath : definition?.file
+  if (!hasManifest && definition === undefined) collector.add('error', 'CODEX_PLUGIN_MANIFEST_MISSING', 'plugin', 'Codex 插件缺少必需的 .codex-plugin/plugin.json，且 Marketplace 未提供回退清单', manifestPath)
+  validateMetadata(manifest, collector, file, 'codex', !hasManifest && definition !== undefined)
+  diagnoseCodexMetadata(manifest, collector, file)
+  if (manifest.paths !== undefined) collector.add('error', 'CODEX_PLUGIN_PATHS_UNSUPPORTED', 'plugin', '传统 Codex 插件 JSON 不支持 paths 包装字段；Agent Plugins 1.0.0 是独立且不在本兼容范围的协议', file)
+  if (hasManifest && definition?.manifestFields.paths !== undefined) collector.add('error', 'CODEX_MARKETPLACE_PATHS_UNSUPPORTED', 'plugin', 'Codex Marketplace 回退清单的 paths 字段不会覆盖真实清单，也不会被猜测执行', definition.file)
+  const name = typeof manifest.name === 'string' && manifest.name.trim() !== '' ? manifest.name.trim() : definition?.name
+  return { name, diagnostics: collector.items }
 }
 
 export async function parseCodexHarness(packageRoot: string, collector: DiagnosticCollector, definition?: MarketplacePluginDefinition): Promise<HarnessDescriptor> {

@@ -25,6 +25,8 @@ test('parserVersion 变化时从 package/ 真源重新扫描', async () => {
     await writeFile(skillPath, (await readFile(skillPath, 'utf8')).replace('审查代码并给出可执行建议', '重新扫描后的描述'))
     const refreshed = await loadInstalledPluginForRuntime(layout, 'legacy-full', createBuiltinParserEngine())
     assert.equal(refreshed.scan.parserVersion, PARSER_VERSION)
+    assert.equal(refreshed.install.parserId, 'claude-code')
+    assert.deepEqual(refreshed.scan.plugin.formats, ['claude-code'])
     assert.equal(refreshed.scan.plugin.skills[0].description, '重新扫描后的描述')
   } finally {
     await temp.cleanup()
@@ -52,7 +54,7 @@ test('运行时重扫会重新附加 Marketplace 候选诊断', async () => {
 
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
-    await manager.install(source, { plugins: ['a'], enable: false })
+    await manager.install(source, { plugins: [{ pluginId: 'a', parserId: 'codex' }], enable: false })
     const old = await manager.inspect('a')
     await writeJsonAtomic(layout.scanFile('a'), { ...old.scan, parserVersion: '0.0.0' })
 

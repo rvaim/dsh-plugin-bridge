@@ -7,8 +7,8 @@ import type { CompatFormat, CompatPlugin } from '../types/plugin.js'
 import type { CompatSkill } from '../types/skill.js'
 import type { MarketplacePluginDefinition, SourceDiscovery, SourceParserResult } from '../types/catalog.js'
 
-import type { CompatCategory, ParserCategoryContribution, ParserIdentity, ParserSnapshot } from '../types/parser.js'
-export type { CompatCategory, ParserCategoryContribution, ParserIdentity, ParserSnapshot } from '../types/parser.js'
+import type { CompatCategory, ParserCategoryContribution, ParserIdentity, ParserSnapshot, ParserMatch } from '../types/parser.js'
+export type { CompatCategory, ParserCategoryContribution, ParserIdentity, ParserSnapshot, ParserMatch } from '../types/parser.js'
 
 /** 无实现依赖的格式边界。未加载解析器时仍阻止被其他格式兜底接管。 */
 export interface ParserSignature {
@@ -25,6 +25,7 @@ export interface ParserSignature {
 }
 
 export interface ParsePluginOptions {
+  parserId?: string
   sourceId?: string
   sourcePluginId?: string
   suggestedId?: string
@@ -73,7 +74,7 @@ export interface PluginParser extends ParserIdentity {
   detect(root: string): Promise<ParserDetection>
   discoverSource(root: string, marketplaceFile?: string): Promise<SourceParserResult | undefined>
   parsePlugin(input: ProtocolParseInput): Promise<ProtocolParseResult>
-  preflight?(root: string): Promise<ProtocolPreflightResult>
+  preflight?(root: string, definition?: MarketplacePluginDefinition): Promise<ProtocolPreflightResult>
   inferName?(root: string): Promise<string | undefined>
 }
 
@@ -82,6 +83,7 @@ export interface CompatParserEngine {
   readonly snapshot: ParserSnapshot
   readonly categories: readonly CompatCategory[]
   dispose(): void
+  matchPlugin(root: string, options?: { marketplaceDefinitions?: MarketplacePluginDefinition[] }): Promise<ParserMatch[]>
   parsePlugin(root: string, options?: ParsePluginOptions): Promise<CompatPlugin>
   parseSource(root: string, options?: ParseSourceOptions): Promise<SourceDiscovery>
 }

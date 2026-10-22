@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import test from 'node:test'
 import { parseCompatPlugin } from '../../src/composition/defaults.js'
 import { parseCompatSource } from '../../src/composition/defaults.js'
+import { selectCandidateParser } from '../../src/parser/model.js'
 import { temporaryDirectory } from '../helpers/temp.js'
 
 async function writeJson(path: string, value: unknown): Promise<void> {
@@ -113,7 +114,7 @@ test('同一 Source 的 Claude/Codex 同名同真实目录条目合并为一个 
   }
 })
 
-test('同一真实 Plugin 的跨 Marketplace 语义冲突会阻止安装', async () => {
+test('同一真实 Plugin 的跨平台目录元数据按 parser 分别选择', async () => {
   const temp = await temporaryDirectory()
   try {
     const root = resolve(temp.path, 'mixed-conflict')
@@ -140,14 +141,20 @@ test('同一真实 Plugin 的跨 Marketplace 语义冲突会阻止安装', async
 
     const result = await parseCompatSource(root)
     assert.equal(result.candidates.length, 1)
-    assert.equal(result.candidates[0].installable, false)
-    assert(result.candidates[0].diagnostics.some(item => item.code === 'SOURCE_PLUGIN_METADATA_CONFLICT'))
+    assert.equal(result.candidates[0].installable, true)
+    const claude = selectCandidateParser(result.candidates[0], 'claude-code')
+    const codex = selectCandidateParser(result.candidates[0], 'codex')
+    assert.equal(claude.version, '1.0.0')
+    assert.equal(claude.defaultEnabled, true)
+    assert.equal(codex.version, '2.0.0')
+    assert.equal(codex.defaultEnabled, undefined)
+    assert.equal(claude.installable && codex.installable, true)
   } finally {
     await temp.cleanup()
   }
 })
 
-test('同目录双格式插件的等价 Skill 与 MCP 合并为单一运行能力', async () => {
+test('同目录双格式插件必须选择 parser，选定后 Skill 与 MCP 不跨平台合并', async () => {
   const temp = await temporaryDirectory()
   try {
     const root = resolve(temp.path, 'mixed-capabilities')
@@ -172,29 +179,27 @@ test('同目录双格式插件的等价 Skill 与 MCP 合并为单一运行能�
 
     const source = await parseCompatSource(root)
     const candidate = source.candidates[0]
+    const unresolved = await parseCompatPlugin(pluginRoot, { marketplaceDefinitions: candidate.definitions })
+    assert.deepEqual(unresolved.formats, ['claude-code', 'codex'])
+    assert.equal(unresolved.skills.length + unresolved.mcpServers.length + unresolved.hooks.length, 0)
+    assert.deepEqual(unresolved.diagnostics.map(item => item.code), ['PARSER_SELECTION_REQUIRED'])
     const plugin = await parseCompatPlugin(pluginRoot, {
-      sourceId: 'mixed',
-      sourcePluginId: candidate.id,
-      marketplaceDefinitions: candidate.definitions,
+      sourceId: 'mixed', sourcePluginId: candidate.id, parserId: 'claude-code', marketplaceDefinitions: candidate.definitions,
     })
-
-    assert.deepEqual(plugin.formats, ['claude-code', 'codex'])
+    assert.deepEqual(plugin.formats, ['claude-code'])
     assert.deepEqual(plugin.skills.map(item => item.name), ['shared-skill'])
     assert.equal(plugin.mcpServers.length, 1)
     assert.equal(plugin.mcpServers[0].serverName, 'shared')
     assert.deepEqual(plugin.mcpServers[0].environmentBindings, {
       CLAUDE_PLUGIN_ROOT: 'plugin-root', CLAUDE_PLUGIN_DATA: 'plugin-data', CLAUDE_PROJECT_DIR: 'workspace-root',
-      CODEX_PLUGIN_ROOT: 'plugin-root', CODEX_PLUGIN_DATA: 'plugin-data', PLUGIN_ROOT: 'plugin-root', PLUGIN_DATA: 'plugin-data',
     })
-    assert.equal(plugin.diagnostics.some(item => item.code === 'SKILL_NAME_DUPLICATE'), false)
-    assert.equal(plugin.diagnostics.some(item => item.code === 'MCP_SERVER_NAME_DUPLICATE'), false)
-    assert(plugin.diagnostics.some(item => item.code === 'CAPABILITY_FORMAT_ALIAS_MERGED'))
+    assert.equal(plugin.diagnostics.some(item => item.level === 'error'), false)
   } finally {
     await temp.cleanup()
   }
 })
 
-test('同一 Hook 的双方言声明产生明确冲突，不会在 DSH 中重复执行', async () => {
+test('同一 Hook 的双方言声明只执行选定 parser 的一个方言', async () => {
   const temp = await temporaryDirectory()
   try {
     const pluginRoot = resolve(temp.path, 'mixed-hooks')
@@ -206,13 +211,15 @@ test('同一 Hook 的双方言声明产生明确冲突，不会在 DSH 中重复
       },
     })
 
-    const plugin = await parseCompatPlugin(pluginRoot, {
-      sourceId: 'mixed-hooks',
-      sourcePluginId: 'mixed-hooks',
-    })
-
-    assert.equal(plugin.hooks.length, 2)
-    assert(plugin.diagnostics.some(item => item.code === 'HOOK_DIALECT_CONFLICT' && item.level === 'error'))
+    const unresolved = await parseCompatPlugin(pluginRoot)
+    assert.equal(unresolved.hooks.length, 0)
+    assert.deepEqual(unresolved.diagnostics.map(item => item.code), ['PARSER_SELECTION_REQUIRED'])
+    for (const parserId of ['claude-code', 'codex']) {
+      const plugin = await parseCompatPlugin(pluginRoot, { sourceId: 'mixed-hooks', sourcePluginId: 'mixed-hooks', parserId })
+      assert.equal(plugin.hooks.length, 1)
+      assert.equal(plugin.hooks[0].dialect, parserId)
+      assert(!plugin.diagnostics.some(item => item.code === 'HOOK_DIALECT_CONFLICT'))
+    }
   } finally {
     await temp.cleanup()
   }

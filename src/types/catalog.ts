@@ -8,6 +8,9 @@ export interface MarketplacePluginDefinition {
   file: string
   pointer: string
   name: string
+  /** 该平台目录条目的策略；不能由其他平台的可安装状态覆盖。 */
+  installable: boolean
+  diagnostics: CompatDiagnostic[]
   displayName?: string
   description?: string
   version?: string

@@ -45,10 +45,14 @@ function pairDiagnostics(candidate: CompatPlugin, other: CompatPlugin, otherPlug
   return result
 }
 
+export const CAPABILITY_CONFLICT_CODES: ReadonlySet<string> = new Set([
+  'MCP_SERVER_NAME_CONFLICT', 'SKILL_NAME_CONFLICT', 'COMMAND_NAME_CONFLICT', 'AGENT_NAME_CONFLICT',
+])
+
 export function stripConflictDiagnostics(plugin: CompatPlugin): CompatPlugin {
   return {
     ...plugin,
-    diagnostics: plugin.diagnostics.filter(item => !item.code.endsWith('_CONFLICT')),
+    diagnostics: plugin.diagnostics.filter(item => !CAPABILITY_CONFLICT_CODES.has(item.code)),
   }
 }
 

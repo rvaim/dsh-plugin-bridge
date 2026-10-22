@@ -17,53 +17,32 @@ function publicCandidate(candidate: SourcePluginCandidate): CompatSourcePlugin {
   const { definitions: _definitions, locationKey: _locationKey, ...value } = candidate
   return value
 }
-function missingParser(candidate: SourcePluginCandidate): boolean { return candidate.diagnostics.some(item => item.code === 'PARSER_UNAVAILABLE' && item.level === 'error') }
-
 function mergeCandidates(candidates: SourcePluginCandidate[], diagnostics: CompatDiagnostic[]): SourcePluginCandidate[] {
   const map = new Map<string, SourcePluginCandidate>()
   for (const candidate of candidates) {
     const previous = map.get(candidate.id)
-    if (previous === undefined) { map.set(candidate.id, { ...candidate }); continue }
-    // 未解析的同名 catalog 可能携带权限或阻断策略，只阻断该候选，不影响其他 id。
-    if (missingParser(previous) || missingParser(candidate)) {
-      const available = missingParser(previous) ? candidate : previous
-      map.set(candidate.id, { ...available, formats: [...new Set([...previous.formats, ...candidate.formats])].sort(),
-        definitions: [...previous.definitions, ...candidate.definitions], installable: false,
-        diagnostics: sortDiagnostics([...previous.diagnostics, ...candidate.diagnostics]) })
+    if (previous === undefined) {
+      map.set(candidate.id, { ...candidate, formats: [...candidate.formats], definitions: [...candidate.definitions], diagnostics: [...candidate.diagnostics] })
       continue
     }
     const sameMarketplace = previous.definitions.some(left => candidate.definitions.some(right => left.format === right.format && left.file === right.file))
-    const conflict = (code: string, message: string, file?: string): void => {
-      const item = diagnostic('error', code, 'source', message, file)
-      previous.installable = false
-      previous.diagnostics = sortDiagnostics([...previous.diagnostics, ...candidate.diagnostics, item])
-      diagnostics.push(item)
+    const sameFormat = previous.formats.some(format => candidate.formats.includes(format))
+    const knownPrevious = !previous.locationKey.startsWith('unavailable:')
+    const knownCandidate = !candidate.locationKey.startsWith('unavailable:')
+    const structural: CompatDiagnostic[] = []
+    if (sameMarketplace) structural.push(diagnostic('error', 'SOURCE_PLUGIN_ID_DUPLICATE', 'source', `同一 Marketplace 中插件 ID ${candidate.id} 重复；不会静默覆盖或合并`, candidate.definitions[0]?.file))
+    else if (sameFormat) structural.push(diagnostic('error', 'SOURCE_PLUGIN_MARKETPLACE_CONFLICT', 'source', `不同 Marketplace 的同格式插件 ID ${candidate.id} 重复；不能静默选择其中一份配置`, candidate.definitions[0]?.file))
+    if (knownPrevious && knownCandidate && previous.locationKey !== candidate.locationKey) {
+      structural.push(diagnostic('error', 'SOURCE_PLUGIN_ID_CONFLICT', 'source', `同一 Source 中插件 ID ${candidate.id} 指向不同位置；不会猜测、改名或自动合并`))
     }
-    if (sameMarketplace) { conflict('SOURCE_PLUGIN_ID_DUPLICATE', `同一 Marketplace 中插件 ID ${candidate.id} 重复；不会静默覆盖或合并`, candidate.definitions[0]?.file); continue }
-    if (previous.definitions.some(left => candidate.definitions.some(right => left.format === right.format))) {
-      conflict('SOURCE_PLUGIN_MARKETPLACE_CONFLICT', `不同 Marketplace 的同格式插件 ID ${candidate.id} 重复；不能静默选择其中一份配置`, candidate.definitions[0]?.file)
-      continue
-    }
-    if (previous.locationKey !== candidate.locationKey) { conflict('SOURCE_PLUGIN_ID_CONFLICT', `同一 Source 中插件 ID ${candidate.id} 指向不同位置；不会猜测、改名或自动合并`); continue }
-    const inconsistent: string[] = []
-    if (previous.name !== candidate.name) inconsistent.push(`name: ${previous.name} / ${candidate.name}`)
-    if (previous.version !== undefined && candidate.version !== undefined && previous.version !== candidate.version) inconsistent.push(`version: ${previous.version} / ${candidate.version}`)
-    if (previous.defaultEnabled !== undefined && candidate.defaultEnabled !== undefined && previous.defaultEnabled !== candidate.defaultEnabled) inconsistent.push(`defaultEnabled: ${previous.defaultEnabled} / ${candidate.defaultEnabled}`)
-    if (inconsistent.length > 0) { conflict('SOURCE_PLUGIN_METADATA_CONFLICT', `同一真实 Plugin 的 Marketplace 语义不一致，不能静默选择一方：${inconsistent.join('；')}`); continue }
-    for (const field of ['displayName', 'description'] as const) {
-      if (previous[field] !== undefined && candidate[field] !== undefined && previous[field] !== candidate[field]) {
-        const item = diagnostic('warning', 'SOURCE_PLUGIN_PRESENTATION_CONFLICT', 'source', `同一真实 Plugin 的 ${field} 在不同 Marketplace 中不一致；保留首个值并公开此差异`)
-        previous.diagnostics.push(item); diagnostics.push(item)
-      }
-    }
+    const hadStructuralError = previous.diagnostics.some(item => item.level === 'error'
+      && !previous.definitions.some(definition => definition.diagnostics.some(policy => JSON.stringify(policy) === JSON.stringify(item))))
     previous.formats = [...new Set([...previous.formats, ...candidate.formats])].sort()
-    previous.definitions = [...previous.definitions, ...candidate.definitions]
-    previous.diagnostics = sortDiagnostics([...previous.diagnostics, ...candidate.diagnostics])
-    previous.installable = previous.installable && candidate.installable
-    previous.displayName ??= candidate.displayName
-    previous.description ??= candidate.description
-    previous.version ??= candidate.version
-    previous.defaultEnabled ??= candidate.defaultEnabled
+    previous.definitions.push(...candidate.definitions)
+    previous.diagnostics = sortDiagnostics(uniqueDiagnostics([...previous.diagnostics, ...candidate.diagnostics, ...structural]))
+    previous.installable = (previous.installable || candidate.installable) && !hadStructuralError && structural.length === 0
+    if (!knownPrevious && knownCandidate) { previous.location = candidate.location; previous.locationKey = candidate.locationKey }
+    diagnostics.push(...structural)
   }
   return [...map.values()].sort((a, b) => a.id.localeCompare(b.id))
 }
@@ -92,16 +71,11 @@ async function singleCandidate(registry: ParserRegistry, sourceRoot: string, raw
   const detected = await registry.detect(root, collector)
   let name: string | undefined
   for (const item of detected) {
-    const parser = item.parser
-    if (parser === undefined) continue
-    try {
-      if (parser.preflight !== undefined) {
-        const preflight = await parser.preflight(root)
-        collector.items.push(...preflight.diagnostics)
-        name ??= preflight.name
-      } else if (parser.inferName !== undefined) name ??= await parser.inferName(root)
-    } catch {
-      collector.add('error', 'PARSER_PREFLIGHT_FAILED', 'plugin', `解析器 ${parser.id} 的清单预检失败`, undefined, { parserId: parser.id })
+    collector.items.push(...item.diagnostics.map(diagnostic => ({ ...diagnostic,
+      details: { ...diagnostic.details, parserId: item.signature.id } })))
+    name ??= item.name
+    if (name === undefined && item.parser?.inferName !== undefined) {
+      try { name = await item.parser.inferName(root) } catch { /* 名称可使用来源种子。 */ }
     }
   }
   if (name === undefined && !detected.some(item => item.signature.exclusive) && detected.some(item => item.parser !== undefined)) name = await safeName(root, 'package.json')
@@ -111,7 +85,8 @@ async function singleCandidate(registry: ParserRegistry, sourceRoot: string, raw
   try { id = normalizeManagementId(name) } catch { collector.add('error', 'SOURCE_PLUGIN_ID_INVALID', 'source', '插件名称不能生成安全的管理标识'); id = `invalid-${index + 1}` }
   const location = { type: 'source-path' as const, path }
   return { id, name, formats: detected.map(item => item.signature.id), location,
-    installable: detected.length > 0 && !hasErrorDiagnostics(collector.items), diagnostics: sortDiagnostics(collector.items), definitions: [], locationKey: locationKey(location) }
+    installable: detected.some(item => item.parser !== undefined && !hasErrorDiagnostics(item.diagnostics))
+      && !hasErrorDiagnostics(collector.items.filter(item => item.details?.parserId === undefined)), diagnostics: sortDiagnostics(collector.items), definitions: [], locationKey: locationKey(location) }
 }
 
 /** 缺失实现时只读取装配声明的名称索引，不解释任何组件、来源或权限配置。 */
@@ -129,8 +104,11 @@ async function unavailableCatalog(root: string, signature: ParserSignature, file
       const name = (entry as Record<string, unknown>)[signature.catalogIndex.nameField]
       if (typeof name !== 'string' || name.trim() === '') throw new Error('条目无名称')
       const id = normalizeManagementId(name)
-      candidates.push({ id, name, formats: [signature.id], location: { type: 'unsupported', sourceType: 'parser-unavailable' }, installable: false, definitions: [],
-        diagnostics: [diagnostic('error', 'PARSER_UNAVAILABLE', 'source', `插件 ${id} 的目录声明需要未注册的解析器 ${signature.id}`, file, { parserId: signature.id })], locationKey: `unavailable:${signature.id}:${id}` })
+      const diagnostics = [diagnostic('error', 'PARSER_UNAVAILABLE', 'source', `插件 ${id} 的目录声明需要未注册的解析器 ${signature.id}`, file, { parserId: signature.id })]
+      candidates.push({ id, name, formats: [signature.id], location: { type: 'unsupported', sourceType: 'parser-unavailable' }, installable: false,
+        definitions: [{ format: signature.id, file, pointer: `/${signature.catalogIndex.entriesField}/${candidates.length}`, name,
+          installable: false, diagnostics, sourcePathIsRoot: false, manifestFields: {} }],
+        diagnostics, locationKey: `unavailable:${signature.id}:${id}` })
     }
     return { candidates, diagnostics: [item], unknownScope: false }
   } catch { return { candidates: [], diagnostics: [item], unknownScope: true } }
@@ -224,9 +202,7 @@ async function scanRoot(registry: ParserRegistry, root: string, options: ParseSo
     if (paths?.length) diagnostics.push(diagnostic('warning', 'SOURCE_MANUAL_PATHS_IGNORED', 'source', 'Source 已包含 Marketplace；paths 仅作为无 Marketplace 时的兜底，因此本次未使用'))
     if (candidates.length === 0) diagnostics.push(diagnostic('error', 'MARKETPLACE_EMPTY', 'source', '已发现 Marketplace，但没有可识别的插件条目'))
     if (unknownScope) {
-      const error = diagnostic('error', 'PARSER_UNAVAILABLE', 'source', '部分目录缺少可用解析器或名称索引，无法确认策略声明影响范围')
-      diagnostics.push(error)
-      candidates = candidates.map(candidate => ({ ...candidate, installable: false, diagnostics: sortDiagnostics([...candidate.diagnostics, error]) }))
+      diagnostics.push(diagnostic('warning', 'SOURCE_CATALOG_SCOPE_UNKNOWN', 'source', '部分目录缺少可用解析器或名称索引；其平台条目暂不可选择'))
     }
   } else if (paths?.length) {
     discovery = 'manual-paths'

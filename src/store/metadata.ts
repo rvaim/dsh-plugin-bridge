@@ -10,6 +10,9 @@ export async function readInstalledPlugin(layout: CompatLayout, pluginId: string
     readJsonFile<PluginState>(layout.stateFile(pluginId)),
     readJsonFile<ScanCache>(layout.scanFile(pluginId)),
   ])
+  if (typeof install.parserId !== 'string' || install.parserId.trim() === '') {
+    throw new Error(`插件 ${pluginId} 的安装记录缺少有效 parserId；不支持旧格式安装记录，请重新安装`)
+  }
   return { install, state, scan }
 }
 

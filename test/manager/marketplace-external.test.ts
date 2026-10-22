@@ -76,14 +76,18 @@ test('混合 Claude 市场只获取所选外部 Git，未选不可达仓库不�
     assert.deepEqual(await readdir(layout.external), [])
     assert.deepEqual(await readdir(layout.installed), [])
 
-    const local = await manager.completeInstallPreparation(preparation.preparationId, ['local'])
-    assert.deepEqual(local.plugins.map(item => item.plugin.id), ['local'])
+    const local = await manager.completeInstallPreparation(preparation.preparationId, [{ pluginId: 'local' }])
+    assert.equal(local.kind, 'installed')
+    if (local.kind !== 'installed') assert.fail('expected installed completion')
+    assert.deepEqual(local.result.plugins.map(item => item.plugin.id), ['local'])
     assert.deepEqual(await readdir(layout.external), [])
     assert.deepEqual(await readdir(layout.installed), ['local'])
 
     const rootPreparation = await manager.prepareInstall(market)
-    const rootResult = await manager.completeInstallPreparation(rootPreparation.preparationId, ['external-root'])
-    assert.deepEqual(rootResult.plugins.map(item => item.plugin.id), ['external-root'])
+    const rootResult = await manager.completeInstallPreparation(rootPreparation.preparationId, [{ pluginId: 'external-root' }])
+    assert.equal(rootResult.kind, 'installed')
+    if (rootResult.kind !== 'installed') assert.fail('expected installed completion')
+    assert.deepEqual(rootResult.result.plugins.map(item => item.plugin.id), ['external-root'])
     const root = await manager.inspect('external-root')
     assert.equal(root.install.location.type, 'git')
     assert.equal(root.install.location.type === 'git' ? root.install.location.sha : undefined, rootCommit)
@@ -96,8 +100,10 @@ test('混合 Claude 市场只获取所选外部 Git，未选不可达仓库不�
     assert.deepEqual(await readdir(layout.sourceExternalRoot(preparation.sourceId)), ['external-root'])
 
     const subdirPreparation = await manager.prepareInstall(market)
-    const subdirResult = await manager.completeInstallPreparation(subdirPreparation.preparationId, ['external-subdir'])
-    assert.deepEqual(subdirResult.plugins.map(item => item.plugin.id), ['external-subdir'])
+    const subdirResult = await manager.completeInstallPreparation(subdirPreparation.preparationId, [{ pluginId: 'external-subdir' }])
+    assert.equal(subdirResult.kind, 'installed')
+    if (subdirResult.kind !== 'installed') assert.fail('expected installed completion')
+    assert.deepEqual(subdirResult.result.plugins.map(item => item.plugin.id), ['external-subdir'])
     const subdir = await manager.inspect('external-subdir')
     assert.equal(subdir.install.location.type, 'git-subdir')
     assert.equal(subdir.install.location.type === 'git-subdir' ? subdir.install.location.path : undefined, 'packages/selected')
@@ -154,9 +160,11 @@ for (const pin of ['ref', 'sha'] as const) {
       // A moving external ref is resolved at confirmation, not during catalog preparation.
       await put(remote, `${pluginPath}/marker.txt`, 'v2')
       const secondCommit = await commit(remote, 'second')
-      const result = await manager.completeInstallPreparation(preparation.preparationId, ['catalog-plugin'])
+      const result = await manager.completeInstallPreparation(preparation.preparationId, [{ pluginId: 'catalog-plugin' }])
+      assert.equal(result.kind, 'installed')
+      if (result.kind !== 'installed') assert.fail('expected installed completion')
       const expectedCommit = pin === 'sha' ? firstCommit : secondCommit
-      assert.equal(result.plugins[0].install.materialization?.commit, expectedCommit)
+      assert.equal(result.result.plugins[0].install.materialization?.commit, expectedCommit)
       const installed = await manager.inspect('catalog-plugin')
       assert.deepEqual(installed.install.location, {
         type: 'git-subdir', url: pathToFileURL(remote).href, path: pluginPath, ref: 'release', sha: expectedCommit,

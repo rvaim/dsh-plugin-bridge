@@ -1,3 +1,14 @@
+import type { CompatDiagnostic } from './diagnostic.js'
+
+/** 可供用户选择的解析器；匹配与清单预检不扫描插件能力。 */
+export interface ParserMatch {
+  parserId: string
+  label: { en: string; zh?: string }
+  available: boolean
+  evidence: Array<{ kind: 'manifest' | 'catalog' | 'implicit'; file?: string }>
+  diagnostics: CompatDiagnostic[]
+}
+
 /** 实现版本与标准协议版本独立；用于精确失效已生成的扫描缓存。 */
 export interface ParserIdentity { id: string; version: string }
 export interface ParserSnapshot { fingerprint: string; parsers: ParserIdentity[] }

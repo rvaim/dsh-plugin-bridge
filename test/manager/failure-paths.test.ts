@@ -28,7 +28,7 @@ test('安装阶段拒绝恶意归档且不留下半安装目录或事务目录',
   }
 })
 
-test('损坏清单作为结构化 error 保存，插件可 inspect 但不会启用', async () => {
+test('损坏清单在匹配预检中保留结构化错误，不提交安装记录', async () => {
   const temp = await temporaryDirectory()
   try {
     const source = resolve(temp.path, 'broken-manifest')
@@ -36,10 +36,15 @@ test('损坏清单作为结构化 error 保存，插件可 inspect 但不会启�
     await writeFile(resolve(source, '.claude-plugin/plugin.json'), '{broken json')
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
-    const result = (await manager.install(source)).plugins[0]
-    assert.equal(result.enabled, false)
-    assert(result.plugin.diagnostics.some(item => item.code === 'PLUGIN_MANIFEST_INVALID' && item.level === 'error'))
-    assert.equal((await manager.inspect(result.plugin.id)).state.enabled, false)
+    const prepared = await manager.prepareInstall(source)
+    const candidate = prepared.plugins[0]
+    assert.equal(candidate.installable, false)
+    assert(candidate.diagnostics.some(item => item.code === 'PLUGIN_MANIFEST_INVALID' && item.level === 'error'))
+    await assert.rejects(manager.completeInstallPreparation(prepared.preparationId, [{ pluginId: candidate.id }]))
+    assert.deepEqual(await readdir(layout.installed), [])
+    await manager.releaseInstallPreparation(prepared.preparationId)
+    assert.deepEqual(await readdir(layout.sources), [])
+    assert.deepEqual(await readdir(layout.temp), [])
   } finally {
     await temp.cleanup()
   }

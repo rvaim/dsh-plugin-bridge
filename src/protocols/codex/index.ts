@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import type { PluginParser } from '../../parser/contracts.js'
 import { DiagnosticCollector } from '../../shared/diagnostics.js'
 import { pathExists } from '../../shared/fs.js'
-import { parseCodexHarness } from './harness.js'
+import { parseCodexHarness, preflightCodexHarness } from './harness.js'
 import { loadManifest } from './harness-common.js'
 import { parseCodexMarketplace } from './source.js'
 import { parseSkillsForHarness } from './skills.js'
@@ -13,11 +13,12 @@ import { parseAgentsForHarness } from './agents.js'
 
 export const codexParser: PluginParser = {
   id: 'codex',
-  version: '1.2.0',
+  version: '1.3.0',
   category: { label: { default: 'Codex', en: 'Codex', zh: 'Codex' }, order: 10 },
   signature: { id: 'codex', manifestPaths: ['.codex-plugin/plugin.json'], marketplacePaths: ['.agents/plugins/marketplace.json'], marketplaceSearchDepth: 4 },
   async detect(root) { return { matched: await pathExists(resolve(root, '.codex-plugin/plugin.json')) } },
   discoverSource: parseCodexMarketplace,
+  preflight: preflightCodexHarness,
   async inferName(root) {
     const manifest = await loadManifest(root, '.codex-plugin/plugin.json', new DiagnosticCollector())
     return typeof manifest.name === 'string' && manifest.name.trim() !== '' ? manifest.name.trim() : undefined

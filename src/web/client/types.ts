@@ -9,6 +9,7 @@ import type {
   CompatWebUninstallResult,
   CompatWebUpdateResult,
 } from '../../types/web.js'
+import type { PluginInstallSelection } from '../../types/plugin.js'
 import type { PluginBridgeLocaleKey } from './locales.js'
 
 /** Labels follow the Host catalog and resolve through the native locale service. */
@@ -22,7 +23,7 @@ export interface PluginBridgeInjected {
   checkUpdates: () => Promise<CompatWebCheckUpdatesResult>
   update: (pluginId: string, confirmShared: boolean) => Promise<CompatWebUpdateResult>
   beginAdd: (source: string, signal: AbortSignal) => Promise<CompatWebAddResult>
-  completeAdd: (requestId: string, plugins: string[], signal: AbortSignal) => Promise<CompatWebAddResult>
+  completeAdd: (requestId: string, plugins: PluginInstallSelection[], signal: AbortSignal) => Promise<CompatWebAddResult>
   cancelAdd: (requestId: string) => Promise<CompatWebCancelAddResult>
   setEnabled: (pluginId: string, enabled: boolean) => Promise<CompatWebSetEnabledResult>
   uninstall: (pluginId: string) => Promise<CompatWebUninstallResult>

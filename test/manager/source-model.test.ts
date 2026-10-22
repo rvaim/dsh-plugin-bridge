@@ -113,7 +113,7 @@ test('多插件 Marketplace 只安装被选择项，共享 Source 只保存一�
     const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     const installed = await manager.install(source, {
       sourceAs: 'shared-market',
-      plugins: ['a', 'c'],
+      plugins: [{ pluginId: 'a' }, { pluginId: 'c' }],
       enable: false,
     })
 
@@ -210,7 +210,7 @@ test('一次选择多个 Plugin 时，任一 Marketplace 位置无效则整体�
     await assert.rejects(
       manager.install(source, {
         sourceAs: 'atomic-market',
-        plugins: ['good', 'missing'],
+        plugins: [{ pluginId: 'good' }, { pluginId: 'missing' }],
         enable: false,
       }),
       error => error instanceof CompatibilityError,
@@ -256,7 +256,7 @@ test('共享 Source 更新影响全部已安装 Plugin，新候选只进入可�
     const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.install(v1, {
       sourceAs: 'update-market',
-      plugins: ['a', 'b'],
+      plugins: [{ pluginId: 'a' }, { pluginId: 'b' }],
       enable: false,
     })
 
@@ -335,7 +335,7 @@ test('共享 Source 中第二个新版 Plugin 启动失败时整体恢复全部�
     const manager = new CompatManager(layout, runtime, createBuiltinParserEngine())
     await manager.install(v1, {
       sourceAs: 'runtime-rollback-market',
-      plugins: ['a', 'b'],
+      plugins: [{ pluginId: 'a' }, { pluginId: 'b' }],
       enable: true,
     })
 
@@ -378,7 +378,7 @@ test('Marketplace 外部 Git Plugin 保存在顶层 external，并随 Source 整
     const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     const installed = (await manager.install(marketplace, {
       sourceAs: 'external-market',
-      plugins: ['remote'],
+      plugins: [{ pluginId: 'remote' }],
       enable: false,
     })).plugins[0]
 
@@ -425,7 +425,7 @@ test('复用已有 Source 时不静默忽略冲突的 --source-as', async () => 
     await assert.rejects(
       manager.install(source, {
         sourceAs: 'another-name',
-        plugins: ['a'],
+        plugins: [{ pluginId: 'a' }],
         enable: false,
       }),
       /--source-as another-name 不会被静默忽略/,
@@ -454,7 +454,7 @@ test('外部 Git Plugin 新版启动失败时恢复旧 Source、旧提交与旧�
     const manager = new CompatManager(layout, runtime as unknown as CompatRuntimeManager, createBuiltinParserEngine())
     await manager.install(marketplace, {
       sourceAs: 'rollback-market',
-      plugins: ['remote'],
+      plugins: [{ pluginId: 'remote' }],
       enable: true,
     })
 
@@ -497,7 +497,7 @@ test('新版运行实例无法停止时保留正在使用的 Source 与事务恢
     const manager = new CompatManager(layout, runtime as unknown as CompatRuntimeManager, createBuiltinParserEngine())
     await manager.install(v1, {
       sourceAs: 'stop-failure-market',
-      plugins: ['a'],
+      plugins: [{ pluginId: 'a' }],
       enable: true,
     })
 
@@ -565,7 +565,7 @@ test('损坏的 install.json 会保守阻止 Source 删除和隐式 Source 自�
     const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.install(source, {
       sourceAs: 'conservative-market',
-      plugins: ['a'],
+      plugins: [{ pluginId: 'a' }],
       enable: false,
     })
     await mkdir(layout.pluginRoot('broken-record'), { recursive: true })
@@ -615,7 +615,7 @@ test('禁用 Plugin 的同名能力不阻止共享 Source 更新，启用时再�
     const manager = new CompatManager(layout, undefined, createBuiltinParserEngine())
     await manager.install(v1, {
       sourceAs: 'disabled-conflict-market',
-      plugins: ['a', 'b'],
+      plugins: [{ pluginId: 'a' }, { pluginId: 'b' }],
       enable: false,
     })
 

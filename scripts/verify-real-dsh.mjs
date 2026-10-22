@@ -85,6 +85,20 @@ try {
   await projectionProvider.dispose()
 
   const removed = []
+  const parserSelections = []
+  const releasedPreparations = []
+  const parserChoice = { kind: 'parser-selection', plugins: [{
+    pluginId: 'contract-tool', name: 'Contract tool', matches: [{
+      parserId: 'third-party-parser', label: { en: 'Third party parser', zh: '第三方解析器' }, available: true,
+      evidence: [{ kind: 'manifest', file: 'third-party/plugin.json' }, { kind: 'implicit' }],
+      diagnostics: [{ level: 'warning', code: 'CONTRACT_NOTICE', capability: 'plugin', message: 'Parser notice', details: { probe: true } }],
+    }],
+  }] }
+  const webParserChoice = { ...parserChoice, requestId: 'contract-preparation', plugins: parserChoice.plugins.map(plugin => ({
+    ...plugin, matches: plugin.matches.map(match => ({ ...match,
+      diagnostics: match.diagnostics.map(item => ({ ...item, details: JSON.stringify(item.details, null, 2) })),
+    })),
+  })) }
   let listFailure = false
   host.provide('pluginBridge', {
     async list() {
@@ -94,6 +108,17 @@ try {
     listCategories() { return [] },
     async checkUpdates() { return [] },
     async uninstall(id) { removed.push(id) },
+    async prepareInstall() {
+      return { preparationId: 'contract-preparation', sourceId: 'contract-source', sourceCreated: true, selectionRequired: false,
+        plugins: [{ id: 'contract-tool', name: 'Contract tool', formats: ['third-party-parser'],
+          location: { type: 'source-path', path: '.' }, installable: true, diagnostics: [] }],
+      }
+    },
+    async completeInstallPreparation(preparationId, plugins) {
+      parserSelections.push({ preparationId, plugins })
+      return parserChoice
+    },
+    async releaseInstallPreparation(id) { releasedPreparations.push(id) },
   })
   admin = new CompatWebGateway(host)
   const gateway = new TypertGatewayService(host, {})
@@ -135,6 +160,18 @@ try {
     ok: true, value: { kind: 'removed', pluginId: 'contract-plugin' },
   })
   assert.deepEqual(removed, ['contract-plugin'])
+  const installSignal = new AbortController().signal
+  assert.deepEqual(await namespace.beginAdd('/contract/source', installSignal), { ok: true, value: webParserChoice })
+  assert.deepEqual(await namespace.completeAdd('contract-preparation', [{ pluginId: 'contract-tool', parserId: 'third-party-parser' }], installSignal), { ok: true, value: webParserChoice })
+  assert.deepEqual(parserSelections, [
+    { preparationId: 'contract-preparation', plugins: [{ pluginId: 'contract-tool' }] },
+    { preparationId: 'contract-preparation', plugins: [{ pluginId: 'contract-tool', parserId: 'third-party-parser' }] },
+  ])
+  const legacySelection = await namespace.completeAdd('contract-preparation', ['contract-tool'], installSignal)
+  assert.equal(legacySelection.ok, false)
+  assert.equal(legacySelection.error.code, 'gateway/input-invalid')
+  assert.deepEqual(await namespace.cancelAdd('contract-preparation'), { ok: true, value: { kind: 'cancelled' } })
+  assert.deepEqual(releasedPreparations, ['contract-preparation'])
   const invalid = await namespace.setEnabled(42, true)
   assert.equal(invalid.ok, false)
   assert.equal(invalid.error.code, 'gateway/input-invalid')
@@ -142,14 +179,14 @@ try {
   assert.deepEqual(await namespace.list(), {
     ok: true, value: { kind: 'error', message: 'Controlled list failure' },
   })
-  assert.equal(calls, 4)
+  assert.equal(calls, 8)
 
   await disposeRemote()
   assert.equal(clientRegistry.remotes.list().length, 0)
   assert.equal(client.get('remote.pluginBridgeAdmin'), undefined)
   const withdrawn = await retainedList()
   assert.equal(withdrawn.ok, false)
-  assert.equal(calls, 4, 'withdrawn namespace must not call the Host')
+  assert.equal(calls, 8, 'withdrawn namespace must not call the Host')
   await disposeHost()
   assert.equal(hostRegistry.local.list().length, 0)
   console.log(`DSH ${target}: strict Host/Client registration, ${calls} RPC round trips, invalid input and disposal passed`)

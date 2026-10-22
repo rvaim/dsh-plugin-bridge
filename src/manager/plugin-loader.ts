@@ -1,7 +1,7 @@
 import { realpath } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import type { CompatParserEngine, ParserSnapshot } from '../parser/contracts.js'
-import { withAdditionalDiagnostics } from '../parser/model.js'
+import { selectCandidateParser, withAdditionalDiagnostics } from '../parser/model.js'
 import type { SourceDiscovery, SourcePluginCandidate } from '../types/catalog.js'
 import { PARSER_VERSION, SOURCE_PARSER_VERSION } from '../parser/version.js'
 import { normalizeManagementId } from '../shared/id.js'
@@ -41,8 +41,9 @@ export function createSourceScan(scan: SourceScanCache, sourceRevision: string, 
   }
 }
 
-export function isPluginScanCurrent(scan: ScanCache, sourceRevision: string, engine: CompatParserEngine): boolean {
+export function isPluginScanCurrent(scan: ScanCache, sourceRevision: string, engine: CompatParserEngine, parserId: string): boolean {
   return scan.parserVersion === PARSER_VERSION
+    && scan.plugin.formats.length === 1 && scan.plugin.formats[0] === parserId
     && scan.sourceRevision === sourceRevision
     && scan.parserSnapshot?.fingerprint === engine.snapshot.fingerprint
 }
@@ -113,18 +114,20 @@ export async function parseInstalledPluginFresh(
   const source = sourceRecord ?? await readCurrentSourceRecord(layout, record.install.sourceId, engine)
   const discovery = await parseStoredSource(layout, record.install.sourceId, source, engine)
   const candidate = discovery.candidates.find(item => item.id === record.install.sourcePluginId)
+  const selected = candidate === undefined ? undefined : selectCandidateParser(candidate, record.install.parserId)
   const packageRoot = await resolveInstalledPluginPackageRoot(layout, record.install)
   let plugin = await engine.parsePlugin(packageRoot, {
+    parserId: record.install.parserId,
     sourceId: record.install.sourceId,
     sourcePluginId: record.install.sourcePluginId,
     suggestedId: record.install.pluginId,
     asId: record.install.pluginId,
-    ...(candidate?.displayName === undefined ? {} : { displayName: candidate.displayName }),
-    ...(candidate === undefined ? {} : { marketplaceDefinitions: candidate.definitions }),
+    ...(selected?.displayName === undefined ? {} : { displayName: selected.displayName }),
+    ...(selected === undefined ? {} : { marketplaceDefinitions: selected.definitions }),
   })
-  if (candidate !== undefined) {
-    plugin = withAdditionalDiagnostics(plugin, candidate.diagnostics)
-    if (!candidate.installable && !candidate.diagnostics.some(item => item.level === 'error')) {
+  if (selected !== undefined) {
+    plugin = withAdditionalDiagnostics(plugin, selected.diagnostics)
+    if (!selected.installable && !selected.diagnostics.some(item => item.level === 'error')) {
       plugin = withAdditionalDiagnostics(plugin, [diagnostic('error', 'SOURCE_PLUGIN_UNAVAILABLE', 'source',
         `Source ${record.install.sourceId} 中的插件 ${record.install.sourcePluginId} 当前不可安装或运行`)])
     }
@@ -138,7 +141,7 @@ export async function parseInstalledPluginFresh(
       ...plugin,
       name: record.scan.plugin.name,
       ...(plugin.version === undefined && record.scan.plugin.version !== undefined ? { version: record.scan.plugin.version } : {}),
-      formats: [...new Set([...record.scan.plugin.formats, ...plugin.formats])],
+      formats: [record.install.parserId],
       skills: [], mcpServers: [], hooks: [], commands: [], agents: [],
     }, [...unavailable, missing])
   }
@@ -153,7 +156,7 @@ export async function loadInstalledPluginForRuntime(
 ): Promise<InstalledPluginRecord> {
   const record = await readInstalledPlugin(layout, pluginId)
   const source = await readCurrentSourceRecord(layout, record.install.sourceId, engine)
-  if (isPluginScanCurrent(record.scan, source.source.revision, engine)) return record
+  if (isPluginScanCurrent(record.scan, source.source.revision, engine, record.install.parserId)) return record
   const fresh = await parseInstalledPluginFresh(layout, record, engine, source)
   await writeJsonAtomic(layout.scanFile(pluginId), fresh.scan)
   return { ...record, scan: fresh.scan }

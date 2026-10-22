@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Button, IconArchiveOutlineRegular, IconLoadingOutlineRegular, Input, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { CompatWebAddResult, CompatWebCandidate, CompatWebCategory, CompatWebPlugin } from '../../types/web.js'
+import type { CompatWebAddResult, CompatWebCategory, CompatWebParserMatch, CompatWebPlugin } from '../../types/web.js'
 import type { PluginBridgeInjected, ResolveText } from './types.js'
 import { MAX_PLUGIN_ARCHIVE_BYTES, PLUGIN_ARCHIVE_ACCEPT, pluginArchiveSuffix } from '../../shared/archive-input.js'
 import { formatLabel, type Translate } from './panel-model.js'
@@ -16,7 +16,11 @@ interface AddPluginDialogProps {
   onClose(): void
   onInstalled(plugins: CompatWebPlugin[]): void
 }
-type Selection = { requestId: string; candidates: CompatWebCandidate[] }
+type Selection = Extract<CompatWebAddResult, { kind: 'selection' | 'parser-selection' }>
+
+function parserSelectable(match: CompatWebParserMatch): boolean {
+  return match.available && !match.diagnostics.some(item => item.level === 'error')
+}
 type Progress = 'fetch' | 'upload' | 'install' | 'cancel' | null
 
 /** The prepared Source belongs to this flow until committed or explicitly released. */
@@ -27,6 +31,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
   const flow = useRef<AbortController | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
+  const [parsers, setParsers] = useState<ReadonlyMap<string, string>>(new Map())
   const [pending, setPending] = useState<Progress>(null)
   const [error, setError] = useState<string | null>(null)
   const request = useRef<string | null>(null)
@@ -39,8 +44,16 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
   const fieldId = useId()
   const hintId = useId()
   const errorId = useId()
-  const selectable = useMemo(() => selection?.candidates.filter(item => item.installable && item.errors === 0) ?? [], [selection])
+  const selectable = useMemo(() => selection?.kind === 'selection' ? selection.candidates.filter(item => item.installable) : [], [selection])
   const allSelected = selectable.length > 0 && selectable.every(item => selected.has(item.id))
+  const parsersSelected = selection?.kind === 'parser-selection'
+    ? selection.plugins.filter(plugin => plugin.matches.some(match => match.parserId === parsers.get(plugin.pluginId) && parserSelectable(match))).length
+    : 0
+  const canSubmit = selection === null
+    ? localFile !== null || source.trim() !== ''
+    : selection.kind === 'selection'
+      ? selected.size > 0
+      : selection.plugins.length > 0 && parsersSelected === selection.plugins.length
 
   useEffect(() => {
     alive.current = true
@@ -57,7 +70,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
       const target = candidates.current?.querySelector<HTMLInputElement>('input:not(:disabled)')
       ;(target ?? candidates.current)?.focus()
     } else sourceInput.current?.focus()
-  }, [selection?.requestId])
+  }, [selection?.requestId, selection?.kind])
 
   const release = async (close: boolean) => {
     if (busy.current) {
@@ -79,7 +92,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
       request.current = null
       if (!alive.current) return
       if (close) onClose()
-      else { setSelection(null); setSelected(new Set()); setLocalFile(null) }
+      else { setSelection(null); setSelected(new Set()); setParsers(new Map()); setLocalFile(null) }
     } catch (cause) {
       if (alive.current) setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -97,8 +110,8 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
   }
 
   const submit = async () => {
-    if (busy.current || (localFile === null && source.trim() === '')) return
-    if (selection !== null && selected.size === 0) { setError(t('noSelection')); return }
+    if (busy.current) return
+    if (!canSubmit) { if (selection !== null) setError(t(selection.kind === 'parser-selection' ? 'noParserSelection' : 'noSelection')); return }
     busy.current = true
     const controller = new AbortController()
     flow.current = controller
@@ -106,23 +119,28 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
     setError(null)
     try {
       let result: CompatWebAddResult
-      if (selection !== null) result = await operations.current.completeAdd(selection.requestId, [...selected], controller.signal)
+      if (selection !== null) {
+        const plugins = selection.kind === 'selection'
+          ? [...selected].map(pluginId => ({ pluginId }))
+          : selection.plugins.map(plugin => ({ pluginId: plugin.pluginId, parserId: parsers.get(plugin.pluginId)! }))
+        result = await operations.current.completeAdd(selection.requestId, plugins, controller.signal)
+      }
       else if (localFile !== null) {
         result = await operations.current.uploadArchive(localFile, controller.signal)
-        if (result.kind === 'selection' && (!alive.current || controller.signal.aborted)) {
+        if ((result.kind === 'selection' || result.kind === 'parser-selection') && (!alive.current || controller.signal.aborted)) {
           await operations.current.cancelAdd(result.requestId)
           return
         }
-        if (result.kind === 'selection' && !result.selectionRequired && result.candidates.length === 1 && result.candidates[0].installable && result.candidates[0].errors === 0) {
+        if (result.kind === 'selection' && !result.selectionRequired && result.candidates.length === 1 && result.candidates[0].installable) {
           request.current = result.requestId
           setSelection(result)
           setSelected(new Set([result.candidates[0].id]))
           setPending('install')
-          result = await operations.current.completeAdd(result.requestId, [result.candidates[0].id], controller.signal)
+          result = await operations.current.completeAdd(result.requestId, [{ pluginId: result.candidates[0].id }], controller.signal)
         }
       } else result = await operations.current.beginAdd(source.trim(), controller.signal)
-      if (!alive.current) {
-        if (result.kind === 'selection') void operations.current.cancelAdd(result.requestId).catch(() => undefined)
+      if (!alive.current || controller.signal.aborted) {
+        if (result.kind === 'selection' || result.kind === 'parser-selection') void operations.current.cancelAdd(result.requestId).catch(() => undefined)
         return
       }
       if (result.kind === 'error') { setError(result.message); return }
@@ -130,6 +148,19 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
         request.current = result.requestId
         setSelection(result)
         setSelected(new Set())
+        return
+      }
+      if (result.kind === 'parser-selection') {
+        request.current = result.requestId
+        setSelection(result)
+        setParsers(current => new Map(result.plugins.flatMap(plugin => {
+          const previous = current.get(plugin.pluginId)
+          if (previous !== undefined && plugin.matches.some(match => match.parserId === previous && parserSelectable(match))) {
+            return [[plugin.pluginId, previous]]
+          }
+          const only = plugin.matches[0]
+          return plugin.matches.length === 1 && only !== undefined && parserSelectable(only) ? [[plugin.pluginId, only.parserId]] : []
+        })))
         return
       }
       request.current = null
@@ -145,12 +176,12 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
   }
 
   return (
-    <Modal open onClose={() => { void release(true) }} title={t(selection === null ? 'addTitle' : 'selectingTitle')}
-      description={t(selection === null ? 'addDescription' : 'selectingDescription')} closeLabel={t('close')}
+    <Modal open onClose={() => { void release(true) }} title={t(selection === null ? 'addTitle' : selection.kind === 'selection' ? 'selectingTitle' : 'parserSelectingTitle')}
+      description={t(selection === null ? 'addDescription' : selection.kind === 'selection' ? 'selectingDescription' : 'parserSelectingDescription')} closeLabel={t('close')}
       className={css.addDialog} contentClassName={css.dialogContent} footer={(
         <>
           <Button variant="outline" disabled={pending === 'cancel'} onClick={() => { void release(true) }}>{t(pending === 'cancel' ? 'cancelling' : 'cancel')}</Button>
-          <Button variant="primary" disabled={pending !== null || (localFile === null && source.trim() === '') || (selection !== null && selected.size === 0)}
+          <Button variant="primary" disabled={pending !== null || !canSubmit}
             icon={pending !== null && pending !== 'cancel' ? <IconLoadingOutlineRegular className={css.spinner} size={16} /> : undefined}
             onClick={() => { void submit() }}>
             {t(pending === 'upload' ? 'uploadingFile' : pending === 'fetch' ? 'fetching' : pending === 'install' ? 'installing' : selection === null ? 'fetch' : 'installSelected')}
@@ -181,7 +212,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
           {localFile !== null ? <div className={fileCss.selected} role="status"><strong title={localFile.name}>{localFile.name}</strong><span>{(localFile.size / (1024 * 1024)).toFixed(1)} MiB</span></div>
             : <p className={css.hint}>{t('localFileHint')}</p>}
         </div>
-      ) : (
+      ) : selection.kind === 'selection' ? (
         <div className={css.selection}>
           <div className={css.selectionSummary}>
             <span role="status">{t('selectionProgress', { selected: selected.size, total: selectable.length })}</span>
@@ -192,7 +223,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
           </div>
           <div className={css.candidateList} ref={candidates} tabIndex={-1} aria-label={t('selectingTitle')}>
             {selection.candidates.map(candidate => {
-              const enabled = candidate.installable && candidate.errors === 0
+              const enabled = candidate.installable
               return (
                 <label key={candidate.id} className={css.candidate} data-disabled={!enabled || undefined} data-selected={selected.has(candidate.id) || undefined}>
                   <input type="checkbox" checked={selected.has(candidate.id)} disabled={!enabled || pending !== null}
@@ -224,6 +255,46 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
             })}
           </div>
           {selectable.length === 0 ? <p className={css.rowWarning}>{t('noInstallable')}</p> : null}
+          <button type="button" className={css.textButton} disabled={pending !== null} onClick={() => { void release(false) }}>{t('changeSource')}</button>
+        </div>
+      ) : (
+        <div className={css.selection}>
+          <p className={fileCss.parserProgress} role="status">{t('parserSelectionProgress', { selected: parsersSelected, total: selection.plugins.length })}</p>
+          <div className={css.candidateList} ref={candidates} tabIndex={-1} aria-label={t('parserSelectingTitle')}>
+            {selection.plugins.map(plugin => (
+              <fieldset key={plugin.pluginId} className={fileCss.parserGroup} disabled={pending !== null}>
+                <legend><strong>{plugin.name}</strong> <code>{plugin.pluginId}</code></legend>
+                {plugin.matches.map(match => {
+                  const enabled = parserSelectable(match)
+                  return (
+                    <label key={match.parserId} className={css.candidate} data-disabled={!enabled || undefined} data-selected={parsers.get(plugin.pluginId) === match.parserId || undefined}>
+                      <input type="radio" name={`${fieldId}:${plugin.pluginId}`} value={match.parserId}
+                        checked={parsers.get(plugin.pluginId) === match.parserId} disabled={!enabled || pending !== null}
+                        onChange={() => { setParsers(current => new Map(current).set(plugin.pluginId, match.parserId)); setError(null) }} />
+                      <span className={css.candidateCopy}>
+                        <strong>{resolveText(match.label)}</strong>
+                        <code>{match.parserId}</code>
+                        {!match.available ? <span className={css.errorText}>{t('parserUnavailable')}</span> : null}
+                        {match.evidence.map((evidence, index) => (
+                          <span key={`${evidence.kind}:${index}`} className={css.sourceLine}>
+                            {t(evidence.kind === 'manifest' ? 'parserEvidenceManifest' : evidence.kind === 'catalog' ? 'parserEvidenceCatalog' : 'parserEvidenceImplicit')}
+                            {evidence.file === undefined ? null : ` · ${evidence.file}`}
+                          </span>
+                        ))}
+                        {match.diagnostics.map((item, index) => (
+                          <span key={`${item.code}:${index}`} className={item.level === 'error' ? css.errorText : css.warningText}>
+                            <span>{t(item.level === 'error' ? 'levelError' : 'levelWarning')}: <code>{item.code}</code> {item.message}{item.file === undefined ? null : ` (${item.file})`}</span>
+                            {item.details === undefined ? null : <span className={fileCss.parserDetails}>{t('diagnosticDetails', { details: item.details })}</span>}
+                          </span>
+                        ))}
+                      </span>
+                    </label>
+                  )
+                })}
+                {plugin.matches.length === 0 ? <p className={css.rowWarning}>{t('noParserMatches')}</p> : null}
+              </fieldset>
+            ))}
+          </div>
           <button type="button" className={css.textButton} disabled={pending !== null} onClick={() => { void release(false) }}>{t('changeSource')}</button>
         </div>
       )}

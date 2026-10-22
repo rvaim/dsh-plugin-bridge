@@ -99,7 +99,7 @@ export async function updateSourceUnlocked(
         }
         throw new Error(`Source 更新后已安装插件 ${old.install.sourcePluginId} 消失；拒绝更新`)
       }
-      if (!candidate.installable || hasErrorDiagnostics(candidate.diagnostics)) {
+      if (!candidate.installable) {
         throw new CompatibilityError(`Source 更新后插件 ${candidate.id} 的位置无效`, candidate.diagnostics)
       }
 
@@ -109,6 +109,7 @@ export async function updateSourceUnlocked(
       let plugin = await parseAndCheckPlugin(
         host,
         prepared.packageRoot,
+        old.install.parserId,
         sourceId,
         candidate.id,
         old.install.pluginId,
@@ -116,7 +117,6 @@ export async function updateSourceUnlocked(
         pluginIds,
         candidate,
       )
-      plugin = withAdditionalDiagnostics(plugin, candidate.diagnostics)
       if (hasNonConflictErrors(plugin)) {
         throw new CompatibilityError(
           `Source ${sourceId} 的新版插件 ${old.install.pluginId} 存在静态兼容错误，更新未提交`,

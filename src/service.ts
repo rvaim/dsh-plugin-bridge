@@ -3,8 +3,10 @@ import { createBuiltinParserEngine } from './composition/defaults.js'
 import type { Config } from './config.js'
 import {
   CompatManager,
+  type InstallCompletion,
   type InstallPreparation,
   type InstallOptions,
+  type PluginInstallSelection,
   type InstallResult,
   type PluginInspection,
   type PluginListEntry,
@@ -79,7 +81,7 @@ export class CompatService extends Service {
     return this.manager.prepareArchiveInstall(source, signal)
   }
 
-  completeInstallPreparation(preparationId: string, plugins: string[], signal?: AbortSignal): Promise<InstallResult> {
+  completeInstallPreparation(preparationId: string, plugins: PluginInstallSelection[], signal?: AbortSignal): Promise<InstallCompletion> {
     return this.manager.completeInstallPreparation(preparationId, plugins, signal)
   }
 

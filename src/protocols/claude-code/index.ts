@@ -2,7 +2,7 @@ import { resolve } from 'node:path'
 import type { PluginParser } from '../../parser/contracts.js'
 import { DiagnosticCollector } from '../../shared/diagnostics.js'
 import { pathExists } from '../../shared/fs.js'
-import { parseClaudeHarness } from './harness.js'
+import { parseClaudeHarness, preflightClaudeHarness } from './harness.js'
 import { loadManifest } from './harness-common.js'
 import { parseClaudeMarketplace } from './source.js'
 import { parseSkillsForHarness } from './skills.js'
@@ -13,7 +13,7 @@ import { parseAgentsForHarness } from './agents.js'
 
 export const claudeCodeParser: PluginParser = {
   id: 'claude-code',
-  version: '1.2.0',
+  version: '1.3.0',
   category: { label: { default: 'Claude Code', en: 'Claude Code', zh: 'Claude Code' }, order: 20 },
   signature: { id: 'claude-code', manifestPaths: ['.claude-plugin/plugin.json'], marketplacePaths: ['.claude-plugin/marketplace.json'], marketplaceSearchDepth: 4 },
   async detect(root) {
@@ -22,6 +22,7 @@ export const claudeCodeParser: PluginParser = {
     return conventional.some(Boolean) ? { matched: true, implicit: true } : { matched: false }
   },
   discoverSource: parseClaudeMarketplace,
+  preflight: preflightClaudeHarness,
   async inferName(root) {
     const manifest = await loadManifest(root, '.claude-plugin/plugin.json', new DiagnosticCollector())
     return typeof manifest.name === 'string' && manifest.name.trim() !== '' ? manifest.name.trim() : undefined

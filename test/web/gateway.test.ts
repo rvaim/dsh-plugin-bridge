@@ -90,7 +90,7 @@ test('Web 多插件选择复用第一次拉取的固定快照，并可动态管�
 
     // 第二步必须使用已经固定的 Source；删除用户输入位置后仍能完成安装。
     await rm(source, { recursive: true, force: true })
-    const completed = await web.completeAdd(begun.requestId, ['alpha'])
+    const completed = await web.completeAdd(begun.requestId, [{ pluginId: 'alpha' }])
     assert.equal(completed.kind, 'installed')
     if (completed.kind !== 'installed') return
     assert.equal(completed.plugins[0]?.id, 'alpha')
@@ -148,7 +148,7 @@ test('并发选择同一新 Source 时只由最后一个请求负责回收快照
 
     assert.deepEqual(await web.cancelAdd(first.requestId), { kind: 'cancelled' })
     assert.equal((await manager.sourceList()).length, 1)
-    const completed = await web.completeAdd(second.requestId, ['beta'])
+    const completed = await web.completeAdd(second.requestId, [{ pluginId: 'beta' }])
     assert.equal(completed.kind, 'installed')
     assert.deepEqual((await manager.list()).map(item => item.id), ['beta'])
     await web.uninstall('beta')
@@ -208,11 +208,11 @@ test('Web 检查更新会标记共享 Source 的全部插件，并可在线更�
     const first = await web.beginAdd(source)
     assert.equal(first.kind, 'selection')
     if (first.kind !== 'selection') return
-    await web.completeAdd(first.requestId, ['alpha'])
+    await web.completeAdd(first.requestId, [{ pluginId: 'alpha' }])
     const second = await web.beginAdd(source)
     assert.equal(second.kind, 'selection')
     if (second.kind !== 'selection') return
-    await web.completeAdd(second.requestId, ['beta'])
+    await web.completeAdd(second.requestId, [{ pluginId: 'beta' }])
 
     const before = await web.checkUpdates()
     assert.equal(before.kind, 'ready')
@@ -287,7 +287,7 @@ test('其他入口安装了准备来源中的插件后，Web 取消不报错且�
     assert.equal(begun.kind, 'selection')
     if (begun.kind !== 'selection') return
 
-    await manager.install(source, { plugins: ['alpha'] })
+    await manager.install(source, { plugins: [{ pluginId: 'alpha' }] })
     assert.deepEqual(await web.cancelAdd(begun.requestId), { kind: 'cancelled' })
     assert.deepEqual((await manager.list()).map(item => item.id), ['alpha'])
     assert.deepEqual((await manager.sourceList()).map(item => item.installedPlugins), [1])
@@ -313,7 +313,7 @@ test('不同 Web 实例的准备会话由 manager 统一释放，取消一方不
 
     assert.deepEqual(await firstWeb.cancelAdd(first.requestId), { kind: 'cancelled' })
     assert.equal((await manager.sourceList()).length, 1)
-    assert.equal((await secondWeb.completeAdd(second.requestId, ['beta'])).kind, 'installed')
+    assert.equal((await secondWeb.completeAdd(second.requestId, [{ pluginId: 'beta' }])).kind, 'installed')
     assert.deepEqual((await manager.list()).map(item => item.id), ['beta'])
     await Promise.all([firstWeb.dispose(), secondWeb.dispose()])
   } finally {
@@ -338,10 +338,10 @@ test('Web 完成失败可重试同一准备请求，成功后重复完成不会�
     assert.equal(begun.kind, 'selection')
     if (begun.kind !== 'selection') return
 
-    assert.equal((await web.completeAdd(begun.requestId, ['unknown'])).kind, 'error')
+    assert.equal((await web.completeAdd(begun.requestId, [{ pluginId: 'unknown' }])).kind, 'error')
     assert.equal((await manager.sourceList()).length, 1)
-    assert.equal((await web.completeAdd(begun.requestId, ['alpha'])).kind, 'installed')
-    assert.equal((await web.completeAdd(begun.requestId, ['alpha'])).kind, 'error')
+    assert.equal((await web.completeAdd(begun.requestId, [{ pluginId: 'alpha' }])).kind, 'installed')
+    assert.equal((await web.completeAdd(begun.requestId, [{ pluginId: 'alpha' }])).kind, 'error')
     assert.equal(completions, 2)
     assert.deepEqual((await manager.list()).map(item => item.id), ['alpha'])
     await web.dispose()
@@ -372,4 +372,92 @@ test('Web 单插件自动安装失败通过释放准备会话回收来源', asyn
   } finally {
     await temp.cleanup()
   }
+})
+
+
+test('Web 独立双解析器插件返回中立选择，同请求确认后只安装所选格式', async () => {
+  const temp = await temporaryDirectory()
+  const engine = createBuiltinParserEngine()
+  const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')), undefined, engine)
+  const web = operations(manager)
+  try {
+    const source = resolve(temp.path, 'dual')
+    await buildClaudePlugin(source, { name: 'dual', skillName: 'shared-skill' })
+    await mkdir(resolve(source, '.codex-plugin'))
+    await writeFile(resolve(source, '.codex-plugin/plugin.json'), JSON.stringify({ name: 'dual', version: '1.0.0', description: 'Dual plugin' }))
+    const begun = await web.beginAdd(source)
+    assert.equal(begun.kind, 'parser-selection')
+    if (begun.kind !== 'parser-selection') return
+    assert.equal(begun.plugins.length, 1)
+    assert.equal(begun.plugins[0].pluginId, 'dual')
+    assert.deepEqual(begun.plugins[0].matches.map(match => match.parserId).sort(), ['claude-code', 'codex'])
+    assert(begun.plugins[0].matches.every(match => match.label.en.length > 0 && match.evidence.length > 0))
+    assert.deepEqual(await manager.list(), [])
+    const completed = await web.completeAdd(begun.requestId, [{ pluginId: 'dual', parserId: 'codex' }])
+    assert.equal(completed.kind, 'installed')
+    if (completed.kind === 'installed') assert.deepEqual(completed.plugins[0].formats, ['codex'])
+    assert.deepEqual((await manager.list()).map(plugin => plugin.formats), [['codex']])
+    assert.equal((await web.completeAdd(begun.requestId, [{ pluginId: 'dual', parserId: 'codex' }])).kind, 'error')
+  } finally { await web.dispose(); engine.dispose(); await temp.cleanup() }
+})
+
+test('Web 市场解析器选择返回全部所选插件，保留固定快照供明确确认', async () => {
+  const temp = await temporaryDirectory()
+  const engine = createBuiltinParserEngine()
+  const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')), undefined, engine)
+  const web = operations(manager)
+  try {
+    const source = resolve(temp.path, 'market')
+    await buildMarketplace(source)
+    await mkdir(resolve(source, 'plugins/alpha/.codex-plugin'))
+    await writeFile(resolve(source, 'plugins/alpha/.codex-plugin/plugin.json'), JSON.stringify({ name: 'alpha', version: '1.0.0', description: 'Dual Alpha' }))
+    const begun = await web.beginAdd(source)
+    assert.equal(begun.kind, 'selection')
+    if (begun.kind !== 'selection') return
+    const choosing = await web.completeAdd(begun.requestId, [{ pluginId: 'alpha' }, { pluginId: 'beta' }])
+    assert.equal(choosing.kind, 'parser-selection')
+    if (choosing.kind !== 'parser-selection') return
+    assert.equal(choosing.requestId, begun.requestId)
+    assert.deepEqual(choosing.plugins.map(plugin => plugin.pluginId).sort(), ['alpha', 'beta'])
+    assert.equal(choosing.plugins.find(plugin => plugin.pluginId === 'beta')?.matches.length, 1)
+    assert.deepEqual(await manager.list(), [])
+    await rm(source, { recursive: true, force: true })
+    const completed = await web.completeAdd(begun.requestId, [
+      { pluginId: 'alpha', parserId: 'codex' }, { pluginId: 'beta', parserId: 'claude-code' },
+    ])
+    assert.equal(completed.kind, 'installed')
+    assert.deepEqual((await manager.list()).map(plugin => [plugin.id, plugin.formats]), [
+      ['alpha', ['codex']], ['beta', ['claude-code']],
+    ])
+  } finally { await web.dispose(); engine.dispose(); await temp.cleanup() }
+})
+
+test('Web parser-selection 通用序列化第三方标签依据与诊断，取消仍释放会话', async () => {
+  const temp = await temporaryDirectory()
+  const engine = createBuiltinParserEngine()
+  const manager = new CompatManager(new CompatLayout(resolve(temp.path, 'home')), undefined, engine)
+  const web = operations(manager, { completeInstallPreparation: async () => ({ kind: 'parser-selection', plugins: [{
+    pluginId: 'single', name: 'Single', matches: [{
+      parserId: 'unknown-third-party', label: { en: 'Third Party', zh: '第三方' }, available: false,
+      evidence: [{ kind: 'catalog', file: 'custom-market.json' }, { kind: 'implicit' }],
+      diagnostics: [
+        { level: 'info', code: 'INFO_ONLY', capability: 'plugin', message: 'hidden info' },
+        { level: 'error', code: 'CUSTOM_UNAVAILABLE', capability: 'plugin', message: 'Parser unavailable', file: 'custom.json', details: { parser: 'unknown-third-party' } },
+      ],
+    }],
+  }] }) })
+  try {
+    const source = resolve(temp.path, 'single')
+    await buildClaudePlugin(source, { name: 'single' })
+    const result = await web.beginAdd(source)
+    assert.equal(result.kind, 'parser-selection')
+    if (result.kind !== 'parser-selection') return
+    assert.deepEqual(result.plugins, [{ pluginId: 'single', name: 'Single', matches: [{
+      parserId: 'unknown-third-party', label: { en: 'Third Party', zh: '第三方' }, available: false,
+      evidence: [{ kind: 'catalog', file: 'custom-market.json' }, { kind: 'implicit' }],
+      diagnostics: [{ level: 'error', code: 'CUSTOM_UNAVAILABLE', capability: 'plugin', message: 'Parser unavailable', file: 'custom.json', details: JSON.stringify({ parser: 'unknown-third-party' }, null, 2) }],
+    }] }])
+    assert.deepEqual(await web.cancelAdd(result.requestId), { kind: 'cancelled' })
+    assert.deepEqual(await manager.sourceList(), [])
+  } finally { await web.dispose(); engine.dispose(); await temp.cleanup() }
 })

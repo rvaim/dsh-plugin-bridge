@@ -1,4 +1,4 @@
-import type { InstallPreparation, InstallResult } from '../../manager/manager.js'
+import type { InstallCompletion, InstallPreparation, PluginInstallSelection } from '../../manager/types.js'
 import type { CompatService } from '../../service.js'
 
 type InstallTarget = Pick<CompatService,
@@ -6,7 +6,7 @@ type InstallTarget = Pick<CompatService,
 
 type RequestState =
   | { kind: 'pending' | 'install-failed' | 'release-failed' }
-  | { kind: 'installing'; operation: Promise<InstallResult> }
+  | { kind: 'installing'; operation: Promise<InstallCompletion> }
   | { kind: 'releasing'; operation: Promise<void> }
   | { kind: 'installed' }
   | { kind: 'released' }
@@ -54,7 +54,7 @@ export class InstallRequests {
     return operation
   }
 
-  complete(requestId: string, plugins: string[], signal?: AbortSignal): Promise<InstallResult> {
+  complete(requestId: string, plugins: PluginInstallSelection[], signal?: AbortSignal): Promise<InstallCompletion> {
     if (this.closed) return Promise.reject(new Error('添加服务已关闭'))
     const request = this.requests.get(requestId)
     if (request === undefined) return Promise.reject(new Error('该添加请求已过期，请重新拉取来源'))
@@ -70,12 +70,17 @@ export class InstallRequests {
     }
 
     this.clearTimer(request)
-    const selection = [...plugins]
+    const selection = plugins.map(plugin => ({ ...plugin }))
     const operation = Promise.resolve().then(async () => {
       try {
         const result = await this.compat.completeInstallPreparation(request.preparationId, selection, signal)
-        request.state = { kind: 'installed' }
-        this.requests.delete(requestId)
+        if (result.kind === 'installed') {
+          request.state = { kind: 'installed' }
+          this.requests.delete(requestId)
+        } else {
+          request.state = { kind: 'pending' }
+          if (!this.closed && !request.cancelRequested) this.armTimer(request)
+        }
         return result
       } catch (error) {
         // manager 安装失败不消耗准备会话，页面仍可重试或取消。
@@ -118,8 +123,11 @@ export class InstallRequests {
     request.cancelRequested = true
     this.clearTimer(request)
     if (request.state.kind === 'installing') {
-      // 安装成功已消费会话；安装失败后才执行释放，绝不抢走进行中的快照。
-      return request.state.operation.then(() => {}, () => this.release(request))
+      // 安装成功消费会话；返回选择请求或失败后仍须释放准备快照。
+      return request.state.operation.then(
+        result => result.kind === 'installed' ? undefined : this.release(request),
+        () => this.release(request),
+      )
     }
     if (request.state.kind === 'releasing') return request.state.operation
     if (request.state.kind === 'installed' || request.state.kind === 'released') return Promise.resolve()

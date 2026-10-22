@@ -13,6 +13,7 @@ import { listPluginIds, listSourceIds, readInstalledPlugin, readInstalledSource,
 import { writeJsonAtomic } from '../store/json.js'
 import { commitDirectory, createTransactionDir, removeDirectoryTransactionally } from '../store/transaction.js'
 import { hasErrorDiagnostics, uniqueDiagnostics } from '../types/diagnostic.js'
+import { withAdditionalDiagnostics } from '../parser/model.js'
 import type { InstalledPluginRecord } from '../types/plugin.js'
 import type { PluginRuntimeSnapshot } from '../types/runtime.js'
 import type { InstalledSourceRecord, ResolvedInstallSource, SourceMetadata, SourceOwnership } from '../types/source.js'
@@ -20,12 +21,12 @@ import type { CompatRuntimeManager } from '../runtime/manager.js'
 import { sha256File } from '../source/archive.js'
 import { isUploadedArchive, retainUploadedArchive } from './uploaded-archive.js'
 import { acquireSource, cleanAcquisition } from './acquire.js'
-import { CompatibilityError, SharedSourceUpdateError } from './errors.js'
-import { candidateBySelector, compareInstalledPriority, externalDirectoryName, latestRevisionFor, resolvedFromStored, runtimeDisabled } from './helpers.js'
+import { CompatibilityError, ParserSelectionRequiredError, SharedSourceUpdateError } from './errors.js'
+import { asCompatSource, compareInstalledPriority, externalDirectoryName, latestRevisionFor, resolvedFromStored, runtimeDisabled } from './helpers.js'
 import { CompatRepository } from './repository.js'
-import { buildParsedCandidates } from './plugin-preparation.js'
+import { buildParsedCandidates, inspectPreparedParsers, preparePluginContent, resolveParserSelections } from './plugin-preparation.js'
 import { updateSourceUnlocked } from './source-update.js'
-import type { InstallOptions, InstallPreparation, InstallResult, ParsedInstallCandidate, PluginInspection, PluginInstallResult, PluginListEntry, SourceAddOptions, SourceInspection, SourceListEntry, SourceUpdateCheck, SourceUpdateOptions, SourceUpdateResult, UpdateOptions } from './types.js'
+import type { InstallCompletion, PluginInstallSelection, PreparedPlugin, InstallOptions, InstallPreparation, InstallResult, ParsedInstallCandidate, PluginInspection, PluginInstallResult, PluginListEntry, SourceAddOptions, SourceInspection, SourceListEntry, SourceUpdateCheck, SourceUpdateOptions, SourceUpdateResult, UpdateOptions } from './types.js'
 import { createSourceScan, resolveInstalledPluginPackageRoot } from './plugin-loader.js'
 
 interface SourceSnapshot {
@@ -42,9 +43,17 @@ interface PreparedSource {
   preparations: Set<string>
 }
 
+interface PreparedSelection {
+  transaction: string
+  pluginIds: string[]
+  contents: PreparedPlugin[]
+}
+
 export interface CompatManagerOptions {
   /** Read-only origin probe; injection keeps lock and race tests deterministic. */
   probeRevision?: (source: ResolvedInstallSource) => Promise<string>
+  /** 临时目录回收；注入仅用于确定性验证提交后的清理失败。 */
+  cleanupTemporary?: (path: string) => Promise<void>
 }
 
 class RuntimeSynchronizationError extends Error {
@@ -56,7 +65,9 @@ class RuntimeSynchronizationError extends Error {
 
 export class CompatManager {
   private readonly preparations = new Map<string, PreparedSource>()
+  private readonly preparedSelections = new Map<string, PreparedSelection>()
   private readonly preparedSources = new Set<PreparedSource>()
+  private readonly pendingCleanups = new Set<string>()
 
   constructor(
     readonly layout: CompatLayout,
@@ -100,7 +111,42 @@ export class CompatManager {
 
   /** Serialize repository snapshots and mutations; slow read-only origin probes run outside it. */
   private async withManagedRepository<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
-    return await withRepositoryLock(this.layout, operation, { signal })
+    return await withRepositoryLock(this.layout, async () => {
+      for (const path of [...this.pendingCleanups]) {
+        try {
+          await this.removeTemporary(path)
+          this.pendingCleanups.delete(path)
+        } catch {
+          // 安装结果已报告清理警告；保留责任供后续操作重试，不影响已提交状态。
+        }
+      }
+      return await operation()
+    }, { signal })
+  }
+
+  private async removeTemporary(path: string): Promise<void> {
+    await (this.options.cleanupTemporary ?? cleanAcquisition)(path)
+  }
+
+  private async cleanupUncommitted(path: string): Promise<void> {
+    try {
+      await this.removeTemporary(path)
+    } catch (error) {
+      this.pendingCleanups.add(path)
+      throw error
+    }
+  }
+
+  private async cleanupCommitted(path: string, result: InstallResult, phase: string): Promise<void> {
+    try {
+      await this.removeTemporary(path)
+    } catch {
+      this.pendingCleanups.add(path)
+      for (const item of result.plugins) {
+        item.plugin = withAdditionalDiagnostics(item.plugin, [{ level: 'warning', code: 'TEMP_CLEANUP_FAILED', capability: 'plugin',
+          message: '插件已安装成功，临时内容清理暂时失败；后续操作会重试清理', details: { phase } }])
+      }
+    }
   }
 
   private runtimeSnapshot(pluginId: string, enabled: boolean): PluginRuntimeSnapshot {
@@ -182,11 +228,11 @@ export class CompatManager {
 
     const selected: SourcePluginCandidate[] = []
     for (const selector of [...new Set(requested)]) {
-      const candidate = candidateBySelector(candidates, selector)
+      const candidate = candidates.find(item => item.id === selector)
       if (candidate === undefined) {
         throw new Error(`Source ${sourceId} 不包含插件 ${selector}；可选：${candidates.map(item => item.id).join(', ')}`)
       }
-      if (!candidate.installable || hasErrorDiagnostics(candidate.diagnostics)) {
+      if (!candidate.installable) {
         throw new CompatibilityError(
           `插件 ${candidate.id} 的 Marketplace 位置存在错误或来源类型不受支持，不能安装`,
           candidate.diagnostics,
@@ -424,17 +470,69 @@ export class CompatManager {
     if (group.preparations.size === 0) this.preparedSources.delete(group)
   }
 
-  /** Validate and install the captured revision in the same repository transaction. */
-  async completeInstallPreparation(preparationId: string, plugins: string[], signal?: AbortSignal): Promise<InstallResult> {
+  /** 固定所选插件内容，解决解析器选择后才提交安装事务。 */
+  async completeInstallPreparation(preparationId: string, plugins: PluginInstallSelection[], signal?: AbortSignal): Promise<InstallCompletion> {
     return await this.withManagedRepository(async () => {
       const group = this.preparations.get(preparationId)
       if (group === undefined) throw new Error('该添加请求已结束，请重新拉取来源')
-      if (plugins.length === 0) throw new Error('请至少选择一个可安装插件')
+      this.validateSelections(plugins)
       if (!await this.snapshotIsCurrent(group.snapshot)) throw new Error('准备安装的 Source 已变化，请重新拉取来源')
-      const result = await this.installUnlocked(group.snapshot.sourceId, { plugins, signal })
+      const source = await this.repository.readCurrentSourceRecord(group.snapshot.sourceId)
+      const discovery = await this.repository.parseStoredSource(group.snapshot.sourceId, source)
+      const selected = this.chooseCandidates(group.snapshot.sourceId, discovery, plugins.map(item => item.pluginId))
+      const ids = selected.map(item => item.id).sort()
+      let staged = this.preparedSelections.get(preparationId)
+      if (staged !== undefined && JSON.stringify(staged.pluginIds) !== JSON.stringify(ids)) {
+        throw new Error('已固定的插件选择不能更改；请取消后重新准备安装')
+      }
+      if (staged === undefined) {
+        const transaction = await createTransactionDir(this.layout, 'parser-selection')
+        try {
+          const contents: PreparedPlugin[] = []
+          for (const candidate of selected) {
+            signal?.throwIfAborted()
+            contents.push(await preparePluginContent(this.layout.sourceRoot(group.snapshot.sourceId), candidate, transaction,
+              this.layout.sourceExternalRoot(group.snapshot.sourceId), signal))
+          }
+          staged = { transaction, pluginIds: ids, contents }
+          this.preparedSelections.set(preparationId, staged)
+        } catch (error) {
+          try { await this.cleanupUncommitted(transaction) } catch (cleanupError) {
+            throw new AggregateError([error, cleanupError], '插件内容准备失败且临时清理暂时失败；后续操作会重试清理')
+          }
+          throw error
+        }
+      }
+      signal?.throwIfAborted()
+      const choices = await inspectPreparedParsers(this.parsers, staged.contents)
+      let resolved: Map<string, string>
+      try {
+        resolved = resolveParserSelections(choices, plugins)
+      } catch (error) {
+        if (error instanceof ParserSelectionRequiredError) return { kind: 'parser-selection', plugins: error.plugins }
+        throw error
+      }
+      const result = await this.installUnlocked(group.snapshot.sourceId, {
+        plugins: plugins.map(item => ({ pluginId: item.pluginId, parserId: resolved.get(item.pluginId)! })), signal,
+      }, staged.contents)
+      this.preparedSelections.delete(preparationId)
       this.finishPreparation(preparationId, group)
-      return result
+      await this.cleanupCommitted(staged.transaction, result, 'parser-selection')
+      return { kind: 'installed', result }
     }, signal)
+  }
+
+  private validateSelections(plugins: readonly PluginInstallSelection[]): void {
+    if (plugins.length === 0) throw new Error('请至少选择一个可安装插件')
+    const ids = new Set<string>()
+    for (const item of plugins) {
+      if (typeof item !== 'object' || item === null || typeof item.pluginId !== 'string' || item.pluginId.trim() === ''
+        || (item.parserId !== undefined && (typeof item.parserId !== 'string' || item.parserId.trim() === ''))) {
+        throw new Error('插件选择必须包含有效 pluginId，以及可选的 parserId')
+      }
+      if (ids.has(item.pluginId)) throw new Error(`插件 ${item.pluginId} 被重复选择`)
+      ids.add(item.pluginId)
+    }
   }
 
   /** Release only this session; the last owner may reclaim its original implicit Source. */
@@ -442,6 +540,11 @@ export class CompatManager {
     await this.withManagedRepository(async () => {
       const group = this.preparations.get(preparationId)
       if (group === undefined) return
+      const selection = this.preparedSelections.get(preparationId)
+      if (selection !== undefined) {
+        await this.cleanupUncommitted(selection.transaction)
+        this.preparedSelections.delete(preparationId)
+      }
       if (group.preparations.size === 1 && group.cleanupSource) {
         await withSourceLock(this.layout, group.snapshot.sourceId, async () => {
           if (!await this.snapshotIsCurrent(group.snapshot)) return
@@ -536,13 +639,16 @@ export class CompatManager {
     return await this.withManagedRepository(() => this.installUnlocked(input, options), options.signal)
   }
 
-  private async installUnlocked(input: string, options: InstallOptions): Promise<InstallResult> {
+  private async installUnlocked(input: string, options: InstallOptions, preparedContents?: readonly PreparedPlugin[]): Promise<InstallResult> {
     options.signal?.throwIfAborted()
+    if (options.plugins !== undefined && options.plugins.length > 0) this.validateSelections(options.plugins)
     const reference = await this.resolveInstallInput(input, options)
     const transaction = await createTransactionDir(this.layout, 'install')
     let committedNewSourceId: string | undefined
     const committedPluginIds: string[] = []
     const committedExternalPaths: string[] = []
+    let committedResult: InstallResult | undefined
+    let operationError: unknown
     try {
       let sourceId: string
       let sourceRecord: InstalledSourceRecord
@@ -586,10 +692,11 @@ export class CompatManager {
       }
 
       options.signal?.throwIfAborted()
-      const selectors = reference.forcedPlugin === undefined
-        ? options.plugins ?? []
-        : [reference.forcedPlugin, ...(options.plugins ?? [])]
-      const selected = this.chooseCandidates(sourceId, discovery, selectors)
+      const requestedPlugins = [...(options.plugins ?? [])]
+      if (reference.forcedPlugin !== undefined && !requestedPlugins.some(item => item.pluginId === reference.forcedPlugin)) {
+        requestedPlugins.unshift({ pluginId: reference.forcedPlugin })
+      }
+      const selected = this.chooseCandidates(sourceId, discovery, requestedPlugins.map(item => item.pluginId))
       const referenceScan = await scanPluginSourceReferences(this.layout)
       if (referenceScan.unreadablePluginIds.length > 0) {
         throw new Error(
@@ -613,8 +720,9 @@ export class CompatManager {
         selected,
         sourceRecord.source.revision,
         transaction,
-        options,
+        { ...options, plugins: requestedPlugins },
         newSource ? undefined : this.layout.sourceExternalRoot(sourceId),
+        preparedContents,
       )
 
       for (const item of parsed) {
@@ -623,7 +731,7 @@ export class CompatManager {
         }
       }
 
-      return await withSourceLock(this.layout, sourceId, () => withPluginLocks(
+      committedResult = await withSourceLock(this.layout, sourceId, () => withPluginLocks(
         this.layout,
         parsed.map(item => item.plugin.id),
         async () => {
@@ -718,13 +826,30 @@ export class CompatManager {
           }
           if (results.length === 0) throw new Error('安装事务未产生插件结果')
           return {
-            source: await this.repository.inspectSourceUnlocked(sourceId),
+            source: {
+              ...sourceRecord,
+              compat: asCompatSource(sourceRecord),
+              installedPlugins: [
+                ...referenceScan.references.filter(item => item.sourceId === sourceId).map(({ pluginId, sourcePluginId }) => ({ pluginId, sourcePluginId })),
+                ...parsed.map(item => ({ pluginId: item.install.pluginId, sourcePluginId: item.install.sourcePluginId })),
+              ].sort((a, b) => a.pluginId.localeCompare(b.pluginId)),
+              unreadablePluginIds: [],
+            },
             plugins: results,
           }
         },
       ))
+      return committedResult
+    } catch (error) {
+      operationError = error
+      throw error
     } finally {
-      await cleanAcquisition(transaction)
+      if (committedResult !== undefined) await this.cleanupCommitted(transaction, committedResult, 'install')
+      else {
+        try { await this.cleanupUncommitted(transaction) } catch (cleanupError) {
+          throw new AggregateError([operationError, cleanupError], '安装未完成且临时清理暂时失败；后续操作会重试清理')
+        }
+      }
     }
   }
 

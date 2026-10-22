@@ -1,59 +1,22 @@
 import { resolve } from 'node:path'
-import type { CompatAgent } from '../types/agent.js'
-import type { CompatCommand } from '../types/command.js'
-import type { CompatHook } from '../types/hook.js'
-import type { CompatMcpServer } from '../types/mcp.js'
 import type { CompatPlugin } from '../types/plugin.js'
-import type { CompatSkill } from '../types/skill.js'
-import { sortDiagnostics } from '../types/diagnostic.js'
+import { sortDiagnostics, uniqueDiagnostics } from '../types/diagnostic.js'
 import { normalizeManagementId } from '../shared/id.js'
 import type { ParsePluginOptions, ProtocolParseResult } from './contracts.js'
-import { ParserRegistry } from './registry.js'
+import { ParserRegistry, parserMatch } from './registry.js'
 import { DiagnosticCollector } from '../shared/diagnostics.js'
 import { pathExists, readJson } from '../shared/fs.js'
 
-function comparable(value: object, omitted: readonly string[]): string {
-  return JSON.stringify(Object.fromEntries(Object.entries(value).filter(([key]) => !omitted.includes(key))))
-}
 function unique<T>(values: T[], keyOf: (value: T) => string, capability: 'skill' | 'mcp' | 'hook' | 'command' | 'agent', code: string,
-  collector: DiagnosticCollector, equivalent?: (a: T, b: T) => boolean, merge?: (a: T, b: T) => T): T[] {
+  collector: DiagnosticCollector): T[] {
   const result = new Map<string, T>()
   for (const value of values) {
     const key = keyOf(value)
     const previous = result.get(key)
     if (previous === undefined) result.set(key, value)
-    else if (JSON.stringify(previous) === JSON.stringify(value)) continue
-    else if (equivalent?.(previous, value)) {
-      result.set(key, merge?.(previous, value) ?? previous)
-      collector.add('info', 'CAPABILITY_FORMAT_ALIAS_MERGED', capability, `同一 ${capability} 能力由不同格式等价声明，已合并为一个运行能力：${key}`)
-    } else collector.add('error', code, capability, `${capability} 名称/标识在同一插件内重复，且不会自动改名：${key}`)
+    else if (JSON.stringify(previous) !== JSON.stringify(value)) collector.add('error', code, capability, `${capability} 名称/标识在同一插件内重复，且不会自动改名：${key}`)
   }
   return [...result.values()]
-}
-function documentAlias(a: CompatSkill | CompatAgent | CompatCommand, b: CompatSkill | CompatAgent | CompatCommand): boolean {
-  return a.sourceFormat !== b.sourceFormat && comparable(a, ['sourceFormat']) === comparable(b, ['sourceFormat'])
-}
-function mcpAlias(a: CompatMcpServer, b: CompatMcpServer): boolean {
-  const ignored = ['sourceFormat', 'sourceFile', 'environmentBindings']
-  if (a.sourceFormat === b.sourceFormat || comparable(a, ignored) !== comparable(b, ignored)) return false
-  for (const [name, value] of Object.entries(a.environmentBindings ?? {})) {
-    const other = b.environmentBindings?.[name]
-    if (other !== undefined && other !== value) return false
-  }
-  return true
-}
-function mergeMcp(a: CompatMcpServer, b: CompatMcpServer): CompatMcpServer {
-  return { ...a, environmentBindings: { ...a.environmentBindings, ...b.environmentBindings } }
-}
-function diagnoseHookAliases(hooks: CompatHook[], collector: DiagnosticCollector): void {
-  const found = new Map<string, CompatHook>()
-  for (const hook of hooks) {
-    const key = JSON.stringify({ event: hook.event, matcher: hook.matcher, commands: hook.commands })
-    const previous = found.get(key)
-    if (previous === undefined) found.set(key, hook)
-    else if (previous.dialect !== hook.dialect) collector.add('error', 'HOOK_DIALECT_CONFLICT', 'hook',
-      `同一 Hook 存在不同运行语义，无法在不改变插件语义的前提下自动选择：${hook.event}`, hook.sourceFile)
-  }
 }
 async function packageMetadata(root: string, collector: DiagnosticCollector): Promise<Record<string, unknown>> {
   if (!await pathExists(resolve(root, 'package.json'))) return {}
@@ -67,27 +30,50 @@ async function packageMetadata(root: string, collector: DiagnosticCollector): Pr
   }
 }
 
-/** 只编排注入的协议输出；没有任何平台名称、清单路径或实现导入。 */
+/** 选定一个协议后才扫描能力；其他匹配的清单、目录策略和元数据均不进入结果。 */
 export async function compilePlugin(registry: ParserRegistry, root: string, options: ParsePluginOptions = {}): Promise<CompatPlugin> {
-  const collector = new DiagnosticCollector()
+  const detectionCollector = new DiagnosticCollector()
   const inputDefinitions = options.marketplaceDefinitions ?? []
-  const detected = await registry.detect(root, collector, inputDefinitions)
-  const manifestOnly = detected.some(item => item.signature.exclusive)
-  const definitions = manifestOnly ? [] : inputDefinitions
-  if (manifestOnly && inputDefinitions.length > 0) collector.add('warning', 'PARSER_CATALOG_METADATA_IGNORED', 'plugin', '独占根清单不接受其他格式目录条目的核心配置覆盖')
-  const results: ProtocolParseResult[] = []
-  for (const item of detected) {
-    if (item.parser === undefined) continue
-    try {
-      const result = await item.parser.parsePlugin({ root, implicit: item.implicit, definition: definitions.find(definition => definition.format === item.parser!.id) })
-      if (result.format !== item.parser.id) throw new Error('解析器返回格式与注册身份不一致')
-      results.push(result)
-      collector.items.push(...result.diagnostics)
-    } catch {
-      collector.add('error', 'PARSER_PARSE_FAILED', 'plugin', `解析器 ${item.parser.id} 执行失败`, undefined, { parserId: item.parser.id })
-    }
+  const detected = await registry.detect(root, detectionCollector, inputDefinitions)
+  const collector = new DiagnosticCollector()
+  const empty = (formats = detected.map(item => item.signature.id)): CompatPlugin => {
+    const requestedId = options.asId ?? options.sourcePluginId ?? options.suggestedId ?? 'legacy-plugin'
+    let id: string
+    try { id = normalizeManagementId(requestedId) } catch { id = 'invalid-plugin' }
+    return { id, name: options.displayName ?? options.suggestedId ?? id,
+      sourceId: options.sourceId ?? 'legacy-source', sourcePluginId: options.sourcePluginId ?? options.suggestedId ?? id,
+      formats, skills: [], mcpServers: [], hooks: [], commands: [], agents: [], manifestFiles: [],
+      diagnostics: sortDiagnostics(uniqueDiagnostics(collector.items)) }
   }
-  const strictMetadata = manifestOnly || results.some(result => result.metadataPolicy === 'manifest-only')
+  if (options.parserId === undefined && detected.length > 1) {
+    collector.add('error', 'PARSER_SELECTION_REQUIRED', 'plugin', '插件匹配多个解析器，请选择一个平台后再安装', undefined,
+      { parserIds: detected.map(item => item.signature.id) })
+    return empty()
+  }
+  const selected = options.parserId === undefined ? detected[0] : detected.find(item => item.signature.id === options.parserId)
+  if (selected === undefined) {
+    if (options.parserId !== undefined) {
+      const available = registry.getParser(options.parserId) !== undefined
+      collector.add('error', available ? 'PARSER_MISMATCH' : 'PARSER_UNAVAILABLE', 'plugin',
+        available ? `解析器 ${options.parserId} 不匹配插件声明` : `解析器 ${options.parserId} 未注册`, undefined, { parserId: options.parserId })
+    } else collector.items.push(...detectionCollector.items)
+    return empty(options.parserId === undefined ? [] : [options.parserId])
+  }
+  collector.items.push(...selected.diagnostics)
+  if (!parserMatch(selected).available || selected.parser === undefined) return empty([selected.signature.id])
+  const manifestOnly = selected.signature.exclusive === true
+  const definitions = manifestOnly ? [] : inputDefinitions.filter(definition => definition.format === selected.signature.id)
+  let result: ProtocolParseResult
+  try {
+    result = await selected.parser.parsePlugin({ root, implicit: selected.implicit, definition: definitions[0] })
+    if (result.format !== selected.parser.id) throw new Error('解析器返回格式与注册身份不一致')
+    const resultDiagnostics = new Set(result.diagnostics.map(item => JSON.stringify(item)))
+    collector.items.splice(0, collector.items.length, ...collector.items.filter(item => !resultDiagnostics.has(JSON.stringify(item))), ...result.diagnostics)
+  } catch {
+    collector.add('error', 'PARSER_PARSE_FAILED', 'plugin', `解析器 ${selected.parser.id} 执行失败`, undefined, { parserId: selected.parser.id })
+    return empty([selected.signature.id])
+  }
+  const strictMetadata = manifestOnly || result.metadataPolicy === 'manifest-only'
   const metadata = strictMetadata ? {} : await packageMetadata(root, collector)
   const objectField = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value)
   for (const key of ['dependencies', 'optionalDependencies', 'peerDependencies']) {
@@ -96,8 +82,9 @@ export async function compilePlugin(registry: ParserRegistry, root: string, opti
       break
     }
   }
-  const firstName = results.map(result => result.name).find(value => typeof value === 'string' && value.trim() !== '')
-  const catalogName = definitions.map(definition => definition.name).find(value => value.trim() !== '')
+  const firstName = typeof result.name === 'string' && result.name.trim() !== '' ? result.name : undefined
+  const definition = definitions[0]
+  const catalogName = definition?.name
   const metadataName = typeof metadata.name === 'string' ? metadata.name : undefined
   const requestedId = options.asId ?? options.sourcePluginId ?? firstName ?? catalogName ?? metadataName ?? options.suggestedId ?? 'legacy-plugin'
   let id: string
@@ -106,22 +93,15 @@ export async function compilePlugin(registry: ParserRegistry, root: string, opti
     id = 'invalid-plugin'
   }
   if (id !== requestedId) collector.add('info', 'PLUGIN_ID_NORMALIZED', 'plugin', `管理标识已规范化为 ${id}；插件内部能力名称保持不变`)
-  const name = (strictMetadata ? firstName : options.displayName)
-    ?? definitions.map(definition => definition.displayName).find(value => typeof value === 'string')
-    ?? results.map(result => result.displayName).find(value => typeof value === 'string')
+  const name = (strictMetadata ? firstName : options.displayName) ?? definition?.displayName ?? result.displayName
     ?? firstName ?? catalogName ?? metadataName ?? options.suggestedId ?? id
-  const version = results.map(result => result.version).find(value => typeof value === 'string')
-    ?? definitions.map(definition => definition.version).find(value => typeof value === 'string')
-    ?? (typeof metadata.version === 'string' ? metadata.version : undefined)
-  const defaultEnabled = definitions.map(definition => definition.defaultEnabled).find(value => typeof value === 'boolean')
-    ?? results.map(result => result.defaultEnabled).find(value => typeof value === 'boolean')
-  const skills = unique(results.flatMap(result => result.skills), value => value.name, 'skill', 'SKILL_NAME_DUPLICATE', collector, documentAlias)
-  const mcpServers = unique(results.flatMap(result => result.mcpServers), value => value.serverName, 'mcp', 'MCP_SERVER_NAME_DUPLICATE', collector, mcpAlias, mergeMcp)
-  const allHooks = results.flatMap(result => result.hooks)
-  diagnoseHookAliases(allHooks, collector)
-  const hooks = unique(allHooks, value => value.id, 'hook', 'HOOK_DUPLICATE', collector)
-  const commands = unique(results.flatMap(result => result.commands), value => value.name, 'command', 'COMMAND_NAME_DUPLICATE', collector, documentAlias)
-  const agents = unique(results.flatMap(result => result.agents), value => value.name, 'agent', 'AGENT_NAME_DUPLICATE', collector, documentAlias)
+  const version = result.version ?? definition?.version ?? (typeof metadata.version === 'string' ? metadata.version : undefined)
+  const defaultEnabled = definition?.defaultEnabled ?? result.defaultEnabled
+  const skills = unique(result.skills, value => value.name, 'skill', 'SKILL_NAME_DUPLICATE', collector)
+  const mcpServers = unique(result.mcpServers, value => value.serverName, 'mcp', 'MCP_SERVER_NAME_DUPLICATE', collector)
+  const hooks = unique(result.hooks, value => value.id, 'hook', 'HOOK_DUPLICATE', collector)
+  const commands = unique(result.commands, value => value.name, 'command', 'COMMAND_NAME_DUPLICATE', collector)
+  const agents = unique(result.agents, value => value.name, 'agent', 'AGENT_NAME_DUPLICATE', collector)
   const markSourceReferences = (value: unknown): void => {
     if (Array.isArray(value)) { value.forEach(markSourceReferences); return }
     if (value === null || typeof value !== 'object') return
@@ -132,10 +112,9 @@ export async function compilePlugin(registry: ParserRegistry, root: string, opti
   }
   markSourceReferences(mcpServers)
   markSourceReferences(hooks)
-  const protocol = results.find(result => result.protocol !== undefined)?.protocol
   return { id, name, ...(version === undefined ? {} : { version }), ...(defaultEnabled === undefined ? {} : { defaultEnabled }),
     sourceId: options.sourceId ?? 'legacy-source', sourcePluginId: options.sourcePluginId ?? options.suggestedId ?? id,
-    formats: detected.map(item => item.signature.id), ...(protocol === undefined ? {} : { protocol }),
+    formats: [selected.signature.id], ...(result.protocol === undefined ? {} : { protocol: result.protocol }),
     skills, mcpServers, hooks, commands, agents, diagnostics: sortDiagnostics(collector.items),
-    manifestFiles: [...new Set(results.flatMap(result => result.manifestFiles))] }
+    manifestFiles: [...new Set(result.manifestFiles)] }
 }

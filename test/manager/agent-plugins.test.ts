@@ -156,7 +156,7 @@ test('根 portable 清单不被 legacy Marketplace、清单或内联配置覆盖
     assert.equal(source.candidates[0].name, 'acme.tools')
     const parsed = await parseCompatPlugin(temp.path, { displayName: 'catalog override', marketplaceDefinitions: [{
       format: 'codex', file: '.agents/plugins/marketplace.json', pointer: '/plugins/0', name: 'legacy-codex',
-      version: 'wrong-version', sourcePathIsRoot: true, manifestFields: { name: 'legacy-codex' },
+      version: 'wrong-version', sourcePathIsRoot: true, installable: true, diagnostics: [], manifestFields: { name: 'legacy-codex' },
     }] })
     assert.deepEqual(parsed.formats, ['agent-plugins'])
     assert.equal(parsed.name, 'acme.tools')

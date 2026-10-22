@@ -57,10 +57,26 @@ export type CompatWebListResult =
   | { kind: 'ready'; plugins: CompatWebPlugin[]; categories: CompatWebCategory[] }
   | { kind: 'error'; message: string }
 
+/** 一个解析器对插件的通用匹配结果；由 Host 提供标签与匹配依据。 */
+export interface CompatWebParserMatch {
+  parserId: string
+  label: { en: string; zh?: string }
+  available: boolean
+  evidence: Array<{ kind: 'manifest' | 'catalog' | 'implicit'; file?: string }>
+  diagnostics: CompatWebDiagnostic[]
+}
+
+export interface CompatWebParserChoiceRequest {
+  pluginId: string
+  name: string
+  matches: CompatWebParserMatch[]
+}
+
 /** 添加来源 RPC 的业务结果。 */
 export type CompatWebAddResult =
   | { kind: 'installed'; plugins: CompatWebPlugin[] }
   | { kind: 'selection'; requestId: string; selectionRequired: boolean; candidates: CompatWebCandidate[] }
+  | { kind: 'parser-selection'; requestId: string; plugins: CompatWebParserChoiceRequest[] }
   | { kind: 'error'; message: string }
 
 /** 取消尚未完成的多插件选择。 */

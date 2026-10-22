@@ -79,7 +79,7 @@ test('a removed catalog contributes tombstones only to its named candidates and 
     const source = await createBuiltinParserEngine(['codex']).parseSource(temp.path)
     const shared = source.candidates.find(candidate => candidate.id === 'shared')!
     assert.deepEqual(shared.formats, ['claude-code', 'codex'])
-    assert.equal(shared.installable, false)
+    assert.equal(shared.installable, true)
     assert(shared.diagnostics.some(item => item.code === 'PARSER_UNAVAILABLE' && item.level === 'error'))
     assert.equal(source.candidates.find(candidate => candidate.id === 'codex-only')?.installable, true)
     const selected = await createBuiltinParserEngine(['codex']).parsePlugin(resolve(temp.path, 'codex-only'))
@@ -95,8 +95,9 @@ test('unknown parser and malformed missing catalog are explicit errors rather th
     await put(temp.path, '.agents/plugins/marketplace.json', { name: 'catalog', plugins: [{ name: 'only', source: './only' }] })
     await put(temp.path, 'only/.codex-plugin/plugin.json', { name: 'only' })
     const result = await createBuiltinParserEngine(['codex']).parseSource(temp.path)
-    assert.equal(result.candidates[0].installable, false)
-    assert(result.candidates[0].diagnostics.some(item => item.code === 'PARSER_UNAVAILABLE' && item.level === 'error'))
+    assert.equal(result.candidates[0].installable, true)
+    assert(result.scan.diagnostics.some(item => item.code === 'SOURCE_CATALOG_SCOPE_UNKNOWN'))
+    assert(!result.candidates[0].diagnostics.some(item => item.code === 'PARSER_UNAVAILABLE' && item.level === 'error'))
   } finally { await temp.cleanup() }
 })
 

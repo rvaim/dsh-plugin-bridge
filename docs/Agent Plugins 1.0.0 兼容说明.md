@@ -14,7 +14,7 @@ Agent Plugins 是独立的 portable 包格式，标记为 `agent-plugins`，不�
 
 版本化官方 endpoint 与固定 Git 标签中的两份 schema 已逐一比对。校验使用随包分发的本地 schema，不在加载插件时联网获取 `$schema`。规范正文在 schema 无法表达的例外和文件系统语义上优先。官方 schema 按 Apache-2.0 授权分发，版权与许可证归属随文件保留；本文为本项目对实现行为的说明。
 
-`plugin.json.version` 是插件作者版本；`protocol.version` 是 Agent Plugins 规范版本；本项目 parser/source parser 是内部模型版本，三个版本互不替代。独立格式接入阶段的模型版本为 `3.1.0`；当前统一模型为 `5.0.0`，各内置协议实现版本为 `1.1.0`，本次仅目录归属调整并保持版本不变，见[解析器解耦重构说明](<解析器解耦重构说明.md>)。
+`plugin.json.version` 是插件作者版本；`protocol.version` 是 Agent Plugins 规范版本；本项目 parser/source parser 是内部模型版本，三个版本互不替代。独立格式接入阶段的模型版本为 `3.1.0`；当前工作区的统一模型为 `6.0.0`，Agent Plugins 实现保持 `1.2.0`。根清单仍独占匹配，不允许通过选择其他解析器绕过规范边界，见[单解析器选择与安装契约](<单解析器选择与安装契约.md>)。
 
 ## 根清单与组件边界
 

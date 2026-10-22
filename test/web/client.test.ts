@@ -3,7 +3,8 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { Script } from 'node:vm'
-import type { CompatWebAddResult, CompatWebCandidate, CompatWebCategory, CompatWebListResult, CompatWebPlugin } from '../../src/types/web.js'
+import type { CompatWebAddResult, CompatWebCandidate, CompatWebCategory, CompatWebListResult, CompatWebParserChoiceRequest, CompatWebParserMatch, CompatWebPlugin } from '../../src/types/web.js'
+import type { PluginInstallSelection } from '../../src/manager/types.js'
 import type { PluginBridgeInjected } from '../../src/web/client/types.js'
 
 type Entry = {
@@ -174,7 +175,7 @@ test('独立管理面板保留全部业务 RPC，并显示 Host 拒绝原因', a
   assert.equal(await face.update('demo', true), results.update)
   const signal = new AbortController().signal
   assert.equal(await face.beginAdd('github:owner/repo', signal), results.beginAdd)
-  assert.equal(await face.completeAdd('selection', ['demo'], signal), results.completeAdd)
+  assert.equal(await face.completeAdd('selection', [{ pluginId: 'demo' }], signal), results.completeAdd)
   assert.equal(await face.cancelAdd('selection'), results.cancelAdd)
   assert.equal(await face.setEnabled('demo', false), results.setEnabled)
   assert.equal(await face.uninstall('demo'), results.uninstall)
@@ -190,7 +191,7 @@ test('独立管理面板保留全部业务 RPC，并显示 Host 拒绝原因', a
     { method: 'checkUpdates', args: [] },
     { method: 'update', args: ['demo', true] },
     { method: 'beginAdd', args: ['github:owner/repo', signal] },
-    { method: 'completeAdd', args: ['selection', ['demo'], signal] },
+    { method: 'completeAdd', args: ['selection', [{ pluginId: 'demo' }], signal] },
     { method: 'cancelAdd', args: ['selection'] },
     { method: 'setEnabled', args: ['demo', false] },
     { method: 'uninstall', args: ['demo'] },
@@ -480,7 +481,7 @@ for (const selectionRequired of [true, false]) {
     }
     const added: CompatWebPlugin = { ...runtimePlugin, id: candidate.id, name: candidate.name }
     const uploads: { file: File; signal: AbortSignal }[] = []
-    const completions: { requestId: string; plugins: string[]; signal: AbortSignal }[] = []
+    const completions: { requestId: string; plugins: PluginInstallSelection[]; signal: AbortSignal }[] = []
     const cancellations: string[] = []
     const installed: CompatWebPlugin[][] = []
     let closed = 0
@@ -488,8 +489,8 @@ for (const selectionRequired of [true, false]) {
       list: async () => ({ ok: true, value: { kind: 'ready', plugins: [], categories: runtimeCategories } }),
       checkUpdates: async () => ({ ok: true, value: { kind: 'ready', updates: [] } }),
       beginAdd: async () => { throw new Error('file selection must use uploadArchive') },
-      completeAdd: async (requestId: string, plugins: string[], signal: AbortSignal) => {
-        completions.push({ requestId, plugins: Array.from(plugins), signal })
+      completeAdd: async (requestId: string, plugins: PluginInstallSelection[], signal: AbortSignal) => {
+        completions.push({ requestId, plugins: Array.from(plugins, plugin => ({ ...plugin })), signal })
         return { ok: true, value: { kind: 'installed', plugins: [added] } }
       },
       cancelAdd: async (requestId: string) => {
@@ -564,7 +565,7 @@ for (const selectionRequired of [true, false]) {
 
       assert.equal(completions.length, 1)
       assert.equal(completions[0].requestId, preparation.requestId)
-      assert.deepEqual(completions[0].plugins, [candidate.id])
+      assert.deepEqual(completions[0].plugins, [{ pluginId: candidate.id }])
       assert.equal(completions[0].signal.aborted, false)
       assert.deepEqual(installed, [[added]])
       assert.equal(closed, 1)
@@ -576,3 +577,234 @@ for (const selectionRequired of [true, false]) {
     }
   })
 }
+
+
+type AddFlowApi = Pick<PluginBridgeInjected, 'beginAdd' | 'completeAdd' | 'cancelAdd' | 'uploadArchive'>
+
+async function mountAddFlow(overrides: Partial<AddFlowApi>) {
+  const hooks = createHookRuntime()
+  const { client } = await loadClient(hooks.react)
+  const installed: CompatWebPlugin[][] = []
+  let closed = 0
+  const api: AddFlowApi = {
+    beginAdd: async () => ({ kind: 'error', message: 'unexpected beginAdd' }),
+    completeAdd: async () => ({ kind: 'error', message: 'unexpected completeAdd' }),
+    cancelAdd: async () => ({ kind: 'cancelled' }),
+    uploadArchive: async () => ({ kind: 'error', message: 'unexpected uploadArchive' }),
+    ...overrides,
+  }
+  const host = createHost({
+    list: async () => ({ ok: true, value: { kind: 'ready', plugins: [], categories: [] } }),
+    checkUpdates: async () => ({ ok: true, value: { kind: 'ready', updates: [] } }),
+    beginAdd: async (...args: Parameters<AddFlowApi['beginAdd']>) => ({ ok: true, value: await api.beginAdd(...args) }),
+    completeAdd: async (...args: Parameters<AddFlowApi['completeAdd']>) => ({ ok: true, value: await api.completeAdd(...args) }),
+    cancelAdd: async (...args: Parameters<AddFlowApi['cancelAdd']>) => ({ ok: true, value: await api.cancelAdd(...args) }),
+  })
+  const disposeRemote = await client.apply(host.ctx)
+  const face = host.entries.find(entry => entry.options.name === 'main')!.options.inject!()
+  let tree = await hooks.mount(client.PluginBridgePanel as (props: unknown) => unknown, {
+    ...face, uploadArchive: api.uploadArchive, t: interpolate(host.ctx.locale.bind(client.NS)),
+  })
+  ;(nodes(tree).find(node => node.props['data-plugin-bridge-add'] !== undefined)!.props.onClick as () => void)()
+  tree = await hooks.flush()
+  const dialog = propNode(tree, 'onInstalled')
+  hooks.unmount()
+  tree = await hooks.mount(dialog.type as (props: unknown) => unknown, {
+    ...dialog.props,
+    onInstalled: (plugins: CompatWebPlugin[]) => { installed.push(Array.from(plugins)) },
+    onClose: () => { closed++ },
+  })
+  const primary = (current: unknown) => nodes((current as RenderNode).props.footer).find(node => node.props.variant === 'primary')!
+  return {
+    tree, hooks, host, installed, primary, closed: () => closed,
+    submit: (current: unknown) => {
+      const button = primary(current)
+      assert.equal(button.props.disabled, false)
+      ;(button.props.onClick as () => void)()
+      ;(button.props.onClick as () => void)()
+    },
+    enterSource: async () => {
+      ;(propNode(tree, 'placeholder').props.onChange as (event: unknown) => void)({ currentTarget: { value: 'github:fixture/tools' } })
+      return hooks.flush()
+    },
+    dispose: async () => { hooks.unmount(); host.dispose(); await disposeRemote() },
+  }
+}
+
+function parserMatch(parserId: string, overrides: Partial<CompatWebParserMatch> = {}): CompatWebParserMatch {
+  return { parserId, label: { en: `Third party ${parserId}`, zh: `第三方 ${parserId}` }, available: true,
+    evidence: [{ kind: 'manifest', file: `${parserId}/plugin.json` }], diagnostics: [], ...overrides }
+}
+
+for (const secondAvailable of [true, false]) {
+  test(`实际 Client bundle 单插件多解析器不默认选择（第二项${secondAvailable ? '可用' : '未装配'}），显示通用依据与阻断诊断`, async () => {
+    const choices: CompatWebParserChoiceRequest[] = [{ pluginId: 'tool', name: 'Third party tool', matches: [
+      parserMatch('future-a'),
+      parserMatch('future-b', { available: secondAvailable, evidence: [{ kind: 'catalog', file: 'future/catalog.json' }] }),
+      parserMatch('policy-blocked', { evidence: [{ kind: 'implicit' }], diagnostics: [{
+        level: 'error', code: 'FUTURE_POLICY', capability: 'plugin', message: 'Host policy blocks this parser',
+        file: 'policy.json', details: '{"reason":"explicit policy"}',
+      }] }),
+    ] }]
+    const completions: { requestId: string; plugins: PluginInstallSelection[] }[] = []
+    const h = await mountAddFlow({
+      beginAdd: async () => ({ kind: 'parser-selection', requestId: 'same-request', plugins: choices }),
+      completeAdd: async (requestId, plugins) => {
+        completions.push({ requestId, plugins: Array.from(plugins, plugin => ({ ...plugin })) })
+        return { kind: 'installed', plugins: [runtimePlugin] }
+      },
+    })
+    try {
+      let tree = await h.enterSource()
+      h.submit(tree)
+      tree = await h.hooks.flush()
+      assert.equal((tree as RenderNode).props.title, '为每个插件选择解析器')
+      const radios = nodes(tree).filter(node => node.type === 'input' && node.props.type === 'radio')
+      assert.equal(radios.length, 3)
+      assert(radios.every(node => node.props.checked === false))
+      assert.equal(radios[0].props.name, radios[1].props.name)
+      assert.equal(radios[0].props.disabled, false)
+      assert.equal(radios[1].props.disabled, !secondAvailable)
+      assert.equal(radios[2].props.disabled, true)
+      assert.equal(h.primary(tree).props.disabled, true)
+      assert.equal(completions.length, 0)
+      for (const text of ['第三方 future-a', '匹配依据：插件清单', '匹配依据：市场声明', '匹配依据：目录内容', 'future-a/plugin.json', 'future/catalog.json', 'FUTURE_POLICY', 'Host policy blocks this parser', 'explicit policy']) {
+        assert(textContent(tree).includes(text), `missing generic parser detail: ${text}`)
+      }
+      h.host.setLanguage('en')
+      tree = await h.hooks.refresh()
+      assert(textContent(tree).includes('Third party future-a'))
+      const chosen = secondAvailable ? 'future-b' : 'future-a'
+      ;(nodes(tree).find(node => node.props.value === chosen)!.props.onChange as () => void)()
+      tree = await h.hooks.flush()
+      assert.equal(nodes(tree).filter(node => node.props.type === 'radio' && node.props.checked === true).length, 1)
+      h.submit(tree)
+      tree = await h.hooks.flush()
+      assert.deepEqual(completions, [{ requestId: 'same-request', plugins: [{ pluginId: 'tool', parserId: chosen }] }])
+      assert.equal(h.installed.length, 1)
+      assert.equal(h.closed(), 1)
+    } finally { await h.dispose() }
+  })
+}
+
+test('实际 Client bundle 市场多插件逐项选解析器，重试保留选择并续传唯一匹配插件', async () => {
+  const candidates: CompatWebCandidate[] = ['alpha', 'beta'].map(id => ({
+    id, name: id, formats: ['future-a'], installable: true, errors: 1, warnings: 0, source: `./${id}`,
+    diagnostics: [{ level: 'error', code: 'OTHER_PARSER_POLICY', capability: 'plugin', message: 'Another parser is blocked' }],
+  }))
+  const choices: CompatWebParserChoiceRequest[] = [
+    { pluginId: 'alpha', name: 'Alpha', matches: [parserMatch('future-a'), parserMatch('future-b')] },
+    { pluginId: 'beta', name: 'Beta', matches: [parserMatch('future-c')] },
+  ]
+  const calls: { requestId: string; plugins: PluginInstallSelection[] }[] = []
+  let fail = true
+  const h = await mountAddFlow({
+    beginAdd: async () => ({ kind: 'selection', requestId: 'market-request', selectionRequired: true, candidates }),
+    completeAdd: async (requestId, plugins) => {
+      calls.push({ requestId, plugins: Array.from(plugins, plugin => ({ ...plugin })) })
+      if (plugins.some(plugin => plugin.parserId === undefined)) return { kind: 'parser-selection', requestId, plugins: choices }
+      if (fail) { fail = false; return { kind: 'error', message: 'Retry this snapshot' } }
+      return { kind: 'installed', plugins: [runtimePlugin] }
+    },
+  })
+  try {
+    let tree = await h.enterSource()
+    h.submit(tree)
+    tree = await h.hooks.flush()
+    for (const checkbox of nodes(tree).filter(node => node.props.type === 'checkbox')) (checkbox.props.onChange as () => void)()
+    tree = await h.hooks.flush()
+    h.submit(tree)
+    tree = await h.hooks.flush()
+    assert.equal(calls.length, 1)
+    assert.deepEqual(calls[0].plugins, [{ pluginId: 'alpha' }, { pluginId: 'beta' }])
+    const radios = nodes(tree).filter(node => node.props.type === 'radio')
+    assert.equal(radios.find(node => node.props.value === 'future-c')?.props.checked, true)
+    assert.equal(radios.find(node => node.props.value === 'future-a')?.props.checked, false)
+    assert.equal(h.primary(tree).props.disabled, true)
+    ;(radios.find(node => node.props.value === 'future-b')!.props.onChange as () => void)()
+    tree = await h.hooks.flush()
+    h.submit(tree)
+    tree = await h.hooks.flush()
+    assert(textContent(tree).includes('Retry this snapshot'))
+    assert.equal(h.closed(), 0)
+    assert.equal(nodes(tree).filter(node => node.props.type === 'radio' && node.props.checked === true).length, 2)
+    h.submit(tree)
+    await h.hooks.flush()
+    const full = [{ pluginId: 'alpha', parserId: 'future-b' }, { pluginId: 'beta', parserId: 'future-c' }]
+    assert.deepEqual(calls.slice(1), [
+      { requestId: 'market-request', plugins: full }, { requestId: 'market-request', plugins: full },
+    ])
+    assert.equal(h.installed.length, 1)
+    assert.equal(h.closed(), 1)
+  } finally { await h.dispose() }
+})
+
+test('实际 Client bundle 解析器选择取消失败可重试，成功释放原请求并返回输入', async () => {
+  const cancellations: string[] = []
+  let fail = true
+  const h = await mountAddFlow({
+    beginAdd: async () => ({ kind: 'parser-selection', requestId: 'cancel-request', plugins: [
+      { pluginId: 'tool', name: 'Tool', matches: [parserMatch('future-a'), parserMatch('future-b')] },
+    ] }),
+    cancelAdd: async requestId => {
+      cancellations.push(requestId)
+      if (fail) { fail = false; return { kind: 'error', message: 'Release temporarily failed' } }
+      return { kind: 'cancelled' }
+    },
+  })
+  try {
+    let tree = await h.enterSource()
+    h.submit(tree)
+    tree = await h.hooks.flush()
+    const changeSource = () => (nodes(tree).find(node => node.props.children === '更换来源')!.props.onClick as () => void)()
+    changeSource()
+    tree = await h.hooks.flush()
+    assert(textContent(tree).includes('Release temporarily failed'))
+    assert.equal((tree as RenderNode).props.title, '为每个插件选择解析器')
+    changeSource()
+    tree = await h.hooks.flush()
+    assert.equal((tree as RenderNode).props.title, '添加外部插件')
+    assert.deepEqual(cancellations, ['cancel-request', 'cancel-request'])
+    assert.equal(h.installed.length, 0)
+  } finally { await h.dispose() }
+  assert.equal(cancellations.length, 2)
+})
+
+test('实际 Client bundle 独立归档自动续传可进入解析器选择，确认使用同请求且不重复上传', async () => {
+  let uploads = 0
+  const calls: PluginInstallSelection[][] = []
+  const h = await mountAddFlow({
+    uploadArchive: async () => {
+      uploads++
+      return { kind: 'selection', requestId: 'archive-request', selectionRequired: false, candidates: [{
+        id: 'archive-tool', name: 'Archive tool', formats: ['future-a', 'future-b'], installable: true,
+        errors: 1, warnings: 0, source: './', diagnostics: [{ level: 'error', code: 'OTHER_PARSER_POLICY', capability: 'plugin', message: 'Another parser is blocked' }],
+      }] }
+    },
+    completeAdd: async (requestId, plugins) => {
+      assert.equal(requestId, 'archive-request')
+      calls.push(Array.from(plugins, plugin => ({ ...plugin })))
+      return plugins[0].parserId === undefined
+        ? { kind: 'parser-selection', requestId, plugins: [{ pluginId: 'archive-tool', name: 'Archive tool', matches: [parserMatch('future-a'), parserMatch('future-b')] }] }
+        : { kind: 'installed', plugins: [runtimePlugin] }
+    },
+  })
+  try {
+    let tree = h.tree
+    ;(nodes(tree).find(node => node.props.type === 'file')!.props.onChange as (event: unknown) => void)({ currentTarget: { files: [{ name: 'tools.zip', size: 128 }] } })
+    tree = await h.hooks.flush()
+    h.submit(tree)
+    tree = await h.hooks.flush()
+    assert.equal(uploads, 1)
+    assert.deepEqual(calls, [[{ pluginId: 'archive-tool' }]])
+    assert.equal((tree as RenderNode).props.title, '为每个插件选择解析器')
+    assert.equal(h.primary(tree).props.disabled, true)
+    ;(nodes(tree).find(node => node.props.value === 'future-b')!.props.onChange as () => void)()
+    tree = await h.hooks.flush()
+    h.submit(tree)
+    await h.hooks.flush()
+    assert.equal(uploads, 1)
+    assert.deepEqual(calls, [[{ pluginId: 'archive-tool' }], [{ pluginId: 'archive-tool', parserId: 'future-b' }]])
+    assert.equal(h.installed.length, 1)
+  } finally { await h.dispose() }
+})

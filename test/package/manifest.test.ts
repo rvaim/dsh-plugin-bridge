@@ -7,7 +7,7 @@ import test from 'node:test'
 test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', async () => {
   const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as any
   assert.equal(packageJson.name, '@rvaim/dsh-plugin-bridge')
-  assert.equal(packageJson.version, '0.9.0')
+  assert.equal(packageJson.version, '0.10.0')
   assert.equal(packageJson.publishConfig.access, 'public')
   assert.equal(packageJson.publishConfig.registry, 'https://registry.npmjs.org/')
   assert.equal(packageJson.repository.url, 'git+https://github.com/rvaim/dsh-plugin-bridge.git')

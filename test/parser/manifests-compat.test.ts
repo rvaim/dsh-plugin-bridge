@@ -18,7 +18,7 @@ async function put(root: string, file: string, value: unknown): Promise<void> {
 const skill = (name: string): string => `---\nname: ${name}\ndescription: compatibility fixture\n---\nBody`
 const event = (command: string): unknown[] => [{ hooks: [{ type: 'command', command }] }]
 function definition(fields: Record<string, unknown> = {}, extra: Partial<MarketplacePluginDefinition> = {}): MarketplacePluginDefinition {
-  return { format: 'claude-code', file: '.claude-plugin/marketplace.json', pointer: '/plugins/0', name: 'compat', sourcePathIsRoot: false, manifestFields: { name: 'compat', ...fields }, ...fields, ...extra }
+  return { format: 'claude-code', file: '.claude-plugin/marketplace.json', pointer: '/plugins/0', name: 'compat', installable: true, diagnostics: [], sourcePathIsRoot: false, manifestFields: { name: 'compat', ...fields }, ...fields, ...extra }
 }
 
 async function fixture(format: 'claude-code' | 'codex', manifest: Record<string, unknown>, files: Record<string, unknown>, run: (root: string) => Promise<void>): Promise<void> {
@@ -38,7 +38,7 @@ test('CC strict=false 检查条目组件，保留已有 manifest 组件', async 
     assert(!valid.diagnostics.some(item => item.code === 'CLAUDE_MARKETPLACE_NON_STRICT_CONFLICT'))
     const conflicting = await parseCompatPlugin(root, { marketplaceDefinitions: [definition({ commands: [] }, { strict: false })] })
     assert(conflicting.diagnostics.some(item => item.code === 'CLAUDE_MARKETPLACE_NON_STRICT_CONFLICT' && item.level === 'error'))
-    assert.deepEqual(conflicting.commands.map(item => item.name), ['run'])
+    assert.deepEqual(conflicting.commands, [])
   })
 })
 
@@ -196,12 +196,15 @@ test('CC 非法 command object、组件类型与边界产生error', async () => 
 })
 
 test('CC metadata/defaultEnabled优先级正确，不误报自由metadata，关键未适配语义阻止启用', async () => {
-  await fixture('claude-code', { defaultEnabled: false, displayName: 'Manifest', metadata: { arbitrary: { useful: true } }, settings: { agent: 'reviewer' }, userConfig: {}, dependencies: ['required'] }, {}, async root => {
+  await fixture('claude-code', { defaultEnabled: false, displayName: 'Manifest', metadata: { arbitrary: { useful: true } } }, {}, async root => {
     const plugin = await parseCompatPlugin(root, { marketplaceDefinitions: [definition({ displayName: 'Entry' }, { defaultEnabled: true })] })
     assert.equal(plugin.defaultEnabled, true)
     assert.equal(plugin.name, 'Entry')
     assert(!plugin.diagnostics.some(item => item.code === 'PLUGIN_MANIFEST_UNKNOWN_FIELD'))
-    for (const code of ['CLAUDE_SETTINGS_UNSUPPORTED', 'CLAUDE_USER_CONFIG_UNSUPPORTED', 'CLAUDE_PLUGIN_DEPENDENCIES_UNSUPPORTED']) assert(plugin.diagnostics.some(item => item.code === code && item.level === 'error'))
+    await put(root, '.claude-plugin/plugin.json', { name: 'compat', settings: { agent: 'reviewer' }, userConfig: {}, dependencies: ['required'] })
+    const blocked = await parseCompatPlugin(root)
+    for (const code of ['CLAUDE_SETTINGS_UNSUPPORTED', 'CLAUDE_USER_CONFIG_UNSUPPORTED', 'CLAUDE_PLUGIN_DEPENDENCIES_UNSUPPORTED']) assert(blocked.diagnostics.some(item => item.code === code && item.level === 'error'))
+    assert.deepEqual(blocked.skills, [])
   })
 })
 
@@ -287,16 +290,19 @@ test('CC 无manifest条目fallback保留metadata/defaultEnabled和inline command
   } finally { await temp.cleanup() }
 })
 
-test('MCP 跨格式仍保持等价合并及冲突检查，不被同格式覆盖规则吞掉', async () => {
+test('MCP 只使用选定格式的声明和环境绑定', async () => {
   await fixture('claude-code', {}, { '.codex-plugin/plugin.json': { name: 'compat' }, '.mcp.json': { mcpServers: { shared: { command: 'node' } } } }, async root => {
-    const equal = await parseCompatPlugin(root)
+    const equal = await parseCompatPlugin(root, { parserId: 'claude-code' })
     assert.equal(equal.mcpServers.length, 1)
     assert.deepEqual(equal.mcpServers[0].environmentBindings, {
       CLAUDE_PLUGIN_ROOT: 'plugin-root', CLAUDE_PLUGIN_DATA: 'plugin-data', CLAUDE_PROJECT_DIR: 'workspace-root',
-      CODEX_PLUGIN_ROOT: 'plugin-root', CODEX_PLUGIN_DATA: 'plugin-data', PLUGIN_ROOT: 'plugin-root', PLUGIN_DATA: 'plugin-data',
     })
     await put(root, '.codex-plugin/plugin.json', { name: 'compat', mcpServers: { shared: { command: 'other' } } })
-    const conflict = await parseCompatPlugin(root)
-    assert(conflict.diagnostics.some(item => item.code === 'MCP_SERVER_NAME_DUPLICATE' && item.level === 'error'))
+    const claude = await parseCompatPlugin(root, { parserId: 'claude-code' })
+    const codex = await parseCompatPlugin(root, { parserId: 'codex' })
+    assert.equal(claude.mcpServers[0].sourceFile, '.mcp.json')
+    assert.equal(codex.mcpServers[0].sourceFile, '.codex-plugin/plugin.json')
+    assert(!claude.diagnostics.some(item => item.code === 'MCP_SERVER_NAME_DUPLICATE'))
+    assert(!codex.diagnostics.some(item => item.code === 'MCP_SERVER_NAME_DUPLICATE'))
   })
 })

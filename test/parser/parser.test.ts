@@ -275,6 +275,7 @@ test('Claude Code 新增能力会产生明确诊断，不会被静默当作已�
     await writeFile(resolve(temp.path, 'settings.json'), JSON.stringify({ agent: 'demo' }))
     await writeFile(resolve(temp.path, '.claude-plugin/plugin.json'), JSON.stringify({
       name: 'modern-claude',
+      settings: { agent: 'demo' },
       workflows: './workflows',
       outputStyles: './output-styles',
       lspServers: './.lsp.json',
@@ -295,7 +296,6 @@ test('Claude Code 新增能力会产生明确诊断，不会被静默当作已�
       'CLAUDE_USER_CONFIG_UNSUPPORTED',
       'CLAUDE_CHANNELS_UNSUPPORTED',
       'CLAUDE_PLUGIN_DEPENDENCIES_UNSUPPORTED',
-      'CLAUDE_BIN_PATH_UNSUPPORTED',
       'CLAUDE_SETTINGS_UNSUPPORTED',
     ]) assert(codes.has(code), code)
     assert(plugin.diagnostics.some(item => item.code === 'CLAUDE_USER_CONFIG_UNSUPPORTED' && item.level === 'error'))

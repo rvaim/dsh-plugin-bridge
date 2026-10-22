@@ -61,7 +61,7 @@ test('未知第三方解析器可声明嵌套市场并驱动同一选择流程',
     assert.deepEqual(result.candidates.map(candidate => candidate.formats), [['future-format']])
     assert.equal(result.candidates[0].source, './nested/package')
     assert.deepEqual(await manager.list(), [])
-    assert.equal((await web.completeAdd(result.requestId, ['future-tool'])).kind, 'installed')
+    assert.equal((await web.completeAdd(result.requestId, [{ pluginId: 'future-tool' }])).kind, 'installed')
   } finally {
     await web.dispose()
     engine.dispose()
@@ -104,7 +104,7 @@ for (const format of ['claude-code', 'codex'] as const) {
         assert.equal(begun.candidates[0].source, nested ? './plugins/platform/tools' : './tools')
         assert.deepEqual(await manager.list(), [])
         await assert.rejects(manager.install(source), /必须通过 plugins 显式选择/)
-        const completed = await web.completeAdd(begun.requestId, ['tools'])
+        const completed = await web.completeAdd(begun.requestId, [{ pluginId: 'tools' }])
         assert.equal(completed.kind, 'installed')
         assert.deepEqual((await manager.list()).map(plugin => plugin.id), ['tools'])
         const installed = await manager.inspect('tools')

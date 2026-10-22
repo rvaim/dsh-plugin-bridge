@@ -48,7 +48,7 @@ export class CompatRepository {
   async readCurrentRecord(pluginId: string): Promise<InstalledPluginRecord> {
     const record = await readInstalledPlugin(this.layout, pluginId)
     const source = await this.readCurrentSourceRecord(record.install.sourceId)
-    if (isPluginScanCurrent(record.scan, source.source.revision, this.parsers)) return record
+    if (isPluginScanCurrent(record.scan, source.source.revision, this.parsers, record.install.parserId)) return record
     const fresh = await this.parseInstalledFresh(record, source)
     await writeJsonAtomic(this.layout.scanFile(pluginId), fresh.scan)
     return { ...record, scan: fresh.scan }

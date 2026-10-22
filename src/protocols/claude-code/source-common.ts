@@ -383,6 +383,8 @@ export function createCandidate(options: {
     file: options.marketplaceFile,
     pointer: options.pointer,
     name: rawName,
+    installable: options.installable && !candidateDiagnostics.some(item => item.level === 'error'),
+    diagnostics: candidateDiagnostics,
     ...normalizedTextFields,
     ...(strict === undefined ? {} : { strict }),
     ...(typeof options.entry.defaultEnabled === 'boolean' ? { defaultEnabled: options.entry.defaultEnabled } : {}),

@@ -1,6 +1,6 @@
 import { join, resolve } from 'node:path'
 import type { CompatParserEngine } from '../parser/contracts.js'
-import { withAdditionalDiagnostics } from '../parser/model.js'
+import { selectCandidateParser, withAdditionalDiagnostics } from '../parser/model.js'
 import { validateSourceDirectory } from '../shared/source-path.js'
 import { pathExists } from '../source/filesystem.js'
 import type { CompatLayout } from '../store/layout.js'
@@ -8,10 +8,13 @@ import type { SourcePluginCandidate } from '../types/catalog.js'
 import type { CompatPlugin, InstallMetadata } from '../types/plugin.js'
 import { materializeExternalPlugin } from './acquire.js'
 import { findCapabilityConflicts, findCapabilityConflictsWithin, stripConflictDiagnostics } from './conflicts.js'
-import { CompatibilityError } from './errors.js'
+import { CompatibilityError, ParserSelectionRequiredError } from './errors.js'
+import { hasErrorDiagnostics } from '../types/diagnostic.js'
+import { copyPluginDirectory } from '../source/directory.js'
+import type { ParserMatch } from '../types/parser.js'
 import { candidateWantsEnable, externalDirectoryName, hasNonConflictErrors, stateOf } from './helpers.js'
 import { createPluginScan } from './plugin-loader.js'
-import type { InstallOptions, ParsedInstallCandidate, PreparedPlugin } from './types.js'
+import type { InstallOptions, ParsedInstallCandidate, ParserChoiceRequest, PluginInstallSelection, PreparedPlugin } from './types.js'
 
 export interface PluginPreparationContext {
   layout: CompatLayout
@@ -21,6 +24,7 @@ export interface PluginPreparationContext {
 export async function parseAndCheckPlugin(
   { layout, parsers }: PluginPreparationContext,
   packageRoot: string,
+  parserId: string,
   sourceId: string,
   sourcePluginId: string,
   suggestedId: string | undefined,
@@ -28,16 +32,21 @@ export async function parseAndCheckPlugin(
   excludePluginIds: readonly string[] = [],
   candidate?: SourcePluginCandidate,
 ): Promise<CompatPlugin> {
+  const selected = candidate === undefined ? undefined : selectCandidateParser(candidate, parserId)
+  if (selected !== undefined && (!selected.installable || hasErrorDiagnostics(selected.diagnostics))) {
+    throw new CompatibilityError(`插件 ${sourcePluginId} 的解析器 ${parserId} 不可用于安装`, selected.diagnostics)
+  }
   const parsed = stripConflictDiagnostics(await parsers.parsePlugin(packageRoot, {
+    parserId,
     sourceId,
     sourcePluginId,
     ...(suggestedId === undefined ? {} : { suggestedId }),
     ...(asId === undefined ? {} : { asId }),
-    ...(candidate?.displayName === undefined ? {} : { displayName: candidate.displayName }),
-    ...(candidate === undefined ? {} : { marketplaceDefinitions: candidate.definitions }),
+    ...(selected?.displayName === undefined ? {} : { displayName: selected.displayName }),
+    ...(selected === undefined ? {} : { marketplaceDefinitions: selected.definitions }),
   }))
   const conflicts = await findCapabilityConflicts(layout, parsed, excludePluginIds, parsers)
-  return withAdditionalDiagnostics(parsed, conflicts)
+  return withAdditionalDiagnostics(parsed, [...(selected?.diagnostics ?? []), ...conflicts])
 }
 
 export async function preparePluginContent(
@@ -94,6 +103,41 @@ export async function preparePluginContent(
   }
 }
 
+export async function inspectPreparedParsers(parsers: CompatParserEngine, contents: readonly PreparedPlugin[]): Promise<ParserChoiceRequest[]> {
+  const choices: ParserChoiceRequest[] = []
+  for (const prepared of contents) {
+    choices.push({
+      pluginId: prepared.candidate.id,
+      name: prepared.candidate.displayName ?? prepared.candidate.name,
+      matches: await parsers.matchPlugin(prepared.packageRoot, { marketplaceDefinitions: prepared.candidate.definitions }),
+    })
+  }
+  return choices
+}
+
+export function resolveParserSelections(choices: readonly ParserChoiceRequest[], selections: readonly PluginInstallSelection[]): Map<string, string> {
+  const resolved = new Map<string, string>()
+  let needsSelection = false
+  for (const choice of choices) {
+    const requested = selections.find(item => item.pluginId === choice.pluginId)?.parserId
+    const match: ParserMatch | undefined = requested === undefined
+      ? choice.matches.length === 1 ? choice.matches[0] : undefined
+      : choice.matches.find(item => item.parserId === requested)
+    if (match === undefined) {
+      if (requested !== undefined) throw new Error(`插件 ${choice.pluginId} 不匹配解析器 ${requested}`)
+      if (choice.matches.length === 0) throw new Error(`没有已注册解析器能识别插件 ${choice.pluginId}`)
+      needsSelection = true
+      continue
+    }
+    if (!match.available || hasErrorDiagnostics(match.diagnostics)) {
+      throw new CompatibilityError(`插件 ${choice.pluginId} 的解析器 ${match.parserId} 不可用`, match.diagnostics)
+    }
+    resolved.set(choice.pluginId, match.parserId)
+  }
+  if (needsSelection) throw new ParserSelectionRequiredError([...choices])
+  return resolved
+}
+
 export async function buildParsedCandidates(
   { layout, parsers }: PluginPreparationContext,
   sourceId: string,
@@ -103,16 +147,36 @@ export async function buildParsedCandidates(
   transactionRoot: string,
   options: InstallOptions,
   existingExternalRoot?: string,
+  preparedContents?: readonly PreparedPlugin[],
 ): Promise<ParsedInstallCandidate[]> {
   if (options.as !== undefined && candidates.length !== 1) throw new Error('--as 只能用于一次安装一个插件')
   const parsed: ParsedInstallCandidate[] = []
-
+  const contents: PreparedPlugin[] = []
   for (const candidate of candidates) {
     options.signal?.throwIfAborted()
-    const prepared = await preparePluginContent(sourceRoot, candidate, transactionRoot, existingExternalRoot, options.signal)
-    let plugin = await parseAndCheckPlugin(
+    const cached = preparedContents?.find(item => item.candidate.id === candidate.id)
+    if (cached?.newlyMaterializedExternal !== undefined) {
+      const staged = join(transactionRoot, 'materialized-external', externalDirectoryName(candidate.id))
+      await copyPluginDirectory(cached.newlyMaterializedExternal, staged, options.signal)
+      const relativeRoot = cached.location.type === 'git-subdir' ? cached.location.path : '.'
+      contents.push({ ...cached, candidate, packageRoot: resolve(staged, 'package', relativeRoot), newlyMaterializedExternal: staged })
+    } else {
+      contents.push(cached === undefined
+        ? await preparePluginContent(sourceRoot, candidate, transactionRoot, existingExternalRoot, options.signal)
+        : { ...cached, candidate })
+    }
+  }
+  const choices = await inspectPreparedParsers(parsers, contents)
+  const selectedParsers = resolveParserSelections(choices, options.plugins ?? [])
+
+  for (const prepared of contents) {
+    options.signal?.throwIfAborted()
+    const candidate = prepared.candidate
+    const parserId = selectedParsers.get(candidate.id)!
+    const plugin = await parseAndCheckPlugin(
       { layout, parsers },
       prepared.packageRoot,
+      parserId,
       sourceId,
       candidate.id,
       candidate.id,
@@ -120,17 +184,17 @@ export async function buildParsedCandidates(
       [],
       candidate,
     )
-    plugin = withAdditionalDiagnostics(plugin, candidate.diagnostics)
     const install: InstallMetadata = {
       pluginId: plugin.id,
       sourceId,
       sourcePluginId: candidate.id,
+      parserId,
       location: prepared.location,
       ...(prepared.materialization === undefined ? {} : { materialization: prepared.materialization }),
       installedAt: new Date().toISOString(),
     }
     parsed.push({
-      prepared,
+      prepared: { ...prepared, candidate: selectCandidateParser(candidate, parserId) },
       plugin,
       install,
       state: stateOf(false, options.priority ?? 0),

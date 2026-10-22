@@ -2,7 +2,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
 import {
   type InstallPreparation,
-  type InstallResult,
+  type InstallCompletion,
+  type PluginInstallSelection,
   type PluginInstallResult,
   type PluginListEntry,
 } from '../../manager/manager.js'
@@ -190,9 +191,9 @@ export class CompatWebOperations {
       }
       signal.throwIfAborted()
       const only = preparation.plugins[0]
-      if (!preparation.selectionRequired && preparation.plugins.length === 1 && only.installable && !only.diagnostics.some(item => item.level === 'error')) {
-        const installed = await this.installRequests.complete(preparation.preparationId, [only.id], signal)
-        return this.installedResult(installed)
+      if (!preparation.selectionRequired && preparation.plugins.length === 1 && only.installable) {
+        const installed = await this.installRequests.complete(preparation.preparationId, [{ pluginId: only.id }], signal)
+        return this.completionResult(preparation.preparationId, installed)
       }
       return {
         kind: 'selection',
@@ -231,10 +232,10 @@ export class CompatWebOperations {
   }
 
   /** 使用 beginAdd 返回的同一份 Source 快照安装所选插件；失败后可重试。 */
-  async completeAdd(requestId: string, plugins: string[], signal: AbortSignal = new AbortController().signal): Promise<CompatWebAddResult> {
+  async completeAdd(requestId: string, plugins: PluginInstallSelection[], signal: AbortSignal = new AbortController().signal): Promise<CompatWebAddResult> {
     if (plugins.length === 0) return { kind: 'error', message: '请至少选择一个可安装插件' }
     try {
-      return this.installedResult(await this.installRequests.complete(requestId, plugins, signal))
+      return this.completionResult(requestId, await this.installRequests.complete(requestId, plugins, signal))
     } catch (error) {
       return { kind: 'error', message: signal.aborted ? '安装已取消' : messageOf(error) }
     }
@@ -278,8 +279,25 @@ export class CompatWebOperations {
     }
   }
 
-  private installedResult(result: InstallResult): CompatWebAddResult {
-    return { kind: 'installed', plugins: result.plugins.map(webInstalledPlugin) }
+  private completionResult(requestId: string, completion: InstallCompletion): CompatWebAddResult {
+    if (completion.kind === 'installed') {
+      return { kind: 'installed', plugins: completion.result.plugins.map(webInstalledPlugin) }
+    }
+    return {
+      kind: 'parser-selection',
+      requestId,
+      plugins: completion.plugins.map(plugin => ({
+        pluginId: plugin.pluginId,
+        name: plugin.name,
+        matches: plugin.matches.map(match => ({
+          parserId: match.parserId,
+          label: { ...match.label },
+          available: match.available,
+          evidence: match.evidence.map(item => ({ ...item })),
+          diagnostics: webDiagnostics(match.diagnostics),
+        })),
+      })),
+    }
   }
 }
 
@@ -332,10 +350,10 @@ export class CompatWebGateway extends TypertRemoteService {
 
   /**
    * @param requestId - beginAdd 返回的一次性请求 ID。
-   * @param plugins - 多插件来源中明确选中的候选 ID。
+   * @param plugins - 完整的插件选择及可选解析器 ID。
    */
   @Remote('completeAdd')
-  completeAdd(requestId: string, plugins: string[], signal: AbortSignal): Promise<CompatWebAddResult> {
+  completeAdd(requestId: string, plugins: PluginInstallSelection[], signal: AbortSignal): Promise<CompatWebAddResult> {
     return this.operations.completeAdd(requestId, plugins, signal)
   }
 

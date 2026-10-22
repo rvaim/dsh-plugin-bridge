@@ -92,6 +92,8 @@ export interface SourceScanCache {
   diagnostics: CompatDiagnostic[]
   marketplaceFiles: string[]
   discovery: 'marketplace' | 'single-plugin' | 'manual-paths'
+  /** 无清单名称的根插件使用该稳定来源种子；安装与更新重扫原样重放。 */
+  suggestedPluginId?: string
   /** 无 Marketplace 时用户显式提供的 paths；用于更新时重放相同定位规则。 */
   manualPaths?: string[]
 }

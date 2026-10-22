@@ -52,7 +52,7 @@ try {
     ].join('\n')
     await writeFile(join(profile, 'src/composition/builtins.ts'), registration)
     await writeFile(join(profile, 'package.json'), JSON.stringify({ name: '@rvaim/dsh-plugin-bridge', type: 'module', exports: { './types': './src/types/index.ts', './remote': { types: './dist/typert.remote-client.d.ts', default: './dist/typert.remote-client.js' } } }))
-    await symlink(join(root, 'node_modules'), join(profile, 'node_modules'), 'dir')
+    await symlink(join(root, 'node_modules'), join(profile, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
     await mkdir(join(profile, 'dist'))
     for (const file of ['typert.host.js', 'typert.host.d.ts', 'typert.remote-client.js', 'typert.remote-client.d.ts', 'typert.remote-client.d.ts.map']) {
       await cp(join(root, 'dist', file), join(profile, 'dist', file))

@@ -1,6 +1,5 @@
-import { lstat } from 'node:fs/promises'
-import { resolve } from 'node:path'
 import type { PluginParser } from '../../parser/contracts.js'
+import { matchesManifest } from '../../parser/registry.js'
 import { DiagnosticCollector } from '../../shared/diagnostics.js'
 import { parseAgentPluginsHarness } from './manifest.js'
 import { parseAgentPluginSkills } from './skills.js'
@@ -9,20 +8,18 @@ import { AGENT_PLUGIN_SCHEMA_URI, AGENT_PLUGINS_VERSION } from './constants.js'
 
 export const agentPluginsParser: PluginParser = {
   id: 'agent-plugins',
-  version: '1.1.0',
+  version: '1.2.0',
   category: { label: { default: 'Agent Plugins', en: 'Agent Plugins', zh: 'Agent Plugins' }, order: 30 },
-  signature: { id: 'agent-plugins', manifestPaths: ['plugin.json'], marketplacePaths: [], exclusive: true, priority: 100 },
-  async detect(root) {
-    const matched = await lstat(resolve(root, 'plugin.json')).then(() => true, error => {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-      throw error
-    })
-    return { matched }
+  signature: {
+    id: 'agent-plugins', manifestPaths: ['plugin.json'], manifestSchemaPrefix: 'https://agent-plugins.org/schemas/',
+    marketplacePaths: [], exclusive: true, priority: 100,
   },
+  async detect(root) { return { matched: await matchesManifest(root, agentPluginsParser.signature) } },
   async discoverSource() { return undefined },
-  async inferName(root) {
-    const descriptor = await parseAgentPluginsHarness(root, new DiagnosticCollector())
-    return descriptor?.name
+  async preflight(root) {
+    const collector = new DiagnosticCollector()
+    const descriptor = await parseAgentPluginsHarness(root, collector)
+    return { ...(descriptor === undefined ? {} : { name: descriptor.name }), diagnostics: collector.items }
   },
   async parsePlugin({ root }) {
     const collector = new DiagnosticCollector()

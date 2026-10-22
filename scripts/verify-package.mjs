@@ -21,7 +21,6 @@ for (const file of [
   'locale/zh.json',
   'locale/en.json',
   'icon.png',
-  'docs/包更名说明.md',
   'README.md',
   'CHANGELOG.md',
   'cordis.patch.yml',
@@ -54,7 +53,7 @@ for (const [locale, title] of [['zh', '插件桥'], ['en', 'Plugin Bridge']]) {
 }
 const icon = await readFile(new URL('icon.png', root))
 if (icon.length > 256 * 1024 || icon.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('包图标必须为有效大小的 PNG')
-if (packageJson.version !== '0.7.0') throw new Error('交付版本必须为 0.7.0')
+if (packageJson.version !== '0.8.0') throw new Error('交付版本必须为 0.8.0')
 if (packageJson.publishConfig?.access !== 'public') throw new Error('npm 组织包必须公开发布')
 if (packageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error('npm 发布 registry 配置错误')
 if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-plugin-bridge.git') {
@@ -131,8 +130,9 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm'
 const packed = spawnSync(npm, ['pack', '--dry-run', '--json', '--ignore-scripts'], {
   cwd: new URL('.', root),
   encoding: 'utf8',
+  shell: process.platform === 'win32',
 })
-if (packed.status !== 0) throw new Error(`npm pack --dry-run 失败：${packed.stderr.trim()}`)
+if (packed.status !== 0) throw new Error(`npm pack --dry-run 失败：${(packed.stderr ?? packed.error?.message ?? 'unknown').trim()}`)
 const packReport = JSON.parse(packed.stdout)
 const files = new Set(packReport[0]?.files?.map(item => item.path) ?? [])
 if (![...files].some(path => path === 'dist/src/index.js')) throw new Error('npm 包缺少 dist/src/index.js')
@@ -141,7 +141,6 @@ for (const required of [
   'locale/zh.json',
   'locale/en.json',
   'icon.png',
-  'docs/包更名说明.md',
   'dist/src/manager/plugin-loader.js',
   'dist/src/runtime/adapters/hooks.js',
   'dist/src/runtime/adapters/mcp.js',

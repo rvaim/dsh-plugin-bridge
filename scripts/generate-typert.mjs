@@ -41,7 +41,7 @@ function typeTarget(value) {
 try {
   await mkdir(packageRoot, { recursive: true })
   await cp(join(root, 'src'), join(packageRoot, 'src'), { recursive: true })
-  await symlink(join(root, 'node_modules'), join(temporaryRoot, 'node_modules'), 'dir')
+  await symlink(join(root, 'node_modules'), join(temporaryRoot, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir')
   const paths = { [`${packageName}/types`]: ['./packages/dsh-plugin-bridge/src/types/index.ts'] }
   const references = []
   const sdkScope = join(root, 'node_modules', '@deepseek-ai')

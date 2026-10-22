@@ -65,6 +65,7 @@ export async function updateSourceUnlocked(
     const discovery = await host.parsers.parseSource(acquired.acquiredRoot, {
       ...(oldSource.scan.manualPaths === undefined ? {} : { paths: oldSource.scan.manualPaths }),
       allowSingleWrapper: acquired.allowSingleWrapper,
+      suggestedPluginId: oldSource.scan.suggestedPluginId,
     })
     await Promise.all([
       mkdir(join(stagedSource, 'package'), { recursive: true, mode: 0o700 }),

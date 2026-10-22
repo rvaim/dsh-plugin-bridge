@@ -99,8 +99,8 @@ export class CompatManager {
   }
 
   /** Serialize repository snapshots and mutations; slow read-only origin probes run outside it. */
-  private async withManagedRepository<T>(operation: () => Promise<T>): Promise<T> {
-    return await withRepositoryLock(this.layout, operation)
+  private async withManagedRepository<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    return await withRepositoryLock(this.layout, operation, { signal })
   }
 
   private runtimeSnapshot(pluginId: string, enabled: boolean): PluginRuntimeSnapshot {
@@ -242,7 +242,7 @@ export class CompatManager {
   private async createSourceRecord(
     resolved: ResolvedInstallSource,
     ownership: SourceOwnership,
-    options: { as?: string; paths?: string[]; retainArchive?: boolean },
+    options: SourceAddOptions & { retainArchive?: boolean },
     transaction: string,
   ): Promise<{
     sourceId: string
@@ -250,12 +250,12 @@ export class CompatManager {
     record: InstalledSourceRecord
     discovery: SourceDiscovery
   }> {
-    const acquired = await acquireSource(resolved, join(transaction, 'source-acquire'))
+    const acquired = await acquireSource(resolved, join(transaction, 'source-acquire'), options.signal)
     const provisional = normalizeManagementId(options.as ?? resolved.suggestedId ?? 'source', 'source')
     const discovery = await this.parsers.parseSource(acquired.acquiredRoot, {
       ...(options.paths === undefined ? {} : { paths: options.paths }),
       allowSingleWrapper: acquired.allowSingleWrapper,
-      suggestedPluginId: resolved.suggestedId,
+      suggestedPluginId: resolved.suggestedId ?? provisional,
     })
     const sourceId = normalizeManagementId(
       options.as ?? discovery.name ?? resolved.suggestedId ?? provisional,
@@ -266,7 +266,8 @@ export class CompatManager {
       mkdir(join(recordRoot, 'package'), { recursive: true, mode: 0o700 }),
       mkdir(join(recordRoot, 'cache'), { recursive: true, mode: 0o700 }),
     ])
-    await copyPluginDirectory(discovery.root, join(recordRoot, 'package'))
+    await copyPluginDirectory(discovery.root, join(recordRoot, 'package'), options.signal)
+    options.signal?.throwIfAborted()
     const source: SourceMetadata = {
       id: sourceId,
       ...(discovery.name === undefined ? {} : { name: discovery.name }),
@@ -289,10 +290,11 @@ export class CompatManager {
     options: SourceAddOptions & { retainArchive?: boolean },
     ownership: SourceOwnership,
   ): Promise<{ source: SourceInspection; created: boolean }> {
+    options.signal?.throwIfAborted()
     const resolved = await resolveInstallSource(input, options.cwd)
     if (options.retainArchive) {
       if (resolved.source.type !== 'archive') throw new Error('上传来源必须是归档文件')
-      resolved.source.sha256 = await sha256File(resolved.source.path)
+      resolved.source.sha256 = await sha256File(resolved.source.path, options.signal)
       resolved.suggestedId = `upload-${resolved.source.sha256.slice(0, 24)}`
     }
     const existing = await this.repository.findSourceByOrigin(resolved.source)
@@ -308,6 +310,7 @@ export class CompatManager {
             throw new Error('该来源已登记，不能用不同 paths 重新定义；请先移除 Source')
           }
         }
+        options.signal?.throwIfAborted()
         let metadata = existing.source
         if (options.retainArchive && !isUploadedArchive(this.layout, metadata.id, metadata.origin)) {
           const origin = await retainUploadedArchive(this.layout, metadata.id, resolved.source, this.layout.sourceRoot(metadata.id))
@@ -327,7 +330,7 @@ export class CompatManager {
           }
         }
         return await this.repository.inspectSourceUnlocked(existing.source.id)
-      })
+      }, { signal: options.signal })
       return { source, created: false }
     }
 
@@ -337,9 +340,18 @@ export class CompatManager {
       const source = await withSourceLock(this.layout, created.sourceId, async () => {
         const destination = this.layout.sourceRoot(created.sourceId)
         if (await pathExists(destination)) throw new Error(`Source ${created.sourceId} 已存在；请使用 --as 指定其他 ID`)
+        options.signal?.throwIfAborted()
         await commitDirectory(created.recordRoot, destination)
-        return await this.repository.inspectSourceUnlocked(created.sourceId)
-      })
+        try {
+          const inspection = await this.repository.inspectSourceUnlocked(created.sourceId)
+          options.signal?.throwIfAborted()
+          return inspection
+        } catch (error) {
+          // 新建来源尚未交给调用方，失败或取消时在持锁范围内回收。
+          await rm(destination, { recursive: true, force: true })
+          throw error
+        }
+      }, { signal: options.signal })
       return { source, created: true }
     } finally {
       await cleanAcquisition(transaction)
@@ -348,7 +360,7 @@ export class CompatManager {
 
   async sourceAdd(input: string, options: SourceAddOptions = {}): Promise<SourceInspection> {
     return await this.withManagedRepository(async () =>
-      (await this.ensureStoredSource(input, options, 'explicit')).source)
+      (await this.ensureStoredSource(input, options, 'explicit')).source, options.signal)
   }
 
   private async sourceSnapshot(source: SourceMetadata): Promise<SourceSnapshot> {
@@ -376,8 +388,8 @@ export class CompatManager {
   }
 
   /** Upload intake transfers the original archive into Source-owned storage. */
-  async prepareArchiveInstall(input: string): Promise<InstallPreparation> {
-    return await this.prepareSourceInstall(input, { retainArchive: true })
+  async prepareArchiveInstall(input: string, signal?: AbortSignal): Promise<InstallPreparation> {
+    return await this.prepareSourceInstall(input, { retainArchive: true, signal })
   }
 
   private async prepareSourceInstall(input: string, options: SourceAddOptions & { retainArchive?: boolean }): Promise<InstallPreparation> {
@@ -401,7 +413,7 @@ export class CompatManager {
         sourceCreated: prepared.created,
         plugins: prepared.source.compat.plugins,
       }
-    })
+    }, options.signal)
   }
 
   private finishPreparation(preparationId: string, group: PreparedSource): void {
@@ -411,16 +423,16 @@ export class CompatManager {
   }
 
   /** Validate and install the captured revision in the same repository transaction. */
-  async completeInstallPreparation(preparationId: string, plugins: string[]): Promise<InstallResult> {
+  async completeInstallPreparation(preparationId: string, plugins: string[], signal?: AbortSignal): Promise<InstallResult> {
     return await this.withManagedRepository(async () => {
       const group = this.preparations.get(preparationId)
       if (group === undefined) throw new Error('该添加请求已结束，请重新拉取来源')
       if (plugins.length === 0) throw new Error('请至少选择一个可安装插件')
       if (!await this.snapshotIsCurrent(group.snapshot)) throw new Error('准备安装的 Source 已变化，请重新拉取来源')
-      const result = await this.installUnlocked(group.snapshot.sourceId, { plugins })
+      const result = await this.installUnlocked(group.snapshot.sourceId, { plugins, signal })
       this.finishPreparation(preparationId, group)
       return result
-    })
+    }, signal)
   }
 
   /** Release only this session; the last owner may reclaim its original implicit Source. */
@@ -519,10 +531,11 @@ export class CompatManager {
   }
 
   async install(input: string, options: InstallOptions = {}): Promise<InstallResult> {
-    return await this.withManagedRepository(() => this.installUnlocked(input, options))
+    return await this.withManagedRepository(() => this.installUnlocked(input, options), options.signal)
   }
 
   private async installUnlocked(input: string, options: InstallOptions): Promise<InstallResult> {
+    options.signal?.throwIfAborted()
     const reference = await this.resolveInstallInput(input, options)
     const transaction = await createTransactionDir(this.layout, 'install')
     let committedNewSourceId: string | undefined
@@ -556,6 +569,7 @@ export class CompatManager {
         }
       } else {
         const created = await this.createSourceRecord(reference.resolved!, 'implicit', {
+          signal: options.signal,
           ...(options.sourceAs === undefined ? {} : { as: options.sourceAs }),
           ...(options.paths === undefined ? {} : { paths: options.paths }),
         }, transaction)
@@ -569,6 +583,7 @@ export class CompatManager {
         }
       }
 
+      options.signal?.throwIfAborted()
       const selectors = reference.forcedPlugin === undefined
         ? options.plugins ?? []
         : [reference.forcedPlugin, ...(options.plugins ?? [])]
@@ -622,6 +637,7 @@ export class CompatManager {
           }
 
           try {
+            options.signal?.throwIfAborted()
             if (newSource) {
               await commitDirectory(sourceRoot, this.layout.sourceRoot(sourceId))
               committedNewSourceId = sourceId
@@ -665,7 +681,9 @@ export class CompatManager {
 
           let results: PluginInstallResult[]
           try {
+            options.signal?.throwIfAborted()
             results = await this.startInstalledCandidates(parsed, options.enable)
+            options.signal?.throwIfAborted()
           } catch (error) {
             let stopError: unknown
             if (this.runtime !== undefined) {

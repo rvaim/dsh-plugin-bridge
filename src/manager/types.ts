@@ -5,6 +5,7 @@ import type { CompatPluginLocation, CompatSource, CompatSourcePlugin, InstalledS
 import type { SourcePluginCandidate } from '../types/catalog.js'
 
 export interface InstallOptions {
+  signal?: AbortSignal
   cwd?: string
   /** 单插件安装时覆盖 plugin-bridge 管理 ID；不会改写插件内部名称。 */
   as?: string
@@ -19,6 +20,7 @@ export interface InstallOptions {
 }
 
 export interface SourceAddOptions {
+  signal?: AbortSignal
   cwd?: string
   as?: string
   paths?: string[]

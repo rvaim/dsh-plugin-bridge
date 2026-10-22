@@ -44,10 +44,13 @@ export function validateSymlinkTarget(root: string, linkPath: string, target: st
 }
 
 /** 校验目录树中的所有符号链接最终仍位于根目录内。 */
-export async function verifyExtractedTree(root: string): Promise<void> {
+export async function verifyExtractedTree(root: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted()
   const rootReal = await realpath(root)
   const walk = async (directory: string): Promise<void> => {
+    signal?.throwIfAborted()
     for (const entry of await readdir(directory, { withFileTypes: true })) {
+      signal?.throwIfAborted()
       const path = resolve(directory, entry.name)
       const stat = await lstat(path)
       if (stat.isSymbolicLink()) {

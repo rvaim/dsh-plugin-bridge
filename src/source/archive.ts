@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto'
+import { createReadStream } from 'node:fs'
 import { mkdir, readFile, stat, symlink } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
-import { gunzipSync, inflateRawSync } from 'node:zlib'
+import { promisify } from 'node:util'
+import { setImmediate } from 'node:timers/promises'
+import { gunzip, inflateRaw } from 'node:zlib'
 import { writeExclusive } from './filesystem.js'
 import {
   DEFAULT_EXTRACTION_LIMITS,
@@ -48,9 +51,17 @@ const CRC_TABLE = (() => {
   return table
 })()
 
-function crc32(buffer: Buffer): number {
+const gunzipAsync = promisify(gunzip)
+const inflateRawAsync = promisify(inflateRaw)
+
+async function crc32(buffer: Buffer, signal?: AbortSignal): Promise<number> {
   let crc = 0xffffffff
-  for (const byte of buffer) crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8)
+  for (let offset = 0; offset < buffer.length; offset += 64 * 1024) {
+    signal?.throwIfAborted()
+    const end = Math.min(offset + 64 * 1024, buffer.length)
+    for (let index = offset; index < end; index += 1) crc = CRC_TABLE[(crc ^ buffer[index]) & 0xff] ^ (crc >>> 8)
+    if (offset % (1024 * 1024) === 0) await setImmediate(undefined, { signal })
+  }
   return (crc ^ 0xffffffff) >>> 0
 }
 
@@ -62,7 +73,7 @@ function findZipEndOfCentralDirectory(buffer: Buffer): number {
   throw new Error('ZIP 缺少 End of Central Directory')
 }
 
-async function extractZip(buffer: Buffer, destination: string, limits: ExtractionLimits): Promise<void> {
+async function extractZip(buffer: Buffer, destination: string, limits: ExtractionLimits, signal?: AbortSignal): Promise<void> {
   const eocd = findZipEndOfCentralDirectory(buffer)
   const disk = buffer.readUInt16LE(eocd + 4)
   const centralDisk = buffer.readUInt16LE(eocd + 6)
@@ -80,6 +91,8 @@ async function extractZip(buffer: Buffer, destination: string, limits: Extractio
   let cursor = centralOffset
 
   for (let index = 0; index < totalEntries; index += 1) {
+    signal?.throwIfAborted()
+    if (index % 64 === 0) await setImmediate(undefined, { signal })
     if (cursor + 46 > buffer.length || buffer.readUInt32LE(cursor) !== 0x02014b50) throw new Error('ZIP 中央目录损坏')
     const versionMadeBy = buffer.readUInt16LE(cursor + 4)
     const flags = buffer.readUInt16LE(cursor + 8)
@@ -127,10 +140,11 @@ async function extractZip(buffer: Buffer, destination: string, limits: Extractio
     let data: Buffer
     const compressed = buffer.subarray(dataStart, dataEnd)
     if (method === 0) data = Buffer.from(compressed)
-    else if (method === 8) data = inflateRawSync(compressed, { maxOutputLength: limits.maxFileBytes })
+    else if (method === 8) data = await inflateRawAsync(compressed, { maxOutputLength: limits.maxFileBytes })
     else throw new Error(`ZIP 使用不支持的压缩方法 ${method}：${name}`)
+    signal?.throwIfAborted()
     if (data.length !== uncompressedSize) throw new Error(`ZIP 成员大小不匹配：${name}`)
-    if (crc32(data) !== expectedCrc) throw new Error(`ZIP 成员 CRC 校验失败：${name}`)
+    if (await crc32(data, signal) !== expectedCrc) throw new Error(`ZIP 成员 CRC 校验失败：${name}`)
 
     if (isSymlink) {
       const target = data.toString('utf8')
@@ -138,12 +152,14 @@ async function extractZip(buffer: Buffer, destination: string, limits: Extractio
       symlinks.push({ path: outputPath, target })
     } else {
       const mode = unixMode === 0 ? 0o600 : unixMode & 0o777
-      await writeExclusive(outputPath, data, mode)
+      await writeExclusive(outputPath, data, mode, signal)
     }
   }
 
   for (const link of symlinks) {
+    signal?.throwIfAborted()
     await mkdir(dirname(link.path), { recursive: true, mode: 0o700 })
+    signal?.throwIfAborted()
     await symlink(link.target, link.path)
   }
 }
@@ -191,7 +207,7 @@ function parsePax(payload: Buffer): Record<string, string> {
   return result
 }
 
-async function extractTar(buffer: Buffer, destination: string, limits: ExtractionLimits): Promise<void> {
+async function extractTar(buffer: Buffer, destination: string, limits: ExtractionLimits, signal?: AbortSignal): Promise<void> {
   const seen = new Set<string>()
   const symlinks: PendingSymlink[] = []
   const budget: ExtractionBudget = { entries: 0, bytes: 0 }
@@ -202,6 +218,8 @@ async function extractTar(buffer: Buffer, destination: string, limits: Extractio
   let longLink: string | undefined
 
   while (cursor + 512 <= buffer.length) {
+    signal?.throwIfAborted()
+    if (budget.entries % 64 === 0) await setImmediate(undefined, { signal })
     const header = buffer.subarray(cursor, cursor + 512)
     cursor += 512
     if (header.every(byte => byte === 0)) break
@@ -253,7 +271,7 @@ async function extractTar(buffer: Buffer, destination: string, limits: Extractio
       await mkdir(outputPath, { recursive: true, mode: 0o700 })
     } else if (typeFlag === '0' || typeFlag === '\0') {
       consumeBudget(budget, payload.length, limits, name)
-      await writeExclusive(outputPath, Buffer.from(payload), readTarNumber(header, 100, 8) & 0o777)
+      await writeExclusive(outputPath, payload, readTarNumber(header, 100, 8) & 0o777, signal)
     } else if (typeFlag === '2') {
       consumeBudget(budget, 0, limits, name)
       validateSymlinkTarget(destination, outputPath, effectiveLink)
@@ -266,39 +284,49 @@ async function extractTar(buffer: Buffer, destination: string, limits: Extractio
   }
 
   for (const link of symlinks) {
+    signal?.throwIfAborted()
     await mkdir(dirname(link.path), { recursive: true, mode: 0o700 })
+    signal?.throwIfAborted()
     await symlink(link.target, link.path)
   }
 }
 
-export async function sha256File(path: string): Promise<string> {
-  const data = await readFile(path)
-  return createHash('sha256').update(data).digest('hex')
+export async function sha256File(path: string, signal?: AbortSignal): Promise<string> {
+  signal?.throwIfAborted()
+  const hash = createHash('sha256')
+  for await (const chunk of createReadStream(path, { signal })) {
+    signal?.throwIfAborted()
+    hash.update(chunk)
+  }
+  signal?.throwIfAborted()
+  return hash.digest('hex')
 }
 
 /** 安全解压 ZIP、TAR、TGZ；任何成员都不得逃出 destination。 */
 export async function extractArchive(
   archivePath: string,
   destination: string,
+  signal?: AbortSignal,
   overrides: Partial<ExtractionLimits> = {},
 ): Promise<void> {
+  signal?.throwIfAborted()
   const limits = mergeLimits(overrides)
   const info = await stat(archivePath)
   if (!info.isFile()) throw new Error(`不是归档文件：${archivePath}`)
   if (info.size > limits.maxArchiveBytes) throw new Error(`归档文件超过限制：${limits.maxArchiveBytes}`)
+  const original = await readFile(archivePath, { signal })
+  signal?.throwIfAborted()
   await mkdir(destination, { recursive: true, mode: 0o700 })
-  const original = await readFile(archivePath)
-
+  signal?.throwIfAborted()
   if (original.length >= 4 && original.readUInt32LE(0) === 0x04034b50) {
-    await extractZip(original, destination, limits)
+    await extractZip(original, destination, limits, signal)
   } else {
     const tar = original[0] === 0x1f && original[1] === 0x8b
-      ? gunzipSync(original, { maxOutputLength: limits.maxTotalBytes + limits.maxEntries * 512 })
+      ? await gunzipAsync(original, { maxOutputLength: limits.maxTotalBytes + limits.maxEntries * 512 })
       : original
-    if (tar.length < 512 || readTarString(tar, 257, 6) !== 'ustar') {
-      throw new Error('无法识别归档格式；仅支持 ZIP、TAR、TGZ/TAR.GZ')
-    }
-    await extractTar(tar, destination, limits)
+    signal?.throwIfAborted()
+    if (tar.length < 512 || readTarString(tar, 257, 6) !== 'ustar') throw new Error('无法识别归档格式；仅支持 ZIP、TAR、TGZ/TAR.GZ')
+    await extractTar(tar, destination, limits, signal)
   }
-  await verifyExtractedTree(destination)
+  await verifyExtractedTree(destination, signal)
 }

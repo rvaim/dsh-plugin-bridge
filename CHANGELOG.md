@@ -1,5 +1,14 @@
 # 更新日志
 
+## 0.8.0 — 2026-10-22
+
+- 修复默认配置未显式设置 `parsers` 时装配零个解析器的问题；省略启用全部内置解析器，显式 `[]` 禁用全部。
+- Git 来源改用单条持久 `git cat-file --batch` 批量导出对象；Git 暂存元数据使用系统短临时目录，修复深目录长路径失败。
+- 添加和安装请求贯通 `AbortSignal`；拉取期间可取消，取消后等待子进程树退出并回收事务。
+- 根插件使用持久化稳定来源种子生成候选 ID，修复 `acquired-source`/`package` 两次扫描不一致。
+- 根 `plugin.json` 仅在声明 Agent Plugins schema 时参与独占识别；候选列表返回完整诊断。
+- 插件数据目录统一为 `$DSH_HOME/dsh-plugin-bridge/`，不包含旧名称别名或迁移代码。
+
 ## 0.7.0 — 2026-10-22
 
 解析器开发契约增加必填 `category` 声明，引擎端口增加 `categories` 与 `dispose()`，Web 列表 ready 结果新增 `categories`。自定义解析器或引擎应按[架构说明](docs/动态贡献与本地文件选择.md)补齐；协议解析规则、模型版本和磁盘数据目录保持。
@@ -12,7 +21,7 @@
 
 ## 0.6.0 — 2026-10-21
 
-- GitHub 上游迁至 `https://github.com/rvaim/dsh-plugin-bridge`，同步 npm repository/homepage/issues 与当前安装文档；稳定数据目录保持 `$DSH_HOME/dsh-compat/`。
+- GitHub 上游迁至 `https://github.com/rvaim/dsh-plugin-bridge`，同步 npm repository/homepage/issues 与当前安装文档；稳定数据目录保持 `$DSH_HOME/dsh-plugin-bridge/`。
 
 - SDK、Hook Protocol 和 Typert 生成器统一到 `engines.dsh` 声明的当前 DSH 版本；重新生成使用 `create()` 工厂的严格 Host/Remote codec，不保留旧格式转换。
 - 插件桥从设置页迁至侧边栏 `sidebar.panellist`，点击后在 `main` 打开独立管理面板；Client locale namespace 改为 `pluginBridge`，删除旧入口与组件别名。
@@ -27,7 +36,7 @@
 
 ## 0.5.0 — 2026-10-21
 
-此版本以新包名 `@rvaim/dsh-plugin-bridge` 交付，包含不兼容的服务命名和开发 API 调整；旧包不会自动升级或迁移 profile。支持的解析能力与当前 Desktop 运行边界分别记录，见[包更名说明](<docs/包更名说明.md>)和[验证报告](<docs/解析器解耦验证报告.md>)。
+此版本包含服务命名和开发 API 调整。支持的解析能力与 Desktop 运行边界见[验证报告](<docs/解析器解耦验证报告.md>)。
 
 ### 包标识与展示名称调整
 
@@ -36,7 +45,7 @@
 - Cordis 插件 ID：`plugin-bridge`。
 - npm 包名：`@rvaim/dsh-plugin-bridge`，版本 `0.5.0`。
 
-当前服务统一为 `ctx.pluginBridge`，RPC namespace 为 `pluginBridgeAdmin`，Client locale namespace 为 `settings.pluginBridge`，Settings section ID 为 `plugin-bridge`；不保留旧 namespace 别名。内部 `Compat*` 类型及 `parseCompat*` 函数保留原名。数据 namespace 继续使用 `dsh-compat`，磁盘目录仍为 `$DSH_HOME/dsh-compat/`；repository 仍为 `https://github.com/rvaim/dsh-compat`。本次不自动修改任何 profile，历史发布记录保留当时的包名和 API，详细边界见[包更名说明](<docs/包更名说明.md>)。
+当前服务统一为 `ctx.pluginBridge`，RPC namespace 为 `pluginBridgeAdmin`，Client locale namespace 为 `settings.pluginBridge`，Settings section ID 为 `plugin-bridge`；不保留旧 namespace 别名。内部 `Compat*` 类型及 `parseCompat*` 函数保留原名。数据目录为 `$DSH_HOME/dsh-plugin-bridge/`；repository 为 `https://github.com/rvaim/dsh-plugin-bridge`。历史发布记录保留当时事实。
 
 ### 源码目录收敛
 
@@ -81,7 +90,7 @@
 
 ## 0.4.3
 
-- npm 包名改为公开组织包 `@rvaim/dsh-compat`，并统一 Cordis resolver、Web Client ModuleLoader 与 Typert 的包级标识。
+- npm 包名改为公开组织包 `@rvaim/dsh-plugin-bridge`，并统一 Cordis resolver、Web Client ModuleLoader 与 Typert 的包级标识。
 - README 将 npm 安装和 Web 使用流程移至最前，加入兼容插件设置页截图与旧 GitHub 依赖替换说明。
 - 发布清单增加 npm registry、GitHub repository 元数据和截图校验。
 
@@ -95,10 +104,10 @@
 
 ## 0.4.0
 
-- 移除独立 `dsh-compat` CLI 及 `@clack/prompts` 依赖：旧 Plugin 的添加、启停和卸载统一通过“设置 → 兼容插件”页面或 `ctx.compat` 服务 API 完成。
+- 移除独立 `dsh-plugin-bridge` CLI 及 `@clack/prompts` 依赖：旧 Plugin 的添加、启停和卸载统一通过“设置 → 兼容插件”页面或 `ctx.compat` 服务 API 完成。
 - 移除仅供 CLI 交互选择使用的 `InstallOptions.selectPlugins` 与 `PluginSelectionRequiredError`；多插件 Source 直接通过 `plugins` 显式选择，Web 二阶段流程继续使用 `prepareInstall/completeAdd`。
 - 发布包不再声明 `bin`。
-- 移除 dsh-compat 自身旧版磁盘兼容标记：`source.json`、`install.json`、`state.json` 与 `scan.json` 不再写入 `schemaVersion`，`install.json` 不再写冗余 `pluginPath` 字段，并去掉相关旧版本校验与旧 `source.json` 缺失 `name` 的回填逻辑；删除无调用者的 `DEFAULT_PLUGIN_STATE`、`listPluginRecordsForSource`、`selectExtractedPluginRoot`、`rollbackRemove`。
+- 移除 dsh-plugin-bridge 自身旧版磁盘兼容标记：`source.json`、`install.json`、`state.json` 与 `scan.json` 不再写入 `schemaVersion`，`install.json` 不再写冗余 `pluginPath` 字段，并去掉相关旧版本校验与旧 `source.json` 缺失 `name` 的回填逻辑；删除无调用者的 `DEFAULT_PLUGIN_STATE`、`listPluginRecordsForSource`、`selectExtractedPluginRoot`、`rollbackRemove`。
 - 合并重复的已安装插件根目录解析逻辑，统一走 `resolveInstalledPluginPackageRoot()`。
 
 ## 0.3.1
@@ -109,7 +118,7 @@
 
 ## 0.3.0
 
-- 新增与 DSH Web 原生设置面板融合的“兼容插件”页面，可查看当前 profile 中由 dsh-compat 管理的插件，并在线启用、停用和卸载。
+- 新增与 DSH Web 原生设置面板融合的“兼容插件”页面，可查看当前 profile 中由 dsh-plugin-bridge 管理的插件，并在线启用、停用和卸载。
 - 新增带进度反馈的 Web 添加弹窗：单插件 Source 拉取后直接安装，多插件 Source 使用复选列表选择；选择阶段复用第一次固定的 Source 快照，不重复拉取。
 - Web 管理调用通过 DSH Typert Remote 严格 schema 暴露；浏览器端复用 DSH 的 Settings Slot、UI primitives、主题 token 与中英文 locale。
 - 新增未完成选择的回收机制：取消、页面卸载或请求超时都会尝试删除未被引用的临时隐式 Source。

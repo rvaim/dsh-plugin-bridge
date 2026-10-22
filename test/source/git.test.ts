@@ -50,7 +50,7 @@ test('Git 获取不创建 checkout，因此不会触发 smudge 过滤器', async
     await runProcess('git', ['-C', repo, 'commit', '-m', 'filter'])
     const filterScript = resolve(temp.path, 'smudge.sh')
     await writeFile(filterScript, `#!/bin/sh\necho executed > \"${marker}\"\ncat\n`, { mode: 0o700 })
-    await writeFile(globalConfig, `[filter \"compat-evil\"]\n\trequired = true\n\tsmudge = ${filterScript}\n`)
+    await writeFile(globalConfig, `[filter "compat-evil"]\n\trequired = true\n\tsmudge = ${filterScript.replaceAll('\\', '/')}\n`)
     process.env.GIT_CONFIG_GLOBAL = globalConfig
     process.env.GIT_CONFIG_NOSYSTEM = '1'
 
@@ -116,6 +116,40 @@ test('Git ref 支持分支、标签和提交 SHA，并记录最终提交', async
       assert.equal(result.source.commit, firstCommit)
       assert.equal(await readFile(resolve(destination, '.claude-plugin/plugin.json'), 'utf8'), '{"name":"first"}')
     }
+  } finally {
+    await temp.cleanup()
+  }
+})
+
+test('Git 导出使用批量对象读取，并支持取消且清理目标', { timeout: 30_000 }, async () => {
+  const temp = await temporaryDirectory()
+  try {
+    const repo = resolve(temp.path, 'batch-repo')
+    const destination = resolve(temp.path, 'batch-clone')
+    await mkdir(repo)
+    await runProcess('git', ['init', repo])
+    await runProcess('git', ['-C', repo, 'config', 'user.email', 'test@example.com'])
+    await runProcess('git', ['-C', repo, 'config', 'user.name', 'Test'])
+    for (let index = 0; index < 250; index += 1) {
+      const directory = resolve(repo, 'nested', `part-${index % 10}`)
+      await mkdir(directory, { recursive: true })
+      await writeFile(resolve(directory, `file-${index}.txt`), `content-${index}`)
+    }
+    await runProcess('git', ['-C', repo, 'add', '.'])
+    await runProcess('git', ['-C', repo, 'commit', '-m', 'many files'])
+
+    await cloneGitPlugin(repo, destination)
+    assert.equal(await readFile(resolve(destination, 'nested/part-9/file-249.txt'), 'utf8'), 'content-249')
+
+    const cancelled = resolve(temp.path, 'cancelled-clone')
+    const controller = new AbortController()
+    const abort = setTimeout(() => controller.abort(new Error('cancelled by test')), 1)
+    try {
+      await assert.rejects(cloneGitPlugin(repo, cancelled, undefined, controller.signal), /cancelled by test|aborted/i)
+    } finally {
+      clearTimeout(abort)
+    }
+    await assert.rejects(access(cancelled), /ENOENT/)
   } finally {
     await temp.cleanup()
   }

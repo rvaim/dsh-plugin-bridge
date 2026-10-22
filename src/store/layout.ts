@@ -28,8 +28,7 @@ export class CompatLayout {
 
   constructor(harnessHome = process.env.DSH_HOME ?? join(homedir(), '.dsh')) {
     this.harnessHome = resolve(harnessHome)
-    // 保留稳定 storage key，避免品牌重命名后无法读取已有安装与数据。
-    this.root = join(this.harnessHome, 'dsh-compat')
+    this.root = join(this.harnessHome, 'dsh-plugin-bridge')
     this.sources = join(this.root, 'sources')
     this.installed = join(this.root, 'installed')
     this.external = join(this.root, 'external')

@@ -1,6 +1,6 @@
 {
   "name": "@rvaim/dsh-plugin-bridge",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Plugin Bridge for DeepSeek Harness: manage and run Claude Code, Codex, and Agent Plugins.",
   "keywords": [
     "deepseek-harness",

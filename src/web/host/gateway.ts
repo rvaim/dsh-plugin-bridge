@@ -162,15 +162,17 @@ export class CompatWebOperations {
   }
 
   /** 拉取并固定一次来源；单插件直接安装，多插件返回一次性选择请求。 */
-  async beginAdd(source: string): Promise<CompatWebAddResult> {
+  async beginAdd(source: string, signal: AbortSignal = new AbortController().signal): Promise<CompatWebAddResult> {
     let preparation: InstallPreparation | undefined
     try {
-      preparation = await this.installRequests.prepare(source)
+      signal.throwIfAborted()
+      preparation = await this.installRequests.prepare(source, signal)
       if (preparation.plugins.length === 0) {
         throw new Error(`Source ${preparation.sourceId} 没有可定位的插件`)
       }
+      signal.throwIfAborted()
       if (preparation.plugins.length === 1) {
-        const installed = await this.installRequests.complete(preparation.preparationId, [preparation.plugins[0].id])
+        const installed = await this.installRequests.complete(preparation.preparationId, [preparation.plugins[0].id], signal)
         return this.installedResult(installed)
       }
       return {
@@ -189,7 +191,7 @@ export class CompatWebOperations {
           }
         }
       }
-      return { kind: 'error', message: messageOf(error) }
+      return { kind: 'error', message: signal.aborted ? '添加已取消' : messageOf(error) }
     }
   }
 
@@ -198,7 +200,7 @@ export class CompatWebOperations {
     let preparation: InstallPreparation | undefined
     try {
       signal.throwIfAborted()
-      preparation = await this.installRequests.prepare(source, path => this.compat.prepareArchiveInstall(path))
+      preparation = await this.installRequests.prepare(source, signal, (path, options) => this.compat.prepareArchiveInstall(path, options.signal))
       signal.throwIfAborted()
       if (preparation.plugins.length === 0) throw new Error('上传归档中没有可定位的插件')
       return { kind: 'selection', requestId: preparation.preparationId, candidates: preparation.plugins.map(webCandidate) }
@@ -209,12 +211,12 @@ export class CompatWebOperations {
   }
 
   /** 使用 beginAdd 返回的同一份 Source 快照安装所选插件；失败后可重试。 */
-  async completeAdd(requestId: string, plugins: string[]): Promise<CompatWebAddResult> {
+  async completeAdd(requestId: string, plugins: string[], signal: AbortSignal = new AbortController().signal): Promise<CompatWebAddResult> {
     if (plugins.length === 0) return { kind: 'error', message: '请至少选择一个可安装插件' }
     try {
-      return this.installedResult(await this.installRequests.complete(requestId, plugins))
+      return this.installedResult(await this.installRequests.complete(requestId, plugins, signal))
     } catch (error) {
-      return { kind: 'error', message: messageOf(error) }
+      return { kind: 'error', message: signal.aborted ? '安装已取消' : messageOf(error) }
     }
   }
 
@@ -304,8 +306,8 @@ export class CompatWebGateway extends TypertRemoteService {
 
   /** @param source - Git URL、github 简写、本地目录或归档位置。 */
   @Remote('beginAdd')
-  beginAdd(source: string): Promise<CompatWebAddResult> {
-    return this.operations.beginAdd(source)
+  beginAdd(source: string, signal: AbortSignal): Promise<CompatWebAddResult> {
+    return this.operations.beginAdd(source, signal)
   }
 
   /**
@@ -313,8 +315,8 @@ export class CompatWebGateway extends TypertRemoteService {
    * @param plugins - 多插件来源中明确选中的候选 ID。
    */
   @Remote('completeAdd')
-  completeAdd(requestId: string, plugins: string[]): Promise<CompatWebAddResult> {
-    return this.operations.completeAdd(requestId, plugins)
+  completeAdd(requestId: string, plugins: string[], signal: AbortSignal): Promise<CompatWebAddResult> {
+    return this.operations.completeAdd(requestId, plugins, signal)
   }
 
   /** @param requestId - 需要放弃并清理的添加请求 ID。 */

@@ -169,8 +169,8 @@ test('Codex Hook 保留完整 payload，并明确阻断不支持的 ask', async 
     assert.equal(search.toolCallTimeoutMs, 12_000)
     assert.equal(search.cwd, packageRoot)
     assert.deepEqual(search.args, [
-      resolve(packageRoot, 'scripts/search.js'),
-      resolve(layout.dataDir('codex-full'), 'cache.json'),
+      `${packageRoot}/scripts/search.js`,
+      `${layout.dataDir('codex-full')}/cache.json`,
     ])
     assert.equal((search.env as Record<string, string>).SEARCH_KEY, 'search-token')
     assert.equal((search.env as Record<string, string>).PLUGIN_ROOT, packageRoot)
@@ -296,7 +296,7 @@ test('Claude Hook 的 command + args 保留直接执行参数边界', async () =
     assert.equal(ctx.shared.hookRuns.length, 1)
     assert.equal(ctx.shared.hookRuns[0].hook.command, 'node')
     assert.deepEqual(ctx.shared.subprocessSpawns[0].argv, [
-      'node', resolve(packageRoot, 'bin/dispatch file.js'), '--host', 'claude', "quote'value",
+      'node', `${packageRoot}/bin/dispatch file.js`, '--host', 'claude', "quote'value",
     ])
   } finally {
     await ctx.dispose()

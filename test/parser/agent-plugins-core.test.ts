@@ -36,11 +36,13 @@ test('vendored Agent Plugins 1.0.0 schemas match tag and canonical endpoint SHA2
     ['plugin', '0a4aad95ce337878ad38802ebf0daa3fde76abe3f65400c86bcbb1ec0b3ab883'],
     ['mcp', '6539175bfcdf43085855183e86da40ea94b166547a72b47ae9a0a390516d3acb'],
   ]) {
-    const source = await readFile(resolve(`src/protocols/agent-plugins/schemas/1.0.0/${name}.schema.json`))
-    const emitted = await readFile(new URL(`../../src/protocols/agent-plugins/schemas/1.0.0/${name}.schema.json`, import.meta.url))
-    assert.equal(createHash('sha256').update(source).digest('hex'), expected)
+    const source = await readFile(resolve(`src/protocols/agent-plugins/schemas/1.0.0/${name}.schema.json`), 'utf8')
+    const emitted = await readFile(new URL(`../../src/protocols/agent-plugins/schemas/1.0.0/${name}.schema.json`, import.meta.url), 'utf8')
+    // 哈希对应规范 LF 内容；Git 在 Windows 上检出为 CRLF，比较前统一换行。
+    const canonical = source.replaceAll('\r\n', '\n')
+    assert.equal(createHash('sha256').update(canonical).digest('hex'), expected)
     // tsc 会重排 JSON 空白；发布产物必须保持相同的 schema 数据。
-    assert.deepEqual(JSON.parse(emitted.toString('utf8')), JSON.parse(source.toString('utf8')))
+    assert.deepEqual(JSON.parse(emitted), JSON.parse(source))
   }
   const license = JSON.parse(await readFile(new URL('../../src/protocols/agent-plugins/schemas/1.0.0/LICENSE.json', import.meta.url), 'utf8')) as Record<string, unknown>
   assert.equal(license.license, 'Apache-2.0')

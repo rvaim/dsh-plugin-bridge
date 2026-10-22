@@ -1,6 +1,6 @@
 # Agent Plugins 1.0.0 验证报告
 
-> 本文保留独立格式接入阶段的 201 项验证事实。当前包名已在工作区改为 `@rvaim/dsh-plugin-bridge`（插件桥 / Plugin Bridge），更名及其实际验证单独见[包更名说明](<包更名说明.md>)。
+> 本文保留独立格式接入阶段的 201 项验证事实。当前包名为 `@rvaim/dsh-plugin-bridge`（插件桥 / Plugin Bridge）。
 
 本轮基于工作区包版本 `0.4.4`，未发布；Plugin parser / Source parser 升级为 `3.1.0`。独立格式及来源基线见[兼容说明](<Agent Plugins 1.0.0 兼容说明.md>)。传统 Codex/CC 规则和上一阶段 164 项验证保留在各自文档。
 

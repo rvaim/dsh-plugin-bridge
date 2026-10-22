@@ -88,13 +88,21 @@ async function singleCandidate(registry: ParserRegistry, sourceRoot: string, raw
   const detected = await registry.detect(root, collector)
   let name: string | undefined
   for (const item of detected) {
-    if (item.parser?.inferName !== undefined) {
-      try { name = await item.parser.inferName(root) } catch { /* 清单 parser 负责具体诊断。 */ }
-      if (name !== undefined) break
+    const parser = item.parser
+    if (parser === undefined) continue
+    try {
+      if (parser.preflight !== undefined) {
+        const preflight = await parser.preflight(root)
+        collector.items.push(...preflight.diagnostics)
+        name ??= preflight.name
+      } else if (parser.inferName !== undefined) name ??= await parser.inferName(root)
+    } catch {
+      collector.add('error', 'PARSER_PREFLIGHT_FAILED', 'plugin', `解析器 ${parser.id} 的清单预检失败`, undefined, { parserId: parser.id })
     }
   }
   if (name === undefined && !detected.some(item => item.signature.exclusive) && detected.some(item => item.parser !== undefined)) name = await safeName(root, 'package.json')
-  name ??= basename(root) || suggested || `plugin-${index + 1}`
+  // 根候选使用来源种子；物理暂存/存储目录不能参与插件身份。
+  name ??= path === '.' ? suggested ?? 'plugin' : basename(path)
   let id: string
   try { id = normalizeManagementId(name) } catch { collector.add('error', 'SOURCE_PLUGIN_ID_INVALID', 'source', '插件名称不能生成安全的管理标识'); id = `invalid-${index + 1}` }
   const location = { type: 'source-path' as const, path }
@@ -178,7 +186,7 @@ async function scanRoot(registry: ParserRegistry, root: string, options: ParseSo
     discovery = 'manual-paths'
     manualPaths = [...new Set(paths.map(path => normalizeRelativeSourcePath(path)))].sort()
     candidates = []
-    for (const [index, path] of manualPaths.entries()) candidates.push(await singleCandidate(registry, root, path, index))
+    for (const [index, path] of manualPaths.entries()) candidates.push(await singleCandidate(registry, root, path, index, options.suggestedPluginId))
     candidates = mergeCandidates(candidates, diagnostics)
   } else {
     discovery = 'single-plugin'
@@ -187,7 +195,9 @@ async function scanRoot(registry: ParserRegistry, root: string, options: ParseSo
   const scan: SourceScanCache = { parserVersion: SOURCE_PARSER_VERSION, parserSnapshot: registry.snapshot,
     scannedAt: new Date().toISOString(), formats: [...new Set(candidates.flatMap(candidate => candidate.formats))].sort(),
     plugins: candidates.map(publicCandidate), diagnostics: sortDiagnostics([...diagnostics, ...candidates.flatMap(candidate => candidate.diagnostics)]),
-    marketplaceFiles: [...new Set(marketplaceFiles)].sort(), discovery, ...(manualPaths === undefined ? {} : { manualPaths }) }
+    marketplaceFiles: [...new Set(marketplaceFiles)].sort(), discovery,
+    ...(options.suggestedPluginId === undefined ? {} : { suggestedPluginId: options.suggestedPluginId }),
+    ...(manualPaths === undefined ? {} : { manualPaths }) }
   return { root, ...(name === undefined ? {} : { name }), scan, candidates }
 }
 

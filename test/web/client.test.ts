@@ -168,8 +168,9 @@ test('独立管理面板保留全部业务 RPC，并显示 Host 拒绝原因', a
   assert.equal(await face.list(), results.list)
   assert.equal(await face.checkUpdates(), results.checkUpdates)
   assert.equal(await face.update('demo', true), results.update)
-  assert.equal(await face.beginAdd('github:owner/repo'), results.beginAdd)
-  assert.equal(await face.completeAdd('selection', ['demo']), results.completeAdd)
+  const signal = new AbortController().signal
+  assert.equal(await face.beginAdd('github:owner/repo', signal), results.beginAdd)
+  assert.equal(await face.completeAdd('selection', ['demo'], signal), results.completeAdd)
   assert.equal(await face.cancelAdd('selection'), results.cancelAdd)
   assert.equal(await face.setEnabled('demo', false), results.setEnabled)
   assert.equal(await face.uninstall('demo'), results.uninstall)
@@ -184,8 +185,8 @@ test('独立管理面板保留全部业务 RPC，并显示 Host 拒绝原因', a
     { method: 'list', args: [] },
     { method: 'checkUpdates', args: [] },
     { method: 'update', args: ['demo', true] },
-    { method: 'beginAdd', args: ['github:owner/repo'] },
-    { method: 'completeAdd', args: ['selection', ['demo']] },
+    { method: 'beginAdd', args: ['github:owner/repo', signal] },
+    { method: 'completeAdd', args: ['selection', ['demo'], signal] },
     { method: 'cancelAdd', args: ['selection'] },
     { method: 'setEnabled', args: ['demo', false] },
     { method: 'uninstall', args: ['demo'] },

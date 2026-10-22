@@ -78,6 +78,7 @@ export async function parseStoredSource(
   engine: CompatParserEngine,
 ): Promise<SourceDiscovery> {
   const discovery = await engine.parseSource(layout.sourcePackageDir(sourceId), {
+    suggestedPluginId: record.scan.suggestedPluginId,
     ...(record.scan.manualPaths === undefined ? {} : { paths: record.scan.manualPaths }),
   })
   return { ...discovery, scan: createSourceScan(discovery.scan, record.source.revision, engine) }

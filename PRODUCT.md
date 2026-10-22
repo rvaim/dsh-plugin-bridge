@@ -4,7 +4,7 @@
 
 插件桥（Plugin Bridge）让 DeepSeek Harness 用户在不改写外部插件的前提下，把独立 Agent Plugins 1.0.0、Claude Code 与 Codex 插件作为完整 Source/Plugin 安装、检查并运行。它负责外部插件的来源快照、能力解析、冲突诊断、运行状态和生命周期，不替代 DSH 自身的 Cordis 包管理。
 
-中文名称为“插件桥”，英文名称为“Plugin Bridge”；Cordis 插件 ID 为 `plugin-bridge`，npm 包名为 `@rvaim/dsh-plugin-bridge`。0.5.0 起使用新包名，不自动迁移用户 profile。GitHub repository 和 `$DSH_HOME/dsh-compat/` 数据目录保留，详见[包更名说明](<docs/包更名说明.md>)。
+中文名称为“插件桥”，英文名称为“Plugin Bridge”；Cordis 插件 ID 为 `plugin-bridge`，npm 包名为 `@rvaim/dsh-plugin-bridge`。插件数据目录为 `$DSH_HOME/dsh-plugin-bridge/`。
 
 ## 目标用户与使用场景
 

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
-import { lstat } from 'node:fs/promises'
+import { lstat, readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
+import { inspectContainedPath } from '../shared/contained-path.js'
 import type { DiagnosticCollector } from '../shared/diagnostics.js'
 import type { MarketplacePluginDefinition } from '../types/catalog.js'
 import type { CompatCategory, ParserSignature, ParserSnapshot, PluginParser } from './contracts.js'
@@ -46,6 +47,27 @@ export async function pathPresent(root: string, path: string): Promise<boolean> 
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
     throw error
   }
+}
+
+/** 声明性识别不依赖实现模块；不安全的已存在路径保留边界并交给预检报错。 */
+export async function matchesManifest(root: string, signature: ParserSignature): Promise<boolean> {
+  for (const path of signature.manifestPaths) {
+    if (!await pathPresent(root, path)) continue
+    if (signature.manifestSchemaPrefix === undefined) return true
+    const location = await inspectContainedPath(root, path, 'file')
+    if (location.status === 'invalid') return true
+    if (location.status !== 'ok') continue
+    try {
+      const value: unknown = JSON.parse(await readFile(location.path, 'utf8'))
+      if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
+        const schema = (value as Record<string, unknown>).$schema
+        if (typeof schema === 'string' && schema.startsWith(signature.manifestSchemaPrefix)) return true
+      }
+    } catch {
+      // 无法解析的内容不构成协议声明，不能仅凭共享文件名接管其他格式。
+    }
+  }
+  return false
 }
 
 /** 仅管理注入的模块与声明性格式边界，不加载任何协议实现。 */
@@ -97,7 +119,7 @@ export class ParserRegistry {
   async explicit(root: string): Promise<ParserSignature[]> {
     const present: ParserSignature[] = []
     for (const signature of this.signatures) {
-      if ((await Promise.all(signature.manifestPaths.map(path => pathPresent(root, path)))).some(Boolean)) present.push(signature)
+      if (await matchesManifest(root, signature)) present.push(signature)
     }
     const exclusive = present.find(signature => signature.exclusive)
     return exclusive === undefined ? present : [exclusive]

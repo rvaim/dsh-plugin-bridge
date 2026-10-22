@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { runStreamingProcess, type ProcessOptions } from './process-stream.js'
 
 export interface ProcessResult {
   stdout: string
@@ -9,35 +9,10 @@ export interface ProcessResult {
 export async function runProcess(
   command: string,
   args: readonly string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number } = {},
+  options: ProcessOptions = {},
 ): Promise<ProcessResult> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: options.env ?? process.env,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    })
-    const stdout: Buffer[] = []
-    const stderr: Buffer[] = []
-    child.stdout.on('data', chunk => stdout.push(Buffer.from(chunk)))
-    child.stderr.on('data', chunk => stderr.push(Buffer.from(chunk)))
-    child.on('error', reject)
-    const timer = options.timeoutMs === undefined
-      ? undefined
-      : setTimeout(() => child.kill('SIGKILL'), options.timeoutMs)
-    child.on('close', (code, signal) => {
-      if (timer !== undefined) clearTimeout(timer)
-      const result: ProcessResult = {
-        stdout: Buffer.concat(stdout).toString('utf8'),
-        stderr: Buffer.concat(stderr).toString('utf8'),
-        exitCode: code ?? 1,
-      }
-      if (code === 0) resolve(result)
-      else reject(new Error(`${command} 执行失败（${signal ?? code}）：${result.stderr.trim()}`))
-    })
-  })
+  const result = await runProcessBuffer(command, args, options)
+  return { ...result, stdout: result.stdout.toString('utf8') }
 }
 
 export interface BinaryProcessResult {
@@ -46,66 +21,25 @@ export interface BinaryProcessResult {
   exitCode: number
 }
 
-/** 运行需要读取二进制 stdout 的子进程，并限制输出体积。 */
+/** 有界收集 stdout；超时、取消及输出超限都等待进程树退出。 */
 export async function runProcessBuffer(
   command: string,
   args: readonly string[],
-  options: { cwd?: string; env?: NodeJS.ProcessEnv; timeoutMs?: number; maxOutputBytes?: number } = {},
+  options: ProcessOptions & { maxOutputBytes?: number } = {},
 ): Promise<BinaryProcessResult> {
-  return await new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      env: options.env ?? process.env,
-      shell: false,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      windowsHide: true,
-    })
-    const stdout: Buffer[] = []
-    const stderr: Buffer[] = []
-    const maxOutputBytes = options.maxOutputBytes ?? 64 * 1024 * 1024
-    let outputBytes = 0
-    let forcedError: Error | undefined
-    let settled = false
-    const fail = (error: Error): void => {
-      if (settled) return
-      settled = true
-      reject(error)
+  const result = await runStreamingProcess(command, args, options, async ({ stdin, stdout, signal }) => {
+    stdin.end()
+    const chunks: Buffer[] = []
+    const maximum = options.maxOutputBytes ?? 64 * 1024 * 1024
+    let size = 0
+    for await (const chunk of stdout) {
+      signal.throwIfAborted()
+      const data = Buffer.from(chunk)
+      size += data.length
+      if (size > maximum) throw new Error(`${command} 输出超过限制：${maximum}`)
+      chunks.push(data)
     }
-    const consume = (target: Buffer[], chunk: unknown): void => {
-      if (forcedError !== undefined) return
-      const data = Buffer.from(chunk as Uint8Array)
-      outputBytes += data.length
-      if (outputBytes > maxOutputBytes && forcedError === undefined) {
-        forcedError = new Error(`${command} 输出超过限制：${maxOutputBytes}`)
-        child.kill('SIGKILL')
-        return
-      }
-      target.push(data)
-    }
-    child.stdout.on('data', chunk => consume(stdout, chunk))
-    child.stderr.on('data', chunk => consume(stderr, chunk))
-    child.on('error', fail)
-    const timer = options.timeoutMs === undefined
-      ? undefined
-      : setTimeout(() => {
-          forcedError = new Error(`${command} 执行超时：${options.timeoutMs}ms`)
-          child.kill('SIGKILL')
-        }, options.timeoutMs)
-    child.on('close', (code, signal) => {
-      if (timer !== undefined) clearTimeout(timer)
-      if (settled) return
-      if (forcedError !== undefined) return fail(forcedError)
-      const result: BinaryProcessResult = {
-        stdout: Buffer.concat(stdout),
-        stderr: Buffer.concat(stderr).toString('utf8'),
-        exitCode: code ?? 1,
-      }
-      if (code === 0) {
-        settled = true
-        resolve(result)
-      } else {
-        fail(new Error(`${command} 执行失败（${signal ?? code}）：${result.stderr.trim()}`))
-      }
-    })
+    return Buffer.concat(chunks, size)
   })
+  return { stdout: result.value, stderr: result.stderr, exitCode: result.exitCode }
 }

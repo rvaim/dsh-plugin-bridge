@@ -21,8 +21,8 @@ export interface PluginBridgeInjected {
   list: () => Promise<CompatWebListResult>
   checkUpdates: () => Promise<CompatWebCheckUpdatesResult>
   update: (pluginId: string, confirmShared: boolean) => Promise<CompatWebUpdateResult>
-  beginAdd: (source: string) => Promise<CompatWebAddResult>
-  completeAdd: (requestId: string, plugins: string[]) => Promise<CompatWebAddResult>
+  beginAdd: (source: string, signal: AbortSignal) => Promise<CompatWebAddResult>
+  completeAdd: (requestId: string, plugins: string[], signal: AbortSignal) => Promise<CompatWebAddResult>
   cancelAdd: (requestId: string) => Promise<CompatWebCancelAddResult>
   setEnabled: (pluginId: string, enabled: boolean) => Promise<CompatWebSetEnabledResult>
   uninstall: (pluginId: string) => Promise<CompatWebUninstallResult>

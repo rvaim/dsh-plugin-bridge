@@ -75,12 +75,12 @@ export class CompatService extends Service {
     return this.manager.prepareInstall(source, options)
   }
 
-  prepareArchiveInstall(source: string): Promise<InstallPreparation> {
-    return this.manager.prepareArchiveInstall(source)
+  prepareArchiveInstall(source: string, signal?: AbortSignal): Promise<InstallPreparation> {
+    return this.manager.prepareArchiveInstall(source, signal)
   }
 
-  completeInstallPreparation(preparationId: string, plugins: string[]): Promise<InstallResult> {
-    return this.manager.completeInstallPreparation(preparationId, plugins)
+  completeInstallPreparation(preparationId: string, plugins: string[], signal?: AbortSignal): Promise<InstallResult> {
+    return this.manager.completeInstallPreparation(preparationId, plugins, signal)
   }
 
   releaseInstallPreparation(preparationId: string): Promise<void> {

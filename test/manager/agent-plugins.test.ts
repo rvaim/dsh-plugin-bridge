@@ -52,8 +52,8 @@ test('Agent Plugins 独立来源身份、启动启停、更新保留数据及卸
     const root = await realpath(layout.sourcePackageDir(installed.install.sourceId))
     const data = await realpath(layout.dataDir('acme.tools'))
     assert.equal(config.cwd, root)
-    assert.deepEqual(config.args, [resolve(data, 'cache'), '${UNKNOWN_TOKEN:-literal}'])
-    assert.deepEqual(config.env, { LOCATION: resolve(root, 'settings'), VERSION_LITERAL: 'release one',
+    assert.deepEqual(config.args, [`${data}/cache`, '${UNKNOWN_TOKEN:-literal}'])
+    assert.deepEqual(config.env, { LOCATION: `${root}/settings`, VERSION_LITERAL: 'release one',
       PLUGIN_ROOT: root, PLUGIN_DATA: data })
     const saved = resolve(layout.dataDir('acme.tools'), 'state.txt')
     await writeFile(saved, 'persistent data')

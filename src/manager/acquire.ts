@@ -27,13 +27,15 @@ export interface MaterializedExternalPlugin {
 export async function acquireSource(
   resolved: ResolvedInstallSource,
   stagedSourceRoot: string,
+  signal?: AbortSignal,
 ): Promise<AcquiredSource> {
+  signal?.throwIfAborted()
   const acquiredRoot = join(stagedSourceRoot, 'acquired-source')
   await mkdir(stagedSourceRoot, { recursive: true, mode: 0o700 })
 
   if (resolved.source.type === 'directory') {
-    await copyPluginDirectory(resolved.source.path, acquiredRoot)
-    const contentHash = await hashDirectory(acquiredRoot)
+    await copyPluginDirectory(resolved.source.path, acquiredRoot, signal)
+    const contentHash = await hashDirectory(acquiredRoot, signal)
     return {
       acquiredRoot,
       origin: { type: 'directory', path: resolved.source.path, contentHash },
@@ -43,8 +45,8 @@ export async function acquireSource(
   }
 
   if (resolved.source.type === 'archive') {
-    await extractArchive(resolved.source.path, acquiredRoot)
-    const sha256 = await sha256File(resolved.source.path)
+    await extractArchive(resolved.source.path, acquiredRoot, signal)
+    const sha256 = await sha256File(resolved.source.path, signal)
     return {
       acquiredRoot,
       origin: { type: 'archive', path: resolved.source.path, sha256 },
@@ -53,7 +55,7 @@ export async function acquireSource(
     }
   }
 
-  const result = await cloneGitPlugin(resolved.source.url, acquiredRoot, resolved.source.ref)
+  const result = await cloneGitPlugin(resolved.source.url, acquiredRoot, resolved.source.ref, signal)
   const commit = result.source.commit
   if (commit === undefined) throw new Error('Git 获取成功但未得到 commit SHA')
   return {
@@ -77,13 +79,15 @@ function effectiveRef(location: Extract<CompatPluginLocation, { type: 'git' | 'g
 export async function materializeExternalPlugin(
   location: CompatPluginLocation,
   stagedPluginRoot: string,
+  signal?: AbortSignal,
 ): Promise<MaterializedExternalPlugin> {
+  signal?.throwIfAborted()
   if (location.type !== 'git' && location.type !== 'git-subdir') {
     throw new Error(`当前不能获取 Marketplace 插件来源类型：${location.type}`)
   }
   const packageRoot = join(stagedPluginRoot, 'package')
   await mkdir(stagedPluginRoot, { recursive: true, mode: 0o700 })
-  const result = await cloneGitPlugin(location.url, packageRoot, effectiveRef(location))
+  const result = await cloneGitPlugin(location.url, packageRoot, effectiveRef(location), signal)
   const commit = result.source.commit
   if (commit === undefined) throw new Error('外部 Git Plugin 获取成功但未得到 commit SHA')
 

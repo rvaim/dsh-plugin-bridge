@@ -45,7 +45,9 @@ export async function preparePluginContent(
   candidate: SourcePluginCandidate,
   transactionRoot: string,
   existingExternalRoot?: string,
+  signal?: AbortSignal,
 ): Promise<PreparedPlugin> {
+  signal?.throwIfAborted()
   if (candidate.location.type === 'source-path') {
     const path = await validateSourceDirectory(join(sourceRoot, 'package'), candidate.location.path)
     return {
@@ -75,7 +77,7 @@ export async function preparePluginContent(
   }
 
   const staged = join(transactionRoot, 'materialized-external', key)
-  const materialized = await materializeExternalPlugin(candidate.location, staged)
+  const materialized = await materializeExternalPlugin(candidate.location, staged, signal)
   const packageRoot = materialized.location.type === 'git'
     ? materialized.packageRoot
     : resolve(materialized.packageRoot, materialized.location.path)
@@ -106,7 +108,8 @@ export async function buildParsedCandidates(
   const parsed: ParsedInstallCandidate[] = []
 
   for (const candidate of candidates) {
-    const prepared = await preparePluginContent(sourceRoot, candidate, transactionRoot, existingExternalRoot)
+    options.signal?.throwIfAborted()
+    const prepared = await preparePluginContent(sourceRoot, candidate, transactionRoot, existingExternalRoot, options.signal)
     let plugin = await parseAndCheckPlugin(
       { layout, parsers },
       prepared.packageRoot,

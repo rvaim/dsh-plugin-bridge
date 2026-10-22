@@ -86,7 +86,7 @@ test('解压预算限制阻止超大成员', async () => {
     const archive = resolve(temp.path, 'large.zip')
     await createStoredZip(archive, [{ name: 'large.txt', data: '1234567890' }])
     await assert.rejects(
-      extractArchive(archive, resolve(temp.path, 'out'), { maxFileBytes: 5 }),
+      extractArchive(archive, resolve(temp.path, 'out'), undefined, { maxFileBytes: 5 }),
       /成员过大/,
     )
   } finally {

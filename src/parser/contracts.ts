@@ -14,6 +14,8 @@ export type { CompatCategory, ParserCategoryContribution, ParserIdentity, Parser
 export interface ParserSignature {
   id: string
   manifestPaths: readonly string[]
+  /** 有值时，清单必须声明该 JSON Schema URI 前缀才拥有格式边界。 */
+  manifestSchemaPrefix?: string
   marketplacePaths: readonly string[]
   catalogIndex?: { entriesField: string; nameField: string }
   exclusive?: boolean
@@ -34,6 +36,11 @@ export interface ParseSourceOptions {
   suggestedPluginId?: string
 }
 export interface ParserDetection { matched: boolean; implicit?: boolean }
+/** 只读取核心清单元数据和诊断，不扫描或解析插件能力。 */
+export interface ProtocolPreflightResult {
+  name?: string
+  diagnostics: CompatDiagnostic[]
+}
 export interface ProtocolParseInput {
   root: string
   implicit: boolean
@@ -64,6 +71,7 @@ export interface PluginParser extends ParserIdentity {
   detect(root: string): Promise<ParserDetection>
   discoverSource(root: string): Promise<SourceParserResult | undefined>
   parsePlugin(input: ProtocolParseInput): Promise<ProtocolParseResult>
+  preflight?(root: string): Promise<ProtocolPreflightResult>
   inferName?(root: string): Promise<string | undefined>
 }
 

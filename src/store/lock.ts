@@ -1,6 +1,7 @@
 import { open, readFile, rm, stat } from 'node:fs/promises'
 import { join } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { setTimeout as delay } from 'node:timers/promises'
 import { CompatLayout } from './layout.js'
 
 interface LockPayload {
@@ -10,6 +11,7 @@ interface LockPayload {
 }
 
 export interface LockOptions {
+  signal?: AbortSignal
   timeoutMs?: number
   pollMs?: number
   staleMs?: number
@@ -19,8 +21,6 @@ export interface AcquiredLock {
   path: string
   release(): Promise<void>
 }
-
-const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
 
 function processExists(pid: number): boolean {
   if (!Number.isInteger(pid) || pid <= 0) return false
@@ -86,6 +86,7 @@ export async function acquireFileLock(path: string, options: LockOptions = {}): 
   const payload: LockPayload = { pid: process.pid, token, createdAt: new Date().toISOString() }
 
   while (true) {
+    options.signal?.throwIfAborted()
     try {
       const handle = await open(path, 'wx', 0o600)
       try {
@@ -112,7 +113,7 @@ export async function acquireFileLock(path: string, options: LockOptions = {}): 
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
       await removeIfStale(path, staleMs)
       if (Date.now() >= deadline) throw new Error(`获取锁超时：${path}`)
-      await sleep(pollMs)
+      await delay(pollMs, undefined, { signal: options.signal })
     }
   }
 }
@@ -129,6 +130,7 @@ export async function withRepositoryLock<T>(
   await layout.ensure()
   const lock = await acquireFileLock(join(layout.locks, 'repository.lock'), options)
   try {
+    options?.signal?.throwIfAborted()
     return await operation()
   } finally {
     await lock.release()

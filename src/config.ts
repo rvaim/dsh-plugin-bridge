@@ -22,7 +22,9 @@ export const Config = z.object({
   harnessHome: z.string(),
   workspaceRoot: z.string(),
   autoStart: z.boolean().default(true),
-  parsers: z.array(z.string()),
+  // Schemastery 对数组的默认值是 []；这里必须以 undefined 表示“未配置”，
+  // 才能与显式 []（禁用全部解析器）区分。
+  parsers: z.array(z.string()).default(undefined as unknown as string[]),
   hookDefaultTimeoutMs: z.number().min(1),
   hookStderrSummaryMaxChars: z.number().min(0).default(500),
   modelName: z.string(),

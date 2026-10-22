@@ -549,6 +549,13 @@
   line-height: 18px;
 }
 
+.candidateDiagnostics { padding: 6px 12px 10px; font-size: 12px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
+.candidateDiagnostics summary { cursor: pointer; }
+.candidateDiagnostics ul { margin: 6px 0 0; padding-inline-start: 18px; }
+.candidateDiagnostics li { overflow-wrap: anywhere; }
+.candidateDiagnostics li > * { display: block; }
+.candidateDiagnostics strong { color: var(--dsw-alias-state-error-primary); font-weight: 500; }
+
 .candidateList {
   display: flex;
   flex-direction: column;

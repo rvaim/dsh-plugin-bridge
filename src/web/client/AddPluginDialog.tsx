@@ -24,7 +24,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
   const [source, setSource] = useState('')
   const [localFile, setLocalFile] = useState<File | null>(null)
   const filePicker = useRef<HTMLInputElement>(null)
-  const upload = useRef<AbortController | null>(null)
+  const flow = useRef<AbortController | null>(null)
   const [selection, setSelection] = useState<Selection | null>(null)
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set())
   const [pending, setPending] = useState<Progress>(null)
@@ -46,7 +46,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
     alive.current = true
     return () => {
       alive.current = false
-      upload.current?.abort()
+      flow.current?.abort()
       const id = request.current
       request.current = null
       if (id !== null) void operations.current.cancelAdd(id).catch(() => undefined)
@@ -61,7 +61,10 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
 
   const release = async (close: boolean) => {
     if (busy.current) {
-      if (upload.current !== null && close) { upload.current.abort(); onClose() }
+      if (flow.current !== null) {
+        flow.current.abort()
+        if (close) onClose()
+      }
       return
     }
     busy.current = true
@@ -97,16 +100,15 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
     if (busy.current || (localFile === null && source.trim() === '')) return
     if (selection !== null && selected.size === 0) { setError(t('noSelection')); return }
     busy.current = true
+    const controller = new AbortController()
+    flow.current = controller
     setPending(selection !== null ? 'install' : localFile !== null ? 'upload' : 'fetch')
     setError(null)
     try {
       let result: CompatWebAddResult
-      if (selection !== null) result = await operations.current.completeAdd(selection.requestId, [...selected])
+      if (selection !== null) result = await operations.current.completeAdd(selection.requestId, [...selected], controller.signal)
       else if (localFile !== null) {
-        const controller = new AbortController()
-        upload.current = controller
         result = await operations.current.uploadArchive(localFile, controller.signal)
-        upload.current = null
         if (result.kind === 'selection' && (!alive.current || controller.signal.aborted)) {
           await operations.current.cancelAdd(result.requestId)
           return
@@ -116,9 +118,9 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
           setSelection(result)
           setSelected(new Set([result.candidates[0].id]))
           setPending('install')
-          result = await operations.current.completeAdd(result.requestId, [result.candidates[0].id])
+          result = await operations.current.completeAdd(result.requestId, [result.candidates[0].id], controller.signal)
         }
-      } else result = await operations.current.beginAdd(source.trim())
+      } else result = await operations.current.beginAdd(source.trim(), controller.signal)
       if (!alive.current) {
         if (result.kind === 'selection') void operations.current.cancelAdd(result.requestId).catch(() => undefined)
         return
@@ -136,7 +138,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
     } catch (cause) {
       if (alive.current) setError(cause instanceof Error ? cause.message : String(cause))
     } finally {
-      upload.current = null
+      flow.current = null
       busy.current = false
       if (alive.current) setPending(null)
     }
@@ -147,7 +149,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
       description={t(selection === null ? 'addDescription' : 'selectingDescription')} closeLabel={t('close')}
       className={css.addDialog} contentClassName={css.dialogContent} footer={(
         <>
-          <Button variant="outline" disabled={pending !== null && pending !== 'upload'} onClick={() => { void release(true) }}>{t(pending === 'cancel' ? 'cancelling' : pending === 'upload' ? 'cancelUpload' : 'cancel')}</Button>
+          <Button variant="outline" disabled={pending === 'cancel'} onClick={() => { void release(true) }}>{t(pending === 'cancel' ? 'cancelling' : 'cancel')}</Button>
           <Button variant="primary" disabled={pending !== null || (localFile === null && source.trim() === '') || (selection !== null && selected.size === 0)}
             icon={pending !== null && pending !== 'cancel' ? <IconLoadingOutlineRegular className={css.spinner} size={16} /> : undefined}
             onClick={() => { void submit() }}>

@@ -48,12 +48,12 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
         await pluginBridgeAdmin.update(pluginId, confirmShared),
         'pluginBridgeAdmin.update',
       ),
-      beginAdd: async source => unwrap(
-        await pluginBridgeAdmin.beginAdd(source),
+      beginAdd: async (source, signal) => unwrap(
+        await pluginBridgeAdmin.beginAdd(source, signal),
         'pluginBridgeAdmin.beginAdd',
       ),
-      completeAdd: async (requestId, plugins) => unwrap(
-        await pluginBridgeAdmin.completeAdd(requestId, plugins),
+      completeAdd: async (requestId, plugins, signal) => unwrap(
+        await pluginBridgeAdmin.completeAdd(requestId, plugins, signal),
         'pluginBridgeAdmin.completeAdd',
       ),
       cancelAdd: async requestId => unwrap(

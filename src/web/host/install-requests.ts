@@ -30,10 +30,11 @@ export class InstallRequests {
     private readonly requestTtlMs: number,
   ) {}
 
-  prepare(source: string, prepare: InstallTarget['prepareInstall'] = this.compat.prepareInstall.bind(this.compat)): Promise<InstallPreparation> {
+  prepare(source: string, signal?: AbortSignal, prepare: (source: string, options: { signal?: AbortSignal }) => Promise<InstallPreparation> = (value, options) => this.compat.prepareInstall(value, options)): Promise<InstallPreparation> {
     if (this.closed) return Promise.reject(new Error('添加服务已关闭'))
+    signal?.throwIfAborted()
     const operation = Promise.resolve().then(async () => {
-      const preparation = await prepare(source)
+      const preparation = await prepare(source, { signal })
       const request: InstallRequest = {
         preparationId: preparation.preparationId,
         state: { kind: 'pending' },
@@ -53,7 +54,7 @@ export class InstallRequests {
     return operation
   }
 
-  complete(requestId: string, plugins: string[]): Promise<InstallResult> {
+  complete(requestId: string, plugins: string[], signal?: AbortSignal): Promise<InstallResult> {
     if (this.closed) return Promise.reject(new Error('添加服务已关闭'))
     const request = this.requests.get(requestId)
     if (request === undefined) return Promise.reject(new Error('该添加请求已过期，请重新拉取来源'))
@@ -72,7 +73,7 @@ export class InstallRequests {
     const selection = [...plugins]
     const operation = Promise.resolve().then(async () => {
       try {
-        const result = await this.compat.completeInstallPreparation(request.preparationId, selection)
+        const result = await this.compat.completeInstallPreparation(request.preparationId, selection, signal)
         request.state = { kind: 'installed' }
         this.requests.delete(requestId)
         return result

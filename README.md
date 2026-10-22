@@ -5,15 +5,11 @@
 
 插件桥（Plugin Bridge）是 DeepSeek Harness（DSH）的外部插件管理工具，支持独立 Agent Plugins 1.0.0、传统 Codex 与 Claude Code 插件。插件作为完整生命周期单元接入 DSH，复用 Source 快照、Skill Provider 和 MCP 子实例。
 
-> 从 **0.5.0** 起，包名为 `@rvaim/dsh-plugin-bridge`，Cordis 插件 ID 为 `plugin-bridge`。当前 GitHub 上游为 [rvaim/dsh-plugin-bridge](https://github.com/rvaim/dsh-plugin-bridge)，数据目录仍为 `$DSH_HOME/dsh-compat/`；仓库更名不自动修改 profile 或迁移数据。详见[包更名说明](<docs/包更名说明.md>)。
-
-> 当前版本：`0.7.0`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
+> 当前版本：`0.8.0`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
 >
 > 从 `0.6.0` 起，仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。解析实现及其模型版本保持不变。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
 
-![更名前的 DSH Web 插件管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-plugin-bridge/main/docs/assets/compat-settings.png)
-
-截图保留更名前的设置页界面。`0.6.0` 的入口已移至侧边栏“插件桥 / Plugin Bridge”，点击后在主区域打开管理面板。
+![DSH Web 插件桥管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-plugin-bridge/main/docs/assets/compat-settings.png)
 
 ## 安装
 
@@ -22,7 +18,7 @@
 从 npm 安装指定版本：
 
 ```bash
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.7.0
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.8.0
 ```
 
 也可以使用本地构建包：
@@ -31,29 +27,21 @@ dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.7.0
 npm install
 npm run verify
 npm pack --ignore-scripts
-dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.7.0.tgz
+dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.8.0.tgz
 ```
 
-公开发布地址：[npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。`0.5.0` 使用旧 DSH 基线，不包含当前 SDK 适配。
+公开发布地址：[npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。当前基线以 `package.json#engines.dsh` 为准，不提供旧 DSH 版本兼容。
 
 把 `web` 换成实际 profile 名称即可。首次安装或升级 `@rvaim/dsh-plugin-bridge` 后，需要重启该 profile 并重新加载 Web 页面，因为 DSH 的 Host/Client 插件图发生了变化。
 
-已有 profile 需按原依赖名手动移除旧包，再添加新包；更名不会自动执行这些命令。例如，原来安装 scoped 包的 profile 可执行：
+## 0.8.0 修复内容
 
-```bash
-dsh plugin --profile web remove @rvaim/dsh-compat
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.7.0
-```
-
-如果此前通过 GitHub 安装的是未加 scope 的 `dsh-compat`，移除命令改为 `dsh plugin --profile web remove dsh-compat`。这只替换 DSH bundle 依赖，不会删除 `$DSH_HOME/dsh-compat/` 中已安装插件的数据。
-
-## 0.7.0 新增功能
-
-插件桥页面增加由当前解析器注册目录生成的分类导航。解析器自行声明名称与排序，新增或移除模块时无需修改导航组件；“全部”保留已安装记录，混合格式插件可属于多个分类，窄屏使用同一目录的分类选择框。
-
-添加来源弹窗增加“选择本地文件”，使用浏览器标准选择器和 DSH 已认证的流式传输，支持 Windows、macOS、Linux 浏览器选择 ZIP、TAR、TGZ、TAR.GZ 归档，单文件上限 30 MiB。客户端与 Host 不需要共享文件系统；目录仍可输入 Host 本地路径。上传原件由 Source 持有，完成、取消及来源删除按统一所有权清理。
-
-菜单、Skill、MCP、Hook 的贡献注册和撤销架构、扩展步骤与验收见[动态贡献与本地文件选择](docs/动态贡献与本地文件选择.md)。这些功能从 `0.7.0` 起提供；升级插件桥本体后需重启 profile 并刷新 Web 页面。
+- 修复省略 `parsers` 配置时装配零个解析器的问题；默认启用全部内置解析器，显式 `[]` 仍关闭全部协议。
+- Git 来源改用单条持久 `git cat-file --batch` 批量读取对象，避免每个文件启动两个 Git 子进程；Git 暂存元数据移到系统短临时目录，避免 Windows 深路径失败。
+- 添加弹窗的“取消”在拉取期间可用；取消信号贯通 Remote、Manager、来源获取、导出和子进程，子进程树退出后才清理临时目录。
+- 根插件使用稳定来源种子生成管理 ID，不再受 `acquired-source` 与 `package` 两个暂存目录名影响。
+- 根 `plugin.json` 仅在声明 Agent Plugins schema 时参与独占识别，普通根 JSON 不再遮住 Claude Code／Codex 清单。
+- 候选列表显示完整阻断诊断。插件数据目录统一为 `$DSH_HOME/dsh-plugin-bridge/`。
 
 ## 使用
 
@@ -182,7 +170,7 @@ Git / Directory / ZIP / TAR / TGZ
 ## 存储布局
 
 ```text
-$DSH_HOME/dsh-compat/
+$DSH_HOME/dsh-plugin-bridge/
 ├── sources/<sourceId>/
 │   ├── source.json       # 来源、ownership、revision、commit/归档哈希
 │   ├── scan.json         # Source parser 缓存
@@ -234,7 +222,6 @@ npm pack --ignore-scripts
 
 - [核心架构优化实施与验收](docs/核心架构优化实施.md)
 - [架构与界面优化审查](docs/架构与界面优化审查.md)
-- [包更名说明](<docs/包更名说明.md>)
 - [解析器解耦重构说明](docs/解析器解耦重构说明.md)
 - [解析器解耦验证报告](docs/解析器解耦验证报告.md)
 

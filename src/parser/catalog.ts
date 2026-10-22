@@ -2,7 +2,7 @@ import { readdir } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
 import { readFile } from 'node:fs/promises'
 import type { CompatDiagnostic } from '../types/diagnostic.js'
-import { diagnostic, hasErrorDiagnostics, sortDiagnostics } from '../types/diagnostic.js'
+import { diagnostic, hasErrorDiagnostics, sortDiagnostics, uniqueDiagnostics } from '../types/diagnostic.js'
 import type { CompatSourcePlugin, SourceScanCache } from '../types/source.js'
 import { locationKey, normalizeRelativeSourcePath, validateSourceDirectory } from '../shared/source-path.js'
 import { normalizeManagementId } from '../shared/id.js'
@@ -194,7 +194,7 @@ async function scanRoot(registry: ParserRegistry, root: string, options: ParseSo
   }
   const scan: SourceScanCache = { parserVersion: SOURCE_PARSER_VERSION, parserSnapshot: registry.snapshot,
     scannedAt: new Date().toISOString(), formats: [...new Set(candidates.flatMap(candidate => candidate.formats))].sort(),
-    plugins: candidates.map(publicCandidate), diagnostics: sortDiagnostics([...diagnostics, ...candidates.flatMap(candidate => candidate.diagnostics)]),
+    plugins: candidates.map(publicCandidate), diagnostics: sortDiagnostics(uniqueDiagnostics(diagnostics)),
     marketplaceFiles: [...new Set(marketplaceFiles)].sort(), discovery,
     ...(options.suggestedPluginId === undefined ? {} : { suggestedPluginId: options.suggestedPluginId }),
     ...(manualPaths === undefined ? {} : { manualPaths }) }

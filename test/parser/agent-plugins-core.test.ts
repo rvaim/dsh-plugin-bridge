@@ -159,6 +159,27 @@ test('a root manifest symlink escape is fatal; contained manifest links work', a
   } finally { await temp.cleanup() }
 })
 
+test('ignored extension namespaces and legacy directories are named in diagnostics', async () => {
+  const temp = await temporaryDirectory()
+  try {
+    await manifest(temp.path, { ...minimal, extensions: { 'com.openai': { interface: {} }, 'org.example': { x: 1 } } })
+    await mkdir(resolve(temp.path, '.codex-plugin'))
+    await mkdir(resolve(temp.path, 'hooks'))
+    const collector = new DiagnosticCollector()
+    assert(await parseAgentPluginsHarness(temp.path, collector))
+    const extension = collector.items.find(item => item.code === 'AGENT_PLUGIN_EXTENSIONS_IGNORED')
+    assert(extension)
+    assert.match(extension.message, /com\.openai/)
+    assert.match(extension.message, /org\.example/)
+    assert.deepEqual(extension.details, { namespaces: ['com.openai', 'org.example'] })
+    const legacy = collector.items.find(item => item.code === 'AGENT_PLUGIN_LEGACY_COMPONENTS_IGNORED')
+    assert(legacy)
+    assert.match(legacy.message, /\.codex-plugin/)
+    assert.match(legacy.message, /hooks/)
+    assert.deepEqual(legacy.details, { entries: ['.codex-plugin', 'hooks'] })
+  } finally { await temp.cleanup() }
+})
+
 test('legacy manifests, root SKILL.md, alternate skills, hooks, agents, commands and MCP do not supply core discovery', async () => {
   const temp = await temporaryDirectory()
   try {

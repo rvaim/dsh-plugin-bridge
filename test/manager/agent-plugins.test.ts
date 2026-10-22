@@ -30,6 +30,28 @@ async function fixture(root: string, version = 'release one'): Promise<void> {
   } })
 }
 
+test('插件列表对候选与扫描来源中的同一警告只计数一次', async () => {
+  const temp = await temporaryDirectory()
+  const ctx = FakeContext.create()
+  try {
+    const source = resolve(temp.path, 'portable')
+    await fixture(source)
+    await put(source, 'plugin.json', { ...manifest(), extensions: { 'com.openai': { interface: {} } } })
+    await mkdir(resolve(source, '.codex-plugin'))
+    const layout = new CompatLayout(resolve(temp.path, 'home'))
+    const runtime = new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) })
+    const manager = new CompatManager(layout, runtime, createBuiltinParserEngine())
+    await manager.install(source)
+    const [listed] = await manager.list()
+    assert.equal(listed.warnings, 2)
+    assert.deepEqual(listed.diagnostics.map(item => item.code).sort(), [
+      'AGENT_PLUGIN_EXTENSIONS_IGNORED', 'AGENT_PLUGIN_LEGACY_COMPONENTS_IGNORED',
+    ])
+    assert.match(listed.diagnostics.find(item => item.code === 'AGENT_PLUGIN_EXTENSIONS_IGNORED')!.message, /com\.openai/)
+    assert.match(listed.diagnostics.find(item => item.code === 'AGENT_PLUGIN_LEGACY_COMPONENTS_IGNORED')!.message, /\.codex-plugin/)
+  } finally { await ctx.dispose(); await temp.cleanup() }
+})
+
 test('Agent Plugins 独立来源身份、启动启停、更新保留数据及卸载整体清理', async () => {
   const temp = await temporaryDirectory()
   const ctx = FakeContext.create()

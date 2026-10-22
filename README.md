@@ -5,7 +5,7 @@
 
 插件桥（Plugin Bridge）是 DeepSeek Harness（DSH）的外部插件管理工具，支持独立 Agent Plugins 1.0.0、传统 Codex 与 Claude Code 插件。插件作为完整生命周期单元接入 DSH，复用 Source 快照、Skill Provider 和 MCP 子实例。
 
-> 当前版本：`0.8.0`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
+> 当前版本：`0.8.1`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
 >
 > 从 `0.6.0` 起，仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。解析实现及其模型版本保持不变。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
 
@@ -18,7 +18,7 @@
 从 npm 安装指定版本：
 
 ```bash
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.8.0
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.8.1
 ```
 
 也可以使用本地构建包：
@@ -27,12 +27,19 @@ dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.8.0
 npm install
 npm run verify
 npm pack --ignore-scripts
-dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.8.0.tgz
+dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.8.1.tgz
 ```
 
 公开发布地址：[npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。当前基线以 `package.json#engines.dsh` 为准，不提供旧 DSH 版本兼容。
 
 把 `web` 换成实际 profile 名称即可。首次安装或升级 `@rvaim/dsh-plugin-bridge` 后，需要重启该 profile 并重新加载 Web 页面，因为 DSH 的 Host/Client 插件图发生了变化。
+
+## 0.8.1 修复内容
+
+- 同一诊断不再重复显示：候选诊断与来源汇总去重，插件行错误/警告计数与实际条目一致。
+- Agent Plugins 警告给出具体名称，例如被忽略的扩展命名空间与被忽略的旧格式目录。
+- 诊断面板新增单条和全部复制，诊断正文与详情支持选择文本，复制结果有明确反馈。
+- Windows 上提交来源目录的 rename 增加有限重试，避免实时扫描短暂占用造成的偶发添加失败。
 
 ## 0.8.0 修复内容
 

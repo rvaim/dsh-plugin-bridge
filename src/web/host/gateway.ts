@@ -48,6 +48,7 @@ function webDiagnostics(items: readonly CompatDiagnostic[]): CompatWebDiagnostic
       capability: item.capability,
       message: item.message,
       ...(item.file === undefined ? {} : { file: item.file }),
+      ...(item.details === undefined ? {} : { details: JSON.stringify(item.details, null, 2) }),
     }]
   })
 }

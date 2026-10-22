@@ -45,3 +45,14 @@ export function sortDiagnostics(items: readonly CompatDiagnostic[]): CompatDiagn
     || (a.file ?? '').localeCompare(b.file ?? ''),
   )
 }
+
+/** 同一条诊断可能同时存在于候选与来源汇总中；按完整身份去重后保持首次顺序。 */
+export function uniqueDiagnostics(items: readonly CompatDiagnostic[]): CompatDiagnostic[] {
+  const seen = new Set<string>()
+  return items.filter((item) => {
+    const key = JSON.stringify([item.level, item.code, item.capability, item.file ?? '', item.message, item.details ?? null])
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+}

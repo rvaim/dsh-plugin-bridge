@@ -21,6 +21,7 @@ type ClientModule = {
   inject: string[]
   apply: (ctx: unknown) => Promise<() => Promise<void>>
   PluginBridgePanel: unknown
+  PluginRow: unknown
 }
 
 async function loadClient(react: Record<string, unknown> = {}) {
@@ -353,6 +354,39 @@ test('实际 Client bundle 分类保留零计数、语言切换不读 RPC，读�
   assert.equal(categoryProps(tree).total, 1)
   assert(nodes(tree).some(node => node.props.children === 'The parser for this category was removed. All plugins are now shown.'))
   assert(nodes(tree).some(node => (node.props.plugin as CompatWebPlugin | undefined)?.id === 'mixed'))
+  hooks.unmount()
+  host.dispose()
+  await disposeRemote()
+})
+
+test('实际 Client bundle 展开诊断后显示明确详情并保留可选文本', async () => {
+  const hooks = createHookRuntime()
+  const { client } = await loadClient(hooks.react)
+  const diagnosed: CompatWebPlugin = {
+    ...runtimePlugin,
+    warnings: 1,
+    diagnostics: [{
+      level: 'warning', code: 'AGENT_PLUGIN_EXTENSIONS_IGNORED', capability: 'plugin',
+      message: 'Agent Plugins 未实现的扩展命名空间已忽略：com.openai', file: 'plugin.json',
+      details: '{\n  "namespaces": [\n    "com.openai"\n  ]\n}',
+    }],
+  }
+  const host = createHost({
+    list: async () => ({ ok: true, value: { kind: 'ready', plugins: [diagnosed], categories: [] } }),
+    checkUpdates: async () => ({ ok: true, value: { kind: 'ready', updates: [] } }),
+  })
+  const disposeRemote = await client.apply(host.ctx)
+  const face = host.entries.find(entry => entry.options.name === 'main')!.options.inject!()
+  let tree = await hooks.mount(client.PluginBridgePanel as (props: unknown) => unknown, { ...face, t: host.ctx.locale.bind(client.NS) })
+  tree = await hooks.mount((client as ClientModule).PluginRow as (props: unknown) => unknown, {
+    plugin: diagnosed, categories: [], resolveText: (label: { en: string; zh?: string }) => label.zh ?? label.en,
+    pending: null, error: null, busy: false, expanded: true, onExpand: () => {}, onToggle: () => {},
+    onUpdate: () => {}, onRemove: () => {}, t: host.ctx.locale.bind(client.NS),
+  })
+  assert(nodes(tree).some(node => node.props.children === 'Agent Plugins 未实现的扩展命名空间已忽略：com.openai'))
+  assert(nodes(tree).some(node => String(node.props.className ?? '').includes('HQoOBG_diagnosticDetails')))
+  assert(nodes(tree).some(node => String(node.props.children).includes('com.openai')))
+  assert(nodes(tree).some(node => String(node.props.className ?? '').includes('HQoOBG_copyButton')))
   hooks.unmount()
   host.dispose()
   await disposeRemote()

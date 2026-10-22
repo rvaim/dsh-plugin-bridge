@@ -91,6 +91,7 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
 }
 
 export { PluginBridgePanel } from './PluginBridgePanel.js'
+export { PluginRow } from './PluginRow.js'
 export type { PluginBridgeInjected } from './types.js'
 export type { PluginBridgePanelProps } from './PluginBridgePanel.js'
 export { NS, PANEL_ID }

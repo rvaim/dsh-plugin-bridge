@@ -7,6 +7,8 @@ export interface CompatWebDiagnostic {
   capability: CompatCapability
   message: string
   file?: string
+  /** Host 预先格式化的结构化详情，供展示和复制。 */
+  details?: string
 }
 
 /** Web 设置页展示的一条外部插件记录。 */

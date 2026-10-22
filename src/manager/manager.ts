@@ -12,7 +12,7 @@ import { withPluginLock, withPluginLocks, withRepositoryLock, withSourceLock } f
 import { listPluginIds, listSourceIds, readInstalledPlugin, readInstalledSource, scanPluginSourceReferences, writeInstalledPlugin, writeInstalledSource } from '../store/metadata.js'
 import { writeJsonAtomic } from '../store/json.js'
 import { commitDirectory, createTransactionDir, removeDirectoryTransactionally } from '../store/transaction.js'
-import { hasErrorDiagnostics } from '../types/diagnostic.js'
+import { hasErrorDiagnostics, uniqueDiagnostics } from '../types/diagnostic.js'
 import type { InstalledPluginRecord } from '../types/plugin.js'
 import type { PluginRuntimeSnapshot } from '../types/runtime.js'
 import type { InstalledSourceRecord, ResolvedInstallSource, SourceMetadata, SourceOwnership } from '../types/source.js'
@@ -960,9 +960,9 @@ export class CompatManager {
             skills: plugin.skills.length,
             mcpServers: plugin.mcpServers.length,
             hooks: plugin.hooks.length,
-            errors: diagnostics.filter(item => item.level === 'error').length,
-            warnings: diagnostics.filter(item => item.level === 'warning').length,
-            diagnostics: diagnostics.flatMap((item) => {
+            errors: uniqueDiagnostics(diagnostics).filter(item => item.level === 'error').length,
+            warnings: uniqueDiagnostics(diagnostics).filter(item => item.level === 'warning').length,
+            diagnostics: uniqueDiagnostics(diagnostics).flatMap((item) => {
               if (item.level === 'info') return []
               return [{
                 level: item.level,
@@ -970,6 +970,7 @@ export class CompatManager {
                 capability: item.capability,
                 message: item.message,
                 ...(item.file === undefined ? {} : { file: item.file }),
+                ...(item.details === undefined ? {} : { details: item.details }),
               }]
             }),
           })

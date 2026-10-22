@@ -38,15 +38,22 @@ export async function parseAgentPluginsHarness(root: string, collector: Diagnost
         collector.add('warning', 'AGENT_PLUGIN_EXTENSIONS_INVALID', 'plugin', 'Agent Plugins extensions 不是对象，已忽略', file)
       } else if (Object.keys(extensions).length > 0) {
         // §8.1：未实现任何 namespace，不验证其 value，亦不保留敏感原值。
-        collector.add('warning', 'AGENT_PLUGIN_EXTENSIONS_IGNORED', 'plugin', 'Agent Plugins 未实现的扩展命名空间已忽略', file)
+        const namespaces = Object.keys(extensions).sort()
+        collector.add('warning', 'AGENT_PLUGIN_EXTENSIONS_IGNORED', 'plugin',
+          `Agent Plugins 未实现的扩展命名空间已忽略：${namespaces.join('、')}`, file, { namespaces })
       }
       continue
     }
     Object.defineProperty(portable, field, { value: item, enumerable: true, configurable: true, writable: true })
   }
   if (!validateAgentPluginManifest(portable)) return invalid()
-  if (entries.some(entry => ['.claude-plugin', '.codex-plugin', '.mcp.json', 'hooks', 'commands', 'agents'].includes(entry))) {
-    collector.add('warning', 'AGENT_PLUGIN_LEGACY_COMPONENTS_IGNORED', 'plugin', 'Agent Plugins 仅从固定 skills/ 与 mcp.json 发现组件；旧格式文件与目录已忽略', file)
+  const legacyEntries = entries
+    .filter(entry => ['.claude-plugin', '.codex-plugin', '.mcp.json', 'hooks', 'commands', 'agents'].includes(entry))
+    .sort()
+  if (legacyEntries.length > 0) {
+    collector.add('warning', 'AGENT_PLUGIN_LEGACY_COMPONENTS_IGNORED', 'plugin',
+      `Agent Plugins 仅从固定 skills/ 与 mcp.json 发现组件；已忽略这些旧格式文件或目录：${legacyEntries.join('、')}`, file,
+      { entries: legacyEntries })
   }
   return {
     format: 'agent-plugins',

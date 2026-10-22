@@ -1,5 +1,11 @@
 import type { CompatCapability } from './diagnostic.js'
 
+/** 反映运行中 Host 的实际安装校验器，不以磁盘包版本代替运行状态。 */
+export interface CompatWebContract {
+  protocol: 'single-parser-v1'
+  acceptsSelections: boolean
+}
+
 /** Web 页面可安全展示的阻断错误或兼容性警告。 */
 export interface CompatWebDiagnostic {
   level: 'error' | 'warning'

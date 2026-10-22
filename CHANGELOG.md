@@ -1,5 +1,13 @@
 # 更新日志
 
+## 0.10.1 — 2026-10-22
+
+- 修复升级后新页面向旧 Host 契约提交安装对象时，仅显示 `completeAdd.plugins failed boundary validation` 的问题。安装、上传及确认前调用只读 `contract`，检查运行中 `completeAdd` 的真实 codec，而不是磁盘包版本。
+- 检测到旧 `string[]` 校验器、缺失检查端点或协议失配时，在任何安装业务调用前停止并明确提示完整退出、重启 DeepSeek Harness；不兼容旧参数，也不放宽严格校验。
+- 补充真实 Client bundle + SDK Gateway 在直接与 JSON transport 下的两阶段安装回归，覆盖首次省略 `parserId`、确认指定解析器、旧缓存 Host、缺失端点及非 JSON 值。网络和权限错误仍显示原始原因，不伪装成重启问题。
+- Typert Loader 按包名永久缓存生成 manifest；更换插件包需要完整重启宿主进程。网页刷新、重新安装或切换开关不会替换已加载的 Host schema。
+- 修复版全量 433 项测试、12 轮真实 SDK/RPC、8 种解析器移除组合与 581 个发布文件检查通过。
+
 ## 0.10.0 — 2026-10-22
 
 本版不兼容旧安装 API 和旧安装记录：`InstallOptions.plugins` 改为 `{ pluginId, parserId? }[]`，`completeInstallPreparation` 返回 `parser-selection` / `installed` 联合结果；`InstallMetadata.parserId` 与扫描记录的 `parserSnapshot` 必填。不迁移旧 `string[]` 参数或从旧 `formats` 猜测平台，旧记录需按新流程重新安装。

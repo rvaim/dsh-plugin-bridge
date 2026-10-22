@@ -65,6 +65,9 @@ async function loadClient(react: Record<string, unknown> = {}, browser: Record<s
 }
 
 function createHost(remote: Record<string, unknown> | undefined) {
+  if (remote !== undefined && !Object.hasOwn(remote, 'contract')) {
+    remote.contract = async () => ({ ok: true, value: { protocol: 'single-parser-v1', acceptsSelections: true } })
+  }
   const entries: { options: Entry; component: unknown }[] = []
   const slots: string[] = []
   const dictionaries = new Map<string, { zh: Record<string, string>; en: Record<string, string> }>()
@@ -151,6 +154,7 @@ test('独立管理面板保留全部业务 RPC，并显示 Host 拒绝原因', a
   const { client } = await loadClient()
   const calls: { method: string; args: unknown[] }[] = []
   const results = {
+    contract: { protocol: 'single-parser-v1', acceptsSelections: true },
     list: { kind: 'ready', plugins: [], categories: [] },
     checkUpdates: { kind: 'ready', updates: [] },
     update: { kind: 'updated', plugins: [], affectedPluginIds: ['demo'] },
@@ -190,7 +194,9 @@ test('独立管理面板保留全部业务 RPC，并显示 Host 拒绝原因', a
     { method: 'list', args: [] },
     { method: 'checkUpdates', args: [] },
     { method: 'update', args: ['demo', true] },
+    { method: 'contract', args: [] },
     { method: 'beginAdd', args: ['github:owner/repo', signal] },
+    { method: 'contract', args: [] },
     { method: 'completeAdd', args: ['selection', [{ pluginId: 'demo' }], signal] },
     { method: 'cancelAdd', args: ['selection'] },
     { method: 'setEnabled', args: ['demo', false] },
@@ -200,6 +206,123 @@ test('独立管理面板保留全部业务 RPC，并显示 Host 拒绝原因', a
   await assert.rejects(face.list(), /pluginBridgeAdmin\.list: service unavailable/)
   host.dispose()
   await disposeRemote()
+})
+
+for (const failure of ['stale', 'protocol', 'missing-method', 'missing-endpoint'] as const) {
+  test(`实际 Client bundle 在 ${failure} 契约下阻止所有安装入口，并提示完整退出重启`, async () => {
+    let uploads = 0
+    let businessCalls = 0
+    let checks = 0
+    const { client } = await loadClient({}, { fetch: async () => { uploads++; throw new Error('upload must be guarded') } })
+    const host = createHost({
+      contract: failure === 'missing-method' ? undefined : async () => {
+        checks++
+        return failure === 'missing-endpoint'
+          ? { ok: false, error: { code: 'gateway/endpoint-unavailable', message: 'contract endpoint unavailable' } }
+          : { ok: true, value: { protocol: failure === 'protocol' ? 'legacy' : 'single-parser-v1', acceptsSelections: failure !== 'stale' } }
+      },
+      beginAdd: async () => { businessCalls++; return { ok: true, value: { kind: 'installed', plugins: [] } } },
+      completeAdd: async () => { businessCalls++; return { ok: true, value: { kind: 'installed', plugins: [] } } },
+      list: async () => ({ ok: true, value: { kind: 'ready', plugins: [], categories: [] } }),
+      cancelAdd: async () => ({ ok: true, value: { kind: 'cancelled' } }),
+    })
+    const disposeRemote = await client.apply(host.ctx)
+    try {
+      const face = host.entries.find(entry => entry.options.name === 'main')!.options.inject!()
+      const signal = new AbortController().signal
+      const restartMessage = (error: unknown) => {
+        assert(error !== null && typeof error === 'object' && 'message' in error)
+        const message = String(error.message)
+        assert.match(message, /完整退出/)
+        assert.match(message, /重启/)
+        assert.match(message, /Harness/)
+        return true
+      }
+      await assert.rejects(face.beginAdd('github:owner/repo', signal), restartMessage)
+      await assert.rejects(face.completeAdd('pending', [{ pluginId: 'demo' }], signal), restartMessage)
+      await assert.rejects(face.uploadArchive({ name: 'plugin.zip', size: 128 } as File, signal), restartMessage)
+      assert.equal(businessCalls, 0)
+      assert.equal(uploads, 0)
+      assert.equal(checks, failure === 'missing-method' ? 0 : 3)
+      assert.equal((await face.list()).kind, 'ready')
+      assert.equal((await face.cancelAdd('pending')).kind, 'cancelled')
+    } finally { host.dispose(); await disposeRemote() }
+  })
+}
+
+test('实际 Client bundle 每次安装前重新检查契约，保留取消旧请求的入口', async () => {
+  const { client } = await loadClient()
+  let acceptsSelections = true
+  let checks = 0
+  let completions = 0
+  const host = createHost({
+    contract: async () => { checks++; return { ok: true, value: { protocol: 'single-parser-v1', acceptsSelections } } },
+    beginAdd: async () => ({ ok: true, value: { kind: 'selection', requestId: 'pending', selectionRequired: true, candidates: [] } }),
+    completeAdd: async () => { completions++; return { ok: true, value: { kind: 'installed', plugins: [] } } },
+    cancelAdd: async () => ({ ok: true, value: { kind: 'cancelled' } }),
+  })
+  const disposeRemote = await client.apply(host.ctx)
+  try {
+    const face = host.entries.find(entry => entry.options.name === 'main')!.options.inject!()
+    const signal = new AbortController().signal
+    assert.equal((await face.beginAdd('github:owner/repo', signal)).kind, 'selection')
+    acceptsSelections = false
+    await assert.rejects(face.completeAdd('pending', [{ pluginId: 'demo' }], signal), /重启/)
+    assert.equal(checks, 2)
+    assert.equal(completions, 0)
+    assert.equal((await face.cancelAdd('pending')).kind, 'cancelled')
+    assert.equal(checks, 2)
+  } finally { host.dispose(); await disposeRemote() }
+})
+
+for (const failure of ['network-response', 'denied-response', 'network-throw'] as const) {
+  test(`实际 Client bundle 保留 ${failure} 错误，不误报需要重启`, async () => {
+    const { client } = await loadClient()
+    const message = failure === 'denied-response' ? 'Permission denied by owner policy' : 'Connection is offline'
+    const thrown = new Error(message)
+    let businessCalls = 0
+    const host = createHost({
+      contract: async () => {
+        if (failure === 'network-throw') throw thrown
+        return { ok: false, error: { code: failure === 'denied-response' ? 'gateway/interactions-forbidden' : 'gateway/internal', message } }
+      },
+      beginAdd: async () => { businessCalls++; return { ok: true, value: { kind: 'installed', plugins: [] } } },
+    })
+    const disposeRemote = await client.apply(host.ctx)
+    try {
+      const face = host.entries.find(entry => entry.options.name === 'main')!.options.inject!()
+      await assert.rejects(face.beginAdd('github:owner/repo', new AbortController().signal), error => {
+        assert(error !== null && typeof error === 'object' && 'message' in error)
+        assert(String(error.message).includes(message))
+        assert(!String(error.message).includes('重启'))
+        if (failure === 'network-throw') assert.equal(error, thrown)
+        return true
+      })
+      assert.equal(businessCalls, 0)
+    } finally { host.dispose(); await disposeRemote() }
+  })
+}
+
+test('实际 Client bundle 已取消的安装请求不发送契约或业务 RPC', async () => {
+  const { client } = await loadClient()
+  let calls = 0
+  const host = createHost({
+    contract: async () => { calls++; return { ok: true, value: { protocol: 'single-parser-v1', acceptsSelections: true } } },
+    beginAdd: async () => { calls++; return { ok: true, value: { kind: 'installed', plugins: [] } } },
+    completeAdd: async () => { calls++; return { ok: true, value: { kind: 'installed', plugins: [] } } },
+  })
+  const disposeRemote = await client.apply(host.ctx)
+  try {
+    const face = host.entries.find(entry => entry.options.name === 'main')!.options.inject!()
+    const controller = new AbortController()
+    const reason = new Error('Install was cancelled')
+    controller.abort(reason)
+    const cancelled = (error: unknown) => { assert.equal(error, reason); return true }
+    await assert.rejects(face.beginAdd('github:owner/repo', controller.signal), cancelled)
+    await assert.rejects(face.completeAdd('pending', [{ pluginId: 'demo' }], controller.signal), cancelled)
+    await assert.rejects(face.uploadArchive({ name: 'plugin.zip', size: 128 } as File, controller.signal), cancelled)
+    assert.equal(calls, 0)
+  } finally { host.dispose(); await disposeRemote() }
 })
 
 test('管理 Remote 挂载失败时回收挂载，且不留下无法打开的入口', async () => {

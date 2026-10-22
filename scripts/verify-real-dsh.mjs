@@ -26,7 +26,7 @@ for (const name of Object.keys({ ...manifest.dependencies, ...manifest.devDepend
 assert.equal(evaluatePluginCompatibility(manifest, {}, target), undefined)
 assert.notEqual(evaluatePluginCompatibility(manifest, {}, '0.1.0-rc.6'), undefined)
 
-const expected = ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'list', 'setEnabled', 'uninstall', 'update']
+const expected = ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'contract', 'list', 'setEnabled', 'uninstall', 'update']
 assert.deepEqual(TYPERT.invocations.map(item => item.method).sort(), expected)
 assert.deepEqual(remote.descriptors.map(item => item.method).sort(), expected)
 for (const descriptor of [...TYPERT.invocations, ...remote.descriptors]) {
@@ -128,6 +128,8 @@ try {
     interactions: 'none', async dispose() { peerController.abort() },
   }
   let calls = 0
+  let jsonCarrier = true
+  const roundTrip = value => jsonCarrier ? JSON.parse(JSON.stringify(value)) : value
   client.provide('connection', {
     interactions: 'none', isLoopback: true,
     generation: { getSnapshot: () => undefined },
@@ -138,13 +140,14 @@ try {
         assert.equal(path, '/api')
         const [namespace, method] = endpoint.split('/')
         calls++
+        const transported = roundTrip(payload)
         try {
-          const value = await gateway.invoke({ namespace, method, args: payload.args, peer, signal })
-          return { ok: true, value }
+          const value = await gateway.invoke({ namespace, method, args: transported.args, peer, signal })
+          return roundTrip({ ok: true, value })
         } catch (error) {
-          return { ok: false, error: {
+          return roundTrip({ ok: false, error: {
             code: error.code ?? 'gateway/internal', message: error.message, details: error.details ?? {},
-          } }
+          } })
         }
       },
     },
@@ -155,6 +158,7 @@ try {
   const namespace = client.get('remote.pluginBridgeAdmin')
   assert.notEqual(namespace, undefined)
   const retainedList = namespace.list
+  assert.deepEqual(await namespace.contract(), { ok: true, value: { protocol: 'single-parser-v1', acceptsSelections: true } })
   assert.deepEqual(await namespace.list(), { ok: true, value: { kind: 'ready', plugins: [], categories: [] } })
   assert.deepEqual(await namespace.uninstall('contract-plugin'), {
     ok: true, value: { kind: 'removed', pluginId: 'contract-plugin' },
@@ -162,11 +166,23 @@ try {
   assert.deepEqual(removed, ['contract-plugin'])
   const installSignal = new AbortController().signal
   assert.deepEqual(await namespace.beginAdd('/contract/source', installSignal), { ok: true, value: webParserChoice })
-  assert.deepEqual(await namespace.completeAdd('contract-preparation', [{ pluginId: 'contract-tool', parserId: 'third-party-parser' }], installSignal), { ok: true, value: webParserChoice })
+  for (const plugins of [[{ pluginId: 'contract-tool' }], [{ pluginId: 'contract-tool', parserId: 'third-party-parser' }]]) {
+    assert.deepEqual(await namespace.completeAdd('contract-preparation', plugins, installSignal), { ok: true, value: webParserChoice })
+  }
   assert.deepEqual(parserSelections, [
+    { preparationId: 'contract-preparation', plugins: [{ pluginId: 'contract-tool' }] },
     { preparationId: 'contract-preparation', plugins: [{ pluginId: 'contract-tool' }] },
     { preparationId: 'contract-preparation', plugins: [{ pluginId: 'contract-tool', parserId: 'third-party-parser' }] },
   ])
+  assert.equal(Object.hasOwn(parserSelections[1].plugins[0], 'parserId'), false)
+  jsonCarrier = false
+  const undefinedSelection = await namespace.completeAdd('contract-preparation', [{ pluginId: 'contract-tool', parserId: undefined }], installSignal)
+  assert.equal(undefinedSelection.ok, false)
+  assert.equal(undefinedSelection.error.code, 'gateway/input-invalid')
+  assert.equal(parserSelections.length, 3, 'non-JSON input must not reach the manager')
+  jsonCarrier = true
+  assert.deepEqual(await namespace.completeAdd('contract-preparation', [{ pluginId: 'contract-tool', parserId: undefined }], installSignal), { ok: true, value: webParserChoice })
+  assert.equal(Object.hasOwn(parserSelections[3].plugins[0], 'parserId'), false, 'JSON transport omits undefined fields')
   const legacySelection = await namespace.completeAdd('contract-preparation', ['contract-tool'], installSignal)
   assert.equal(legacySelection.ok, false)
   assert.equal(legacySelection.error.code, 'gateway/input-invalid')
@@ -179,14 +195,14 @@ try {
   assert.deepEqual(await namespace.list(), {
     ok: true, value: { kind: 'error', message: 'Controlled list failure' },
   })
-  assert.equal(calls, 8)
+  assert.equal(calls, 12)
 
   await disposeRemote()
   assert.equal(clientRegistry.remotes.list().length, 0)
   assert.equal(client.get('remote.pluginBridgeAdmin'), undefined)
   const withdrawn = await retainedList()
   assert.equal(withdrawn.ok, false)
-  assert.equal(calls, 8, 'withdrawn namespace must not call the Host')
+  assert.equal(calls, 12, 'withdrawn namespace must not call the Host')
   await disposeHost()
   assert.equal(hostRegistry.local.list().length, 0)
   console.log(`DSH ${target}: strict Host/Client registration, ${calls} RPC round trips, invalid input and disposal passed`)

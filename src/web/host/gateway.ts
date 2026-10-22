@@ -1,5 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { Remote, TypertRemoteService } from '@deepseek-ai/dsh-typert-protocol'
+import { Remote, TypertRemoteService, isRemoteJsonValue } from '@deepseek-ai/dsh-typert-protocol'
+import type {} from '@deepseek-ai/dsh-typert-registry'
+import { PLUGIN_BRIDGE_RPC_PROTOCOL } from '../../shared/rpc-contract.js'
 import {
   type InstallPreparation,
   type InstallCompletion,
@@ -15,6 +17,7 @@ import type {
   CompatWebCancelAddResult,
   CompatWebCandidate,
   CompatWebCheckUpdatesResult,
+  CompatWebContract,
   CompatWebDiagnostic,
   CompatWebListResult,
   CompatWebPlugin,
@@ -318,6 +321,27 @@ export class CompatWebGateway extends TypertRemoteService {
       }
       child.connection.fetch.register(route)
     })
+  }
+
+  /** @returns 当前进程的实际安装入参校验器是否与单解析器客户端一致。 */
+  @Remote('contract')
+  contract(): CompatWebContract {
+    const parameter = this.ctx.get('typert')?.local.get('pluginBridgeAdmin/completeAdd')?.parameters.find(item => item.wire === 'plugins')
+    let acceptsSelections = false
+    if (parameter?.codec.mode === 'strict') {
+      try {
+        const schema = parameter.codec.create()
+        const accepts = (input: unknown): boolean => {
+          try { return isRemoteJsonValue(schema.parse(input)) } catch { return false }
+        }
+        acceptsSelections = accepts([{ pluginId: 'contract-check' }])
+          && accepts([{ pluginId: 'contract-check', parserId: 'contract-parser' }])
+          && !accepts(['contract-check'])
+      } catch {
+        // 缺失或不可执行的活动 codec 不是可提交的安装契约。
+      }
+    }
+    return { protocol: PLUGIN_BRIDGE_RPC_PROTOCOL, acceptsSelections }
   }
 
   /** @returns 当前外部插件列表或可展示错误。 */

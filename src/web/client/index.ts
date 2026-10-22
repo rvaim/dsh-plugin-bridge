@@ -13,6 +13,7 @@ import type { PluginBridgeInjected } from './types.js'
 import { PluginBridgePanelIcon } from './PluginBridgePanelIcon.js'
 import { uploadLocalArchive } from './local-archive.js'
 import { en, zh } from './locales.js'
+import { PLUGIN_BRIDGE_RPC_PROTOCOL } from '../../shared/rpc-contract.js'
 
 const NS = 'pluginBridge'
 const PANEL_ID = 'plugin-bridge'
@@ -39,23 +40,41 @@ export async function apply(ctx: Context): Promise<() => Promise<void>> {
       'plugin-bridge: Web 管理面板字典',
     )
     const t = ctx.locale.bind(NS)
+    const requireInstallContract = async (signal: AbortSignal): Promise<void> => {
+      signal.throwIfAborted()
+      if (typeof pluginBridgeAdmin.contract !== 'function') throw new Error(t('restartRequired'))
+      const response = await pluginBridgeAdmin.contract()
+      signal.throwIfAborted()
+      if (!response.ok) {
+        const missing = new Set(['gateway/invocation-unavailable', 'gateway/endpoint-unavailable', 'gateway/definition-unavailable', 'gateway/method-unavailable', 'gateway/service-unavailable'])
+        if (missing.has(response.error.code)) throw new Error(t('restartRequired'))
+        unwrap(response, 'pluginBridgeAdmin.contract')
+        return
+      }
+      if (response.value?.protocol !== PLUGIN_BRIDGE_RPC_PROTOCOL || !response.value.acceptsSelections) {
+        throw new Error(t('restartRequired'))
+      }
+    }
     const injected: PluginBridgeInjected = {
       resolveText: label => ctx.locale.resolveText(label),
-      uploadArchive: uploadLocalArchive,
+      uploadArchive: async (file, signal) => {
+        await requireInstallContract(signal)
+        return await uploadLocalArchive(file, signal)
+      },
       list: async () => unwrap(await pluginBridgeAdmin.list(), 'pluginBridgeAdmin.list'),
       checkUpdates: async () => unwrap(await pluginBridgeAdmin.checkUpdates(), 'pluginBridgeAdmin.checkUpdates'),
       update: async (pluginId, confirmShared) => unwrap(
         await pluginBridgeAdmin.update(pluginId, confirmShared),
         'pluginBridgeAdmin.update',
       ),
-      beginAdd: async (source, signal) => unwrap(
-        await pluginBridgeAdmin.beginAdd(source, signal),
-        'pluginBridgeAdmin.beginAdd',
-      ),
-      completeAdd: async (requestId, plugins, signal) => unwrap(
-        await pluginBridgeAdmin.completeAdd(requestId, plugins, signal),
-        'pluginBridgeAdmin.completeAdd',
-      ),
+      beginAdd: async (source, signal) => {
+        await requireInstallContract(signal)
+        return unwrap(await pluginBridgeAdmin.beginAdd(source, signal), 'pluginBridgeAdmin.beginAdd')
+      },
+      completeAdd: async (requestId, plugins, signal) => {
+        await requireInstallContract(signal)
+        return unwrap(await pluginBridgeAdmin.completeAdd(requestId, plugins, signal), 'pluginBridgeAdmin.completeAdd')
+      },
       cancelAdd: async requestId => unwrap(
         await pluginBridgeAdmin.cancelAdd(requestId),
         'pluginBridgeAdmin.cancelAdd',

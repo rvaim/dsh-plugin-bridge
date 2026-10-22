@@ -53,7 +53,7 @@ for (const [locale, title] of [['zh', '插件桥'], ['en', 'Plugin Bridge']]) {
 }
 const icon = await readFile(new URL('icon.png', root))
 if (icon.length > 256 * 1024 || icon.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('包图标必须为有效大小的 PNG')
-if (packageJson.version !== '0.10.0') throw new Error('交付版本必须为 0.10.0')
+if (packageJson.version !== '0.10.1') throw new Error('交付版本必须为 0.10.1')
 if (packageJson.publishConfig?.access !== 'public') throw new Error('npm 组织包必须公开发布')
 if (packageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error('npm 发布 registry 配置错误')
 if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-plugin-bridge.git') {
@@ -120,7 +120,7 @@ for (const marker of ['plugin-bridge', 'pluginBridgeAdmin.beginAdd', 'pluginBrid
 }
 const hostTypert = await readFile(new URL('dist/typert.host.js', root), 'utf8')
 const remoteTypert = await readFile(new URL('dist/typert.remote-client.js', root), 'utf8')
-for (const method of ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'list', 'setEnabled', 'uninstall', 'update']) {
+for (const method of ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'contract', 'list', 'setEnabled', 'uninstall', 'update']) {
   if (!hostTypert.includes(`pluginBridgeAdmin/${method}`) || !remoteTypert.includes(`pluginBridgeAdmin/${method}`)) {
     throw new Error(`Typert Host/Remote 缺少 pluginBridgeAdmin/${method}`)
   }

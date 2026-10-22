@@ -40,6 +40,9 @@ export interface CompatWebCandidate {
   installable: boolean
   errors: number
   warnings: number
+  /** 由 Host 规范化的插件位置；可区分来源内目录与外部仓库。 */
+  source: string
+  diagnostics: CompatWebDiagnostic[]
 }
 
 /** 已装配解析器提供的页内分类。 */
@@ -57,7 +60,7 @@ export type CompatWebListResult =
 /** 添加来源 RPC 的业务结果。 */
 export type CompatWebAddResult =
   | { kind: 'installed'; plugins: CompatWebPlugin[] }
-  | { kind: 'selection'; requestId: string; candidates: CompatWebCandidate[] }
+  | { kind: 'selection'; requestId: string; selectionRequired: boolean; candidates: CompatWebCandidate[] }
   | { kind: 'error'; message: string }
 
 /** 取消尚未完成的多插件选择。 */

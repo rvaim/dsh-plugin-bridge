@@ -3,7 +3,7 @@ import test from 'node:test'
 import { uploadLocalArchive } from '../../src/web/client/local-archive.js'
 import { MAX_PLUGIN_ARCHIVE_BYTES } from '../../src/shared/archive-input.js'
 
-const prepared = { kind: 'selection', requestId: 'prepared-file', candidates: [{ id: 'local-tools', name: 'Local tools', formats: ['custom-parser'], installable: true, errors: 0, warnings: 0 }] }
+const prepared = { kind: 'selection', requestId: 'prepared-file', selectionRequired: true, candidates: [{ id: 'local-tools', name: 'Local tools', formats: ['custom-parser'], installable: true, errors: 0, warnings: 0, source: './tools', diagnostics: [] }] }
 
 test('本地选择以原始 File 同源上传，保留部署前缀与跨平台文件名', async () => {
   const file = new File(['archive-bytes'], '本地 tools.TAR.GZ', { type: 'application/gzip' })

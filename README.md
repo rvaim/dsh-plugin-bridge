@@ -5,9 +5,9 @@
 
 插件桥（Plugin Bridge）是 DeepSeek Harness（DSH）的外部插件管理工具，支持独立 Agent Plugins 1.0.0、传统 Codex 与 Claude Code 插件。插件作为完整生命周期单元接入 DSH，复用 Source 快照、Skill Provider 和 MCP 子实例。
 
-> 当前版本：`0.8.1`。Plugin parser / Source parser：`5.0.0`，各内置协议实现：`1.1.0`；公共解析层已移除协议专属转发文件，不兼容旧 API，三种协议通过统一契约独立装配。源码一级目录已从 13 个收敛为 10 个，当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304 和 2026-10-20 官方文档**，见[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
+> 当前版本：`0.9.0`。Plugin parser：`5.0.0`；Source parser：`5.1.0`；Claude Code / Codex 协议实现：`1.2.0`，Agent Plugins 协议实现保持 `1.2.0`。公共解析层不硬编码厂商，三种协议通过统一契约独立装配。当前目录与迁移映射见[解析器解耦重构说明](docs/解析器解耦重构说明.md)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304**。市场规则于 **2026-10-22** 再次核对官方资料，证据与限制见[市场发现与选择安装验证报告](docs/市场发现与选择安装验证报告.md)及[传统插件兼容矩阵](docs/传统插件兼容矩阵.md)。
 >
-> 从 `0.6.0` 起，仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。解析实现及其模型版本保持不变。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
+> 从 `0.6.0` 起，仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
 
 ![DSH Web 插件桥管理页，展示多个已启用的 Claude Code 与 Codex 插件](https://raw.githubusercontent.com/rvaim/dsh-plugin-bridge/main/docs/assets/compat-settings.png)
 
@@ -18,7 +18,7 @@
 从 npm 安装指定版本：
 
 ```bash
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.8.1
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.9.0
 ```
 
 也可以使用本地构建包：
@@ -27,12 +27,20 @@ dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.8.1
 npm install
 npm run verify
 npm pack --ignore-scripts
-dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.8.1.tgz
+dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.9.0.tgz
 ```
 
 公开发布地址：[npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。当前基线以 `package.json#engines.dsh` 为准，不提供旧 DSH 版本兼容。
 
 把 `web` 换成实际 profile 名称即可。首次安装或升级 `@rvaim/dsh-plugin-bridge` 后，需要重启该 profile 并重新加载 Web 页面，因为 DSH 的 Host/Client 插件图发生了变化。
+
+## 0.9.0 市场发现与选择安装
+
+- 自动识别根市场，以及解析器声明范围内的子目录市场；正确定位仓库内子插件与外部 Git/git-subdir 插件。
+- 市场即使只有一个候选也先显示选择列表，用户确认后只安装所选项；列表展示实际来源位置和诊断。
+- 解析器声明规则，安装层返回 `selectionRequired`，通用 UI 消费结果；新增或移除解析器无需增加厂商分支。
+- 服务 API 的市场安装必须显式传入 `plugins`；分步安装调用方需处理新增的必填 `selectionRequired`。独立单插件保留直接安装。
+- 外部 Git 仅在确认选中后获取并记录 commit；市场识别不代表第三方 Hook 或 MCP 已通过运行验收。完整边界见[专项报告](docs/市场发现与选择安装验证报告.md)。
 
 ## 0.8.1 修复内容
 
@@ -54,7 +62,7 @@ dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.8.1.tgz
 
 1. 启动 profile，在 DSH Web 侧边栏点击“插件桥”，在主区域打开管理面板。
 2. 点击“添加”，输入 Git URL、`github:owner/repo#ref`、本地目录或 ZIP/TAR/TGZ 归档。
-3. 单插件来源会直接安装；多插件来源会显示复选列表，确认后从同一份固定快照安装所选插件，不会再次拉取。
+3. 独立单插件来源会直接安装；Marketplace 来源无论有一个还是多个候选都会先显示复选列表，确认后只安装所选插件。市场仓库复用准备时的固定快照；所选外部 Git 插件在确认后获取并记录 commit。
 4. 使用开关在线启用或停用整个插件；使用删除按钮卸载。错误或警告数量可以展开查看说明、诊断代码、能力类型与关联文件。
 5. 点击刷新会检查每个已安装插件所属 Source 的最新 revision；有更新时插件行会显示“更新”按钮，点击后在当前进程中更新并重启该插件。
 
@@ -141,9 +149,11 @@ Git / Directory / ZIP / TAR / TGZ
 
 - 支持 Git URL、`github:` 简写、本地目录和 ZIP/TAR/TGZ。
 - 支持 Claude Code `.claude-plugin/marketplace.json`、Codex `.agents/plugins/marketplace.json` 及混合 Marketplace。
-- 无 Marketplace 时识别 Source 根目录中的单插件；`paths` 可显式处理非标准目录，不递归猜测。
+- 根市场和根显式插件清单优先；两者都不存在时，按解析器声明最多深入 4 层、检查 4096 个目录寻找市场标记。不跟随目录符号链接，遇到市场或显式插件边界即停止向下。嵌套发现是插件桥扩展，不表示上游要求递归扫描。
+- 本地候选相对市场根解析，缓存和配置引用保持相对 Source 仓库根。多个市场合并候选；同格式同 ID 的跨市场条目会阻止安装。
+- 无 Marketplace 时识别 Source 根目录中的单插件；`paths` 可显式处理非标准目录，不猜测未列出的插件目录。
 - 支持显式/隐式 Source、引用计数、共享 Source 整体更新、原子切换和整体回滚。
-- 外部 Git/git-subdir Plugin 仍归所属 Source 管理并使用 Source 专属缓存。
+- 市场候选必须经用户选择；UI 只消费 `selectionRequired`。未选中的外部 Git/git-subdir 不联网；选中后才解析 `ref`/HEAD、获取并记录 commit，声明的 `sha` 固定目标。外部插件仍归所属 Source 管理。npm、远端 archive、command 来源保留既有未适配诊断。
 
 ### Plugin
 
@@ -236,6 +246,7 @@ npm pack --ignore-scripts
 - [Agent Plugins 1.0.0 验证报告](<docs/Agent Plugins 1.0.0 验证报告.md>)
 - [传统插件解析兼容方案](docs/传统插件解析兼容方案.md)
 - [传统插件兼容矩阵](docs/传统插件兼容矩阵.md)
+- [市场发现与选择安装验证报告](docs/市场发现与选择安装验证报告.md)
 - [本轮协议兼容验证报告](docs/插件协议兼容验证报告.md)
 - [架构与生命周期](docs/架构与生命周期.md)
 - [使用与运维](docs/使用与运维.md)
@@ -245,7 +256,7 @@ npm pack --ignore-scripts
 
 ## 明确边界
 
-本项目不重新实现 Claude Code 或 Codex Runtime，不修改旧插件源码，不自动重命名能力，不递归扫描整个仓库猜测插件，不自动安装 Marketplace 新增 Plugin，不把 Bash 猜测翻译为 PowerShell，也不执行 Command / Agent。无法可靠兼容的行为会通过诊断公开。
+本项目不重新实现 Claude Code 或 Codex Runtime，不修改旧插件源码，不自动重命名能力，不递归扫描整个仓库猜测插件，不自动安装 Marketplace 新增 Plugin，不把 Bash 猜测翻译为 PowerShell，也不执行 Command / Agent。无法可靠兼容的行为会通过诊断公开。发现 ReMe 等仓库中的市场或插件，不代表其中依赖 Claude Code 专用环境的 auto-memory 等功能已能在 DSH 工作；运行能力仍须逐项验证。
 
 ## 许可证
 

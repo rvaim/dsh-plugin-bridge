@@ -72,6 +72,21 @@ function webPlugin(entry: PluginListEntry): CompatWebPlugin {
   }
 }
 
+function candidateSource(location: CompatSourcePlugin['location']): string {
+  switch (location.type) {
+    case 'source-path': return location.path === '.' ? './' : `./${location.path}`
+    case 'git':
+    case 'git-subdir': {
+      const revision = location.sha ?? location.ref
+      const selector = revision === undefined ? '' : `#${revision}`
+      return `${location.url}${selector}${location.type === 'git-subdir' ? `:${location.path}` : ''}`
+    }
+    case 'npm': return `${location.package}${location.version ? `@${location.version}` : ''}`
+    case 'archive': return location.url
+    case 'unsupported': return location.sourceType
+  }
+}
+
 function webCandidate(candidate: CompatSourcePlugin): CompatWebCandidate {
   return {
     id: candidate.id,
@@ -83,6 +98,8 @@ function webCandidate(candidate: CompatSourcePlugin): CompatWebCandidate {
     installable: candidate.installable,
     errors: candidate.diagnostics.filter(item => item.level === 'error').length,
     warnings: candidate.diagnostics.filter(item => item.level === 'warning').length,
+    source: candidateSource(candidate.location),
+    diagnostics: webDiagnostics(candidate.diagnostics),
   }
 }
 
@@ -162,7 +179,7 @@ export class CompatWebOperations {
     }
   }
 
-  /** 拉取并固定一次来源；单插件直接安装，多插件返回一次性选择请求。 */
+  /** 拉取并固定一次来源；仅独立单插件可直接安装，市场始终返回选择请求。 */
   async beginAdd(source: string, signal: AbortSignal = new AbortController().signal): Promise<CompatWebAddResult> {
     let preparation: InstallPreparation | undefined
     try {
@@ -172,13 +189,15 @@ export class CompatWebOperations {
         throw new Error(`Source ${preparation.sourceId} 没有可定位的插件`)
       }
       signal.throwIfAborted()
-      if (preparation.plugins.length === 1) {
-        const installed = await this.installRequests.complete(preparation.preparationId, [preparation.plugins[0].id], signal)
+      const only = preparation.plugins[0]
+      if (!preparation.selectionRequired && preparation.plugins.length === 1 && only.installable && !only.diagnostics.some(item => item.level === 'error')) {
+        const installed = await this.installRequests.complete(preparation.preparationId, [only.id], signal)
         return this.installedResult(installed)
       }
       return {
         kind: 'selection',
         requestId: preparation.preparationId,
+        selectionRequired: preparation.selectionRequired,
         candidates: preparation.plugins.map(webCandidate),
       }
     } catch (error) {
@@ -204,7 +223,7 @@ export class CompatWebOperations {
       preparation = await this.installRequests.prepare(source, signal, (path, options) => this.compat.prepareArchiveInstall(path, options.signal))
       signal.throwIfAborted()
       if (preparation.plugins.length === 0) throw new Error('上传归档中没有可定位的插件')
-      return { kind: 'selection', requestId: preparation.preparationId, candidates: preparation.plugins.map(webCandidate) }
+      return { kind: 'selection', requestId: preparation.preparationId, selectionRequired: preparation.selectionRequired, candidates: preparation.plugins.map(webCandidate) }
     } catch (error) {
       if (preparation !== undefined) await this.installRequests.cancel(preparation.preparationId)
       return { kind: 'error', message: signal.aborted ? '文件上传已取消' : messageOf(error) }

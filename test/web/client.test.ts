@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { Script } from 'node:vm'
-import type { CompatWebCategory, CompatWebListResult, CompatWebPlugin } from '../../src/types/web.js'
+import type { CompatWebAddResult, CompatWebCandidate, CompatWebCategory, CompatWebListResult, CompatWebPlugin } from '../../src/types/web.js'
 import type { PluginBridgeInjected } from '../../src/web/client/types.js'
 
 type Entry = {
@@ -24,11 +24,13 @@ type ClientModule = {
   PluginRow: unknown
 }
 
-async function loadClient(react: Record<string, unknown> = {}) {
+async function loadClient(react: Record<string, unknown> = {}, browser: Record<string, unknown> = {}) {
   let registration: { id: string; factory: (require: (id: string) => unknown) => ClientModule } | undefined
   const source = await readFile(resolve('dist/client.js'), 'utf8')
   new Script(source, { filename: 'dist/client.js' }).runInNewContext({
     window: { __ModuleLoader__: { load: (entry: typeof registration) => { registration = entry } } },
+    AbortController,
+    ...browser,
   })
   assert.equal(registration?.id, '@rvaim/dsh-plugin-bridge')
   const icon = () => null
@@ -46,6 +48,7 @@ async function loadClient(react: Record<string, unknown> = {}) {
     IconRefreshOutlineRegular: icon,
     IconTrashOutlineRegular: icon,
     IconLinkOutlineRegular: icon,
+    IconArchiveOutlineRegular: icon,
   }
   const jsx = (type: unknown, props: unknown) => ({ type, props })
   const modules: Record<string, unknown> = {
@@ -150,7 +153,7 @@ test('独立管理面板保留全部业务 RPC，并显示 Host 拒绝原因', a
     list: { kind: 'ready', plugins: [], categories: [] },
     checkUpdates: { kind: 'ready', updates: [] },
     update: { kind: 'updated', plugins: [], affectedPluginIds: ['demo'] },
-    beginAdd: { kind: 'selection', requestId: 'selection', candidates: [] },
+    beginAdd: { kind: 'selection', requestId: 'selection', selectionRequired: true, candidates: [] },
     completeAdd: { kind: 'installed', plugins: [] },
     cancelAdd: { kind: 'cancelled' },
     setEnabled: { kind: 'updated', plugin: { id: 'demo' } },
@@ -241,6 +244,7 @@ function createHookRuntime() {
       if (!(index in records)) records[index] = { current: initial }
       return records[index]
     },
+    useId: () => memo(() => `test-id-${cursor}`, []),
     useMemo: memo,
     useCallback: <T>(callback: T, dependencies: unknown[]) => memo(() => callback, dependencies),
     useEffect: (effect: () => (() => void) | void, dependencies: unknown[]) => {
@@ -274,7 +278,16 @@ function createHookRuntime() {
     mount: (component: (props: unknown) => unknown, props: unknown) => { render = () => component(props); dirty = true; return flush() },
     refresh: () => { dirty = true; return flush() },
     flush,
-    unmount: () => { for (const cleanup of cleanups.values()) cleanup() },
+    unmount: () => {
+      for (const cleanup of cleanups.values()) cleanup()
+      cleanups.clear()
+      records.length = 0
+      effects = []
+      cursor = 0
+      dirty = false
+      tree = null
+      render = () => null
+    },
   }
 }
 
@@ -283,6 +296,18 @@ function nodes(tree: unknown): RenderNode[] {
   if (tree === null || typeof tree !== 'object' || !('props' in tree)) return []
   const node = tree as RenderNode
   return [node, ...nodes(node.props.children)]
+}
+
+function textContent(tree: unknown): string {
+  if (Array.isArray(tree)) return tree.map(textContent).join('')
+  if (typeof tree === 'string' || typeof tree === 'number') return String(tree)
+  if (tree === null || typeof tree !== 'object' || !('props' in tree)) return ''
+  return textContent((tree as RenderNode).props.children)
+}
+
+function interpolate(t: (key: string) => string) {
+  return (key: string, values: Record<string, string | number> = {}) => Object.entries(values)
+    .reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), t(key))
 }
 
 function propNode(tree: unknown, key: string): RenderNode {
@@ -361,7 +386,10 @@ test('实际 Client bundle 分类保留零计数、语言切换不读 RPC，读�
 
 test('实际 Client bundle 展开诊断后显示明确详情并保留可选文本', async () => {
   const hooks = createHookRuntime()
-  const { client } = await loadClient(hooks.react)
+  const copied: string[] = []
+  const { client } = await loadClient(hooks.react, {
+    navigator: { clipboard: { writeText: async (value: string) => { copied.push(value) } } },
+  })
   const diagnosed: CompatWebPlugin = {
     ...runtimePlugin,
     warnings: 1,
@@ -378,15 +406,27 @@ test('实际 Client bundle 展开诊断后显示明确详情并保留可选文�
   const disposeRemote = await client.apply(host.ctx)
   const face = host.entries.find(entry => entry.options.name === 'main')!.options.inject!()
   let tree = await hooks.mount(client.PluginBridgePanel as (props: unknown) => unknown, { ...face, t: host.ctx.locale.bind(client.NS) })
+  hooks.unmount()
   tree = await hooks.mount((client as ClientModule).PluginRow as (props: unknown) => unknown, {
     plugin: diagnosed, categories: [], resolveText: (label: { en: string; zh?: string }) => label.zh ?? label.en,
     pending: null, error: null, busy: false, expanded: true, onExpand: () => {}, onToggle: () => {},
-    onUpdate: () => {}, onRemove: () => {}, t: host.ctx.locale.bind(client.NS),
+    onUpdate: () => {}, onRemove: () => {}, t: interpolate(host.ctx.locale.bind(client.NS)),
   })
   assert(nodes(tree).some(node => node.props.children === 'Agent Plugins 未实现的扩展命名空间已忽略：com.openai'))
-  assert(nodes(tree).some(node => String(node.props.className ?? '').includes('HQoOBG_diagnosticDetails')))
-  assert(nodes(tree).some(node => String(node.props.children).includes('com.openai')))
-  assert(nodes(tree).some(node => String(node.props.className ?? '').includes('HQoOBG_copyButton')))
+  const details = nodes(tree).find(node => node.type === 'pre')
+  assert(details, 'expanded diagnostic must retain a preformatted details block')
+  assert.equal(details.props.children, `详情：${diagnosed.diagnostics[0].details}`)
+  const copy = nodes(tree).find(node => node.type === 'button' && node.props.children === '复制此条诊断')
+  assert(copy, 'expanded diagnostic must offer copying its full contents')
+  assert.equal(typeof copy.props.onClick, 'function')
+  ;(copy.props.onClick as () => void)()
+  tree = await hooks.flush()
+  assert.equal(copied.length, 1)
+  assert(copied[0].includes(diagnosed.diagnostics[0].code))
+  assert(copied[0].includes(diagnosed.diagnostics[0].message))
+  assert(copied[0].includes(diagnosed.diagnostics[0].file!))
+  assert(copied[0].includes(diagnosed.diagnostics[0].details!))
+  assert(nodes(tree).some(node => node.props.role === 'status' && node.props.children === '已复制'))
   hooks.unmount()
   host.dispose()
   await disposeRemote()
@@ -423,3 +463,116 @@ test('实际 Client bundle 添加清空搜索和状态；任一新插件不属�
   host.dispose()
   await disposeRemote()
 })
+
+for (const selectionRequired of [true, false]) {
+  test(selectionRequired
+    ? '实际 Client bundle 上传单候选市场先展示选择，用户勾选提交后仅安装一次'
+    : '实际 Client bundle 上传独立单插件保留自动提交且仅安装一次', async () => {
+    const hooks = createHookRuntime()
+    const { client } = await loadClient(hooks.react)
+    const candidate: CompatWebCandidate = {
+      id: 'uploaded-only', name: 'Uploaded plugin', formats: ['future-a'],
+      installable: true, errors: 0, warnings: 1, source: './plugins/uploaded-only',
+      diagnostics: [{ level: 'warning', code: 'CATALOG_NOTICE', capability: 'source', message: 'Catalog entry warning', file: 'nested/marketplace.json' }],
+    }
+    const preparation: CompatWebAddResult = {
+      kind: 'selection', requestId: 'upload-request', selectionRequired, candidates: [candidate],
+    }
+    const added: CompatWebPlugin = { ...runtimePlugin, id: candidate.id, name: candidate.name }
+    const uploads: { file: File; signal: AbortSignal }[] = []
+    const completions: { requestId: string; plugins: string[]; signal: AbortSignal }[] = []
+    const cancellations: string[] = []
+    const installed: CompatWebPlugin[][] = []
+    let closed = 0
+    const host = createHost({
+      list: async () => ({ ok: true, value: { kind: 'ready', plugins: [], categories: runtimeCategories } }),
+      checkUpdates: async () => ({ ok: true, value: { kind: 'ready', updates: [] } }),
+      beginAdd: async () => { throw new Error('file selection must use uploadArchive') },
+      completeAdd: async (requestId: string, plugins: string[], signal: AbortSignal) => {
+        completions.push({ requestId, plugins: Array.from(plugins), signal })
+        return { ok: true, value: { kind: 'installed', plugins: [added] } }
+      },
+      cancelAdd: async (requestId: string) => {
+        cancellations.push(requestId)
+        return { ok: true, value: { kind: 'cancelled' } }
+      },
+    })
+    const disposeRemote = await client.apply(host.ctx)
+    try {
+      const face = host.entries.find(entry => entry.options.name === 'main')!.options.inject!()
+      let tree = await hooks.mount(client.PluginBridgePanel as (props: unknown) => unknown, {
+        ...face,
+        uploadArchive: async (file: File, signal: AbortSignal): Promise<CompatWebAddResult> => {
+          uploads.push({ file, signal })
+          return preparation
+        },
+        t: interpolate(host.ctx.locale.bind(client.NS)),
+      })
+      const add = nodes(tree).find(node => node.props['data-plugin-bridge-add'] !== undefined)
+      assert(add)
+      assert.equal(add.props.disabled, false)
+      ;(add.props.onClick as () => void)()
+      tree = await hooks.flush()
+      const dialog = propNode(tree, 'onInstalled')
+      assert.equal(typeof dialog.type, 'function')
+      hooks.unmount()
+      tree = await hooks.mount(dialog.type as (props: unknown) => unknown, {
+        ...dialog.props,
+        onInstalled: (plugins: CompatWebPlugin[]) => { installed.push(Array.from(plugins)) },
+        onClose: () => { closed++ },
+      })
+      const file = { name: 'plugin.zip', size: 128 } as File
+      const picker = nodes(tree).find(node => node.type === 'input' && node.props.type === 'file')
+      assert(picker)
+      ;(picker.props.onChange as (event: unknown) => void)({ currentTarget: { files: [file] } })
+      tree = await hooks.flush()
+      const submit = (current: unknown) => {
+        const button = nodes((current as RenderNode).props.footer).find(node => node.props.variant === 'primary')
+        assert(button)
+        assert.equal(button.props.disabled, false)
+        // A rapid repeated click must share the in-flight action.
+        ;(button.props.onClick as () => void)()
+        ;(button.props.onClick as () => void)()
+      }
+      submit(tree)
+      tree = await hooks.flush()
+      assert.equal(uploads.length, 1)
+      assert.equal(uploads[0].file, file)
+      assert.equal(uploads[0].signal.aborted, false)
+
+      if (selectionRequired) {
+        assert.equal(completions.length, 0)
+        assert.equal(installed.length, 0)
+        assert.equal(closed, 0)
+        assert.equal((tree as RenderNode).props.title, '选择要添加的插件')
+        assert(textContent(tree).includes('插件位置：./plugins/uploaded-only'))
+        assert(textContent(tree).includes('CATALOG_NOTICE'))
+        assert(textContent(tree).includes('Catalog entry warning'))
+        assert(textContent(tree).includes('nested/marketplace.json'))
+        const checkbox = nodes(tree).find(node => node.type === 'input' && node.props.type === 'checkbox')
+        assert(checkbox)
+        assert.equal(checkbox.props.checked, false)
+        assert.equal(checkbox.props.disabled, false)
+        const beforeSelection = nodes((tree as RenderNode).props.footer).find(node => node.props.variant === 'primary')
+        assert.equal(beforeSelection?.props.disabled, true)
+        ;(checkbox.props.onChange as () => void)()
+        tree = await hooks.flush()
+        assert.equal(nodes(tree).find(node => node.type === 'input' && node.props.type === 'checkbox')?.props.checked, true)
+        submit(tree)
+        tree = await hooks.flush()
+      }
+
+      assert.equal(completions.length, 1)
+      assert.equal(completions[0].requestId, preparation.requestId)
+      assert.deepEqual(completions[0].plugins, [candidate.id])
+      assert.equal(completions[0].signal.aborted, false)
+      assert.deepEqual(installed, [[added]])
+      assert.equal(closed, 1)
+      assert.deepEqual(cancellations, [])
+    } finally {
+      hooks.unmount()
+      host.dispose()
+      await disposeRemote()
+    }
+  })
+}

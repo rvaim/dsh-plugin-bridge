@@ -13,9 +13,9 @@ import { parseAgentsForHarness } from './agents.js'
 
 export const claudeCodeParser: PluginParser = {
   id: 'claude-code',
-  version: '1.1.0',
+  version: '1.2.0',
   category: { label: { default: 'Claude Code', en: 'Claude Code', zh: 'Claude Code' }, order: 20 },
-  signature: { id: 'claude-code', manifestPaths: ['.claude-plugin/plugin.json'], marketplacePaths: ['.claude-plugin/marketplace.json'] },
+  signature: { id: 'claude-code', manifestPaths: ['.claude-plugin/plugin.json'], marketplacePaths: ['.claude-plugin/marketplace.json'], marketplaceSearchDepth: 4 },
   async detect(root) {
     if (await pathExists(resolve(root, '.claude-plugin/plugin.json'))) return { matched: true }
     const conventional = await Promise.all(['skills', 'commands', 'agents', 'hooks/hooks.json', '.mcp.json', 'SKILL.md'].map(path => pathExists(resolve(root, path))))

@@ -40,6 +40,10 @@ function mergeCandidates(candidates: SourcePluginCandidate[], diagnostics: Compa
       diagnostics.push(item)
     }
     if (sameMarketplace) { conflict('SOURCE_PLUGIN_ID_DUPLICATE', `同一 Marketplace 中插件 ID ${candidate.id} 重复；不会静默覆盖或合并`, candidate.definitions[0]?.file); continue }
+    if (previous.definitions.some(left => candidate.definitions.some(right => left.format === right.format))) {
+      conflict('SOURCE_PLUGIN_MARKETPLACE_CONFLICT', `不同 Marketplace 的同格式插件 ID ${candidate.id} 重复；不能静默选择其中一份配置`, candidate.definitions[0]?.file)
+      continue
+    }
     if (previous.locationKey !== candidate.locationKey) { conflict('SOURCE_PLUGIN_ID_CONFLICT', `同一 Source 中插件 ID ${candidate.id} 指向不同位置；不会猜测、改名或自动合并`); continue }
     const inconsistent: string[] = []
     if (previous.name !== candidate.name) inconsistent.push(`name: ${previous.name} / ${candidate.name}`)
@@ -132,6 +136,48 @@ async function unavailableCatalog(root: string, signature: ParserSignature, file
   } catch { return { candidates: [], diagnostics: [item], unknownScope: true } }
 }
 
+interface LocatedMarketplace { signature: ParserSignature; file: string }
+
+/** 只寻找解析器声明的市场清单，不把未列出的插件目录猜成市场条目。 */
+async function locateMarketplaces(registry: ParserRegistry, root: string, explicitPlugin: boolean): Promise<LocatedMarketplace[]> {
+  const at = async (base: string, depth: number): Promise<LocatedMarketplace[]> => {
+    const result: LocatedMarketplace[] = []
+    for (const signature of registry.signatures) {
+      if (depth > (signature.marketplaceSearchDepth ?? 0)) continue
+      for (const marker of signature.marketplacePaths) {
+        const file = base === '.' ? marker : `${base}/${marker}`
+        if (await pathPresent(root, file)) result.push({ signature, file })
+      }
+    }
+    return result
+  }
+  const direct = await at('.', 0)
+  // 根市场及显式插件拥有自己的边界，不能被下层示例或依赖接管。
+  if (direct.length > 0 || explicitPlugin) return direct
+  const maxDepth = Math.max(0, ...registry.signatures.map(signature => signature.marketplaceSearchDepth ?? 0))
+  const ignored = new Set(['.git', '.hg', '.svn', 'node_modules', '.venv', 'venv',
+    ...registry.signatures.flatMap(signature => signature.marketplacePaths.map(path => path.split('/')[0]))])
+  const found: LocatedMarketplace[] = []
+  const queue = [{ path: '.', depth: 0 }]
+  for (let index = 0; index < queue.length; index += 1) {
+    if (index >= 4096) throw new Error('市场发现超过 4096 个目录，请直接指定市场所在的子目录')
+    const current = queue[index]
+    if (current.depth > 0) {
+      const markets = await at(current.path, current.depth)
+      found.push(...markets)
+      if (markets.length > 0 || (await registry.explicit(resolve(root, current.path))).length > 0) continue
+    }
+    if (current.depth >= maxDepth) continue
+    const entries = await readdir(resolve(root, current.path), { withFileTypes: true })
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      // 不沿目录符号链接发现市场，防止循环或越过 Source 真实边界。
+      if (!entry.isDirectory() || ignored.has(entry.name)) continue
+      queue.push({ path: current.path === '.' ? entry.name : `${current.path}/${entry.name}`, depth: current.depth + 1 })
+    }
+  }
+  return found
+}
+
 async function scanRoot(registry: ParserRegistry, root: string, options: ParseSourceOptions): Promise<SourceDiscovery> {
   const diagnostics: CompatDiagnostic[] = []
   const marketplaceFiles: string[] = []
@@ -141,29 +187,29 @@ async function scanRoot(registry: ParserRegistry, root: string, options: ParseSo
   let name: string | undefined
   let unknownScope = false
   if (!exclusive) {
-    for (const signature of registry.signatures) {
-      const files: string[] = []
-      for (const file of signature.marketplacePaths) if (await pathPresent(root, file)) files.push(file)
-      if (files.length === 0) continue
+    const located = await locateMarketplaces(registry, root, explicit.length > 0 || options.paths !== undefined)
+    for (const { signature, file } of located) {
+      marketplaceFiles.push(file)
+      const location = await inspectContainedPath(root, file, 'file')
+      if (location.status !== 'ok') {
+        diagnostics.push(diagnostic('error', 'SOURCE_MARKETPLACE_PATH_INVALID', 'source', '市场清单不可读取、类型不正确或逃逸来源目录', file))
+        unknownScope = true
+        continue
+      }
       const parser = registry.getParser(signature.id)
       if (parser === undefined) {
-        for (const file of files) {
-          marketplaceFiles.push(file)
-          const skipped = await unavailableCatalog(root, signature, file)
-          diagnostics.push(...skipped.diagnostics); fromCatalog.push(...skipped.candidates); unknownScope ||= skipped.unknownScope
-        }
+        const skipped = await unavailableCatalog(root, signature, file)
+        diagnostics.push(...skipped.diagnostics); fromCatalog.push(...skipped.candidates); unknownScope ||= skipped.unknownScope
         continue
       }
       try {
-        const parsed = await parser.discoverSource(root)
-        if (parsed === undefined) { marketplaceFiles.push(...files); unknownScope = true; continue }
-        marketplaceFiles.push(parsed.marketplaceFile)
+        const parsed = await parser.discoverSource(root, file)
+        if (parsed === undefined) { unknownScope = true; continue }
         name ??= parsed.marketplaceName
         fromCatalog.push(...parsed.candidates)
         diagnostics.push(...parsed.diagnostics)
       } catch {
-        marketplaceFiles.push(...files)
-        diagnostics.push(diagnostic('error', 'PARSER_SOURCE_FAILED', 'source', `解析器 ${parser.id} 的目录发现失败`, files[0]))
+        diagnostics.push(diagnostic('error', 'PARSER_SOURCE_FAILED', 'source', `解析器 ${parser.id} 的目录发现失败`, file))
         unknownScope = true
       }
     }

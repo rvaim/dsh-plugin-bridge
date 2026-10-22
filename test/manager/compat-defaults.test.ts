@@ -46,7 +46,7 @@ test('Marketplace 内联 MCP 和 Hook 使用 Source 来源，安装更新后不�
     await put('v1')
     const layout = new CompatLayout(resolve(temp.path, 'home'))
     const manager = new CompatManager(layout, new CompatRuntimeManager(ctx, layout, { dependencies: fakeRuntimeDependencies(ctx.shared) }), createBuiltinParserEngine())
-    const installed = (await manager.install(source)).plugins[0]
+    const installed = (await manager.install(source, { plugins: ['nested'] })).plugins[0]
     assert.equal(installed.runtime.status, 'running')
     assert.equal((ctx.shared.mcpConfigs.get('source_server')?.env as any).SOURCE_VALUE, 'private-source-v1')
     assert.equal(JSON.stringify(installed.plugin).includes('private-source-v1'), false)

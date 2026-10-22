@@ -16,7 +16,7 @@ function deferred<T>() {
 }
 
 function preparation(preparationId = 'request'): InstallPreparation {
-  return { preparationId, sourceId: 'market', sourceCreated: true, plugins: [] }
+  return { preparationId, sourceId: 'market', sourceCreated: true, selectionRequired: true, plugins: [] }
 }
 
 function installed(): InstallResult {

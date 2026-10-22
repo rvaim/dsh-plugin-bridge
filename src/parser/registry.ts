@@ -91,6 +91,8 @@ export class ParserRegistry {
     this.modules = [...modules].sort((a, b) => a.id.localeCompare(b.id))
     const boundaries = new Map<string, ParserSignature>()
     for (const signature of [...signatures, ...modules.map(module => module.signature)]) {
+      const depth = signature.marketplaceSearchDepth
+      if (depth !== undefined && (!Number.isInteger(depth) || depth < 0 || depth > 8)) throw new Error('市场搜索深度必须是 0 到 8 的整数')
       // 装配声明的边界必须在移除实现后保持有效。
       if (!boundaries.has(signature.id)) boundaries.set(signature.id, structuredClone(signature))
     }

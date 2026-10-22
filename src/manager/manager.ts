@@ -167,15 +167,16 @@ export class CompatManager {
 
   private chooseCandidates(
     sourceId: string,
-    candidates: readonly SourcePluginCandidate[],
+    discovery: SourceDiscovery,
     selectors: readonly string[],
   ): SourcePluginCandidate[] {
+    const candidates = discovery.candidates
     if (candidates.length === 0) throw new Error(`Source ${sourceId} 没有可定位的插件`)
     let requested = [...selectors]
-    if (requested.length === 0 && candidates.length === 1) requested = [candidates[0].id]
+    if (requested.length === 0 && discovery.scan.discovery === 'single-plugin' && candidates.length === 1) requested = [candidates[0].id]
     if (requested.length === 0) {
       throw new Error(
-        `Source ${sourceId} 包含多个插件，必须通过 plugins 显式选择：${candidates.map(item => item.id).join(', ')}`,
+        `Source ${sourceId} 必须通过 plugins 显式选择：${candidates.map(item => item.id).join(', ')}`,
       )
     }
 
@@ -411,6 +412,7 @@ export class CompatManager {
         preparationId,
         sourceId: prepared.source.source.id,
         sourceCreated: prepared.created,
+        selectionRequired: prepared.source.compat.discovery !== 'single-plugin' || prepared.source.compat.plugins.length !== 1,
         plugins: prepared.source.compat.plugins,
       }
     }, options.signal)
@@ -587,7 +589,7 @@ export class CompatManager {
       const selectors = reference.forcedPlugin === undefined
         ? options.plugins ?? []
         : [reference.forcedPlugin, ...(options.plugins ?? [])]
-      const selected = this.chooseCandidates(sourceId, discovery.candidates, selectors)
+      const selected = this.chooseCandidates(sourceId, discovery, selectors)
       const referenceScan = await scanPluginSourceReferences(this.layout)
       if (referenceScan.unreadablePluginIds.length > 0) {
         throw new Error(

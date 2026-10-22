@@ -188,7 +188,7 @@ test('Source 预读名称拒绝越界根清单，不回退 legacy metadata', asy
     await writeFile(outside, JSON.stringify({ ...manifest(), name: 'outside-private-name' }))
     await symlink(outside, resolve(source, 'plugin.json'))
     await put(source, '.claude-plugin/plugin.json', { name: 'legacy-fallback-must-not-apply' })
-    const parsed = await parseCompatSource(source)
+    const parsed = await parseCompatSource(source, { suggestedPluginId: 'safe-source' })
     assert.deepEqual(parsed.scan.formats, ['agent-plugins'])
     assert.equal(parsed.candidates[0].name, 'safe-source')
     assert.equal(JSON.stringify(parsed).includes('outside-private-name'), false)

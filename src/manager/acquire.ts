@@ -73,8 +73,8 @@ function effectiveRef(location: Extract<CompatPluginLocation, { type: 'git' | 'g
 /**
  * 获取 Marketplace 指向的外部 Git Plugin。
  *
- * git-subdir 也保留完整仓库，运行时再定位子目录；这样 Source 更新可以对该
- * 外部来源做整体版本切换，不会把一个仓库拆成多个互不一致的源码副本。
+ * git-subdir 也保留完整仓库，运行时再定位子目录；每个所选 Plugin 独立获取并
+ * 记录实际提交，Source 更新在同一事务中切换这些外部快照。
  */
 export async function materializeExternalPlugin(
   location: CompatPluginLocation,

@@ -32,6 +32,8 @@ export interface InstallPreparation {
   preparationId: string
   sourceId: string
   sourceCreated: boolean
+  /** 市场或多候选来源必须显式选择，前端不得按候选数量绕过。 */
+  selectionRequired: boolean
   plugins: CompatSourcePlugin[]
 }
 

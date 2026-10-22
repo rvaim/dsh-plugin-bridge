@@ -113,7 +113,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
           await operations.current.cancelAdd(result.requestId)
           return
         }
-        if (result.kind === 'selection' && result.candidates.length === 1 && result.candidates[0].installable && result.candidates[0].errors === 0) {
+        if (result.kind === 'selection' && !result.selectionRequired && result.candidates.length === 1 && result.candidates[0].installable && result.candidates[0].errors === 0) {
           request.current = result.requestId
           setSelection(result)
           setSelected(new Set([result.candidates[0].id]))
@@ -204,6 +204,7 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
                     <span className={css.candidateTitle}><strong>{candidate.displayName ?? candidate.name}</strong>
                       {candidate.version !== undefined ? <span className={css.version}>{t('version', { version: candidate.version })}</span> : null}</span>
                     <code>{candidate.id}</code>
+                    <span className={css.sourceLine}>{t('candidateSource', { source: candidate.source })}</span>
                     {candidate.description ? <span>{candidate.description}</span> : null}
                     <span className={css.candidateMeta}>
                       <span>{candidate.formats.map(format => formatLabel(format, categories, resolveText)).join(' · ')}</span>
@@ -211,6 +212,12 @@ export function AddPluginDialog({ api, categories, resolveText, t, onClose, onIn
                       {candidate.errors > 0 ? <span className={css.errorText}>{t('candidateErrors', { count: candidate.errors })}</span> : null}
                       {candidate.warnings > 0 ? <span className={css.warningText}>{t('warningCount', { count: candidate.warnings })}</span> : null}
                     </span>
+                    {candidate.diagnostics.map((item, index) => (
+                      <span key={`${item.code}:${index}`} className={item.level === 'error' ? css.errorText : css.warningText}>
+                        <code>{item.code}</code> {item.message}
+                        {item.file === undefined ? null : ` (${item.file})`}
+                      </span>
+                    ))}
                   </span>
                 </label>
               )

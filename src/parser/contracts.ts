@@ -17,6 +17,8 @@ export interface ParserSignature {
   /** 有值时，清单必须声明该 JSON Schema URI 前缀才拥有格式边界。 */
   manifestSchemaPrefix?: string
   marketplacePaths: readonly string[]
+  /** 解析器声明的嵌套市场搜索深度；省略时仅识别来源根目录。 */
+  marketplaceSearchDepth?: number
   catalogIndex?: { entriesField: string; nameField: string }
   exclusive?: boolean
   priority?: number
@@ -69,7 +71,7 @@ export interface PluginParser extends ParserIdentity {
   category: ParserCategoryContribution
   signature: ParserSignature
   detect(root: string): Promise<ParserDetection>
-  discoverSource(root: string): Promise<SourceParserResult | undefined>
+  discoverSource(root: string, marketplaceFile?: string): Promise<SourceParserResult | undefined>
   parsePlugin(input: ProtocolParseInput): Promise<ProtocolParseResult>
   preflight?(root: string): Promise<ProtocolPreflightResult>
   inferName?(root: string): Promise<string | undefined>

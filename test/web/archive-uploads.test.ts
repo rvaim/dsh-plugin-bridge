@@ -8,7 +8,7 @@ import type { CompatWebAddResult } from '../../src/types/web.js'
 import { ArchiveUploads } from '../../src/web/host/archive-uploads.js'
 import { temporaryDirectory } from '../helpers/temp.js'
 
-const selection: CompatWebAddResult = { kind: 'selection', requestId: 'prepared-upload', candidates: [] }
+const selection: CompatWebAddResult = { kind: 'selection', requestId: 'prepared-upload', selectionRequired: true, candidates: [] }
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(done => { resolve = done })
@@ -272,7 +272,7 @@ test('未完成上传的长 TTL 不阻止独立 Node 进程正常退出', { time
     const request = new Request('http://localhost/api/plugin-bridge/upload?name=plugin.zip', {
       method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: new ReadableStream(), duplex: 'half',
     });
-    void uploads.handle(request, async () => ({ kind: 'selection', requestId: 'unused', candidates: [] }));
+    void uploads.handle(request, async () => ({ kind: 'selection', requestId: 'unused', selectionRequired: true, candidates: [] }));
   `
   await promisify(execFile)(process.execPath, ['--input-type=module', '--eval', script], { timeout: 5_000 })
 })

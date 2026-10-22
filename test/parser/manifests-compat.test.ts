@@ -233,7 +233,7 @@ test('CC Marketplace npm/archive/command source 合法识别但不安装脚本',
     const source = await parseCompatSource(temp.path)
     assert.equal(source.candidates.length, 3)
     assert(source.candidates.every(item => !item.installable))
-    const codes = source.scan.diagnostics.map(item => item.code)
+    const codes = source.candidates.flatMap(item => item.diagnostics.map(diagnostic => diagnostic.code))
     for (const code of ['SOURCE_LOCATION_NPM_UNSUPPORTED', 'SOURCE_LOCATION_ARCHIVE_URL_UNSUPPORTED', 'SOURCE_LOCATION_COMMAND_UNSUPPORTED']) assert(codes.includes(code))
     assert(!codes.includes('SOURCE_LOCATION_INVALID'))
     const npm = source.candidates.find(item => item.id === 'npm-one')!

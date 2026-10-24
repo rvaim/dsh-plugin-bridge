@@ -5,7 +5,7 @@
 
 插件桥（Plugin Bridge）是 DeepSeek Harness（DSH）的外部插件管理工具，支持独立 Agent Plugins 1.0.0、传统 Codex 与 Claude Code 插件。插件作为完整生命周期单元接入 DSH，复用 Source 快照、Skill Provider 和 MCP 子实例。
 
-> 当前版本 `0.10.1`；从 `0.10.0` 起采用每个安装实例固定一个解析器的安装契约。Plugin parser / Source parser 均为 `6.0.0`，Claude Code / Codex 实现均为 `1.3.0`，Agent Plugins 实现保持 `1.2.0`。具体契约见[单解析器选择与安装契约](<docs/单解析器选择与安装契约.md>)，目录边界见[解析器解耦重构说明](<docs/解析器解耦重构说明.md>)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304**。2026-10-22 的市场资料核对属于既有阶段，证据与限制见[市场发现与选择安装验证报告](<docs/市场发现与选择安装验证报告.md>)及[传统插件兼容矩阵](<docs/传统插件兼容矩阵.md>)。
+> 当前版本 `0.10.2`；从 `0.10.0` 起采用每个安装实例固定一个解析器的安装契约。Plugin parser / Source parser 均为 `6.0.0`，Claude Code / Codex 实现均为 `1.3.0`，Agent Plugins 实现保持 `1.2.0`。具体契约见[单解析器选择与安装契约](<docs/单解析器选择与安装契约.md>)，目录边界见[解析器解耦重构说明](<docs/解析器解耦重构说明.md>)。独立格式基线：[Agent Plugins 1.0.0](<docs/Agent Plugins 1.0.0 兼容说明.md>)；传统格式基线：**Codex 0.163.0、Claude Code 2.1.304**。2026-10-22 的市场资料核对属于既有阶段，证据与限制见[市场发现与选择安装验证报告](<docs/市场发现与选择安装验证报告.md>)及[传统插件兼容矩阵](<docs/传统插件兼容矩阵.md>)。
 >
 > 从 `0.6.0` 起，仅支持 `package.json#engines.dsh` 声明的 DSH 版本；SDK、Hook Protocol 与 Typert 生成器固定为同一基线。管理入口位于侧边栏，主区域显示独立面板；不保留旧 DSH API、旧 codec 或设置页入口。历史阶段的验证事实见[协议兼容验证报告](docs/插件协议兼容验证报告.md)。
 
@@ -18,7 +18,7 @@
 从 npm 安装指定版本：
 
 ```bash
-dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.10.1
+dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.10.2
 ```
 
 也可以使用本地构建包：
@@ -27,12 +27,18 @@ dsh plugin --profile web add @rvaim/dsh-plugin-bridge@0.10.1
 npm install
 npm run verify
 npm pack --ignore-scripts
-dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.10.1.tgz
+dsh plugin --profile web add /absolute/path/rvaim-dsh-plugin-bridge-0.10.2.tgz
 ```
 
 公开发布地址：[npm：@rvaim/dsh-plugin-bridge](https://www.npmjs.com/package/@rvaim/dsh-plugin-bridge)。当前基线以 `package.json#engines.dsh` 为准，不提供旧 DSH 版本兼容。
 
 把 `web` 换成实际 profile 名称即可。首次安装或升级插件桥后，Desktop 用户应保存工作，完整退出并重启 DeepSeek Harness，再重新打开插件桥；仅刷新页面不会清除进程内缓存的 Host 契约。
+
+## 0.10.2 DSH 基线升级
+
+- 本版仅支持 DSH `0.2.1-rc.3`，`engines.dsh`、DSH SDK、Hook Protocol 和 Typert 生成器均固定到该版本。
+- 从升级后的 SDK 重新生成严格 Host/Remote 通信产物，并验证实际安装器判定、注册器及 RPC 往返；不使用版本豁免。
+- 已有单解析器安装契约保持。安装或升级插件桥本体后，保存工作并完整退出、重启 DeepSeek Harness。
 
 ## 0.10.1 安装接口同步检查
 

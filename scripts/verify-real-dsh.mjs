@@ -24,6 +24,7 @@ for (const name of Object.keys({ ...manifest.dependencies, ...manifest.devDepend
   assert.equal(installed.version, target, `${name} must match engines.dsh`)
 }
 assert.equal(evaluatePluginCompatibility(manifest, {}, target), undefined)
+assert.notEqual(evaluatePluginCompatibility(manifest, {}, '0.2.1-rc.2'), undefined)
 assert.notEqual(evaluatePluginCompatibility(manifest, {}, '0.1.0-rc.6'), undefined)
 
 const expected = ['beginAdd', 'cancelAdd', 'checkUpdates', 'completeAdd', 'contract', 'list', 'setEnabled', 'uninstall', 'update']

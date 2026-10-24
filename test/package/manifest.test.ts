@@ -7,7 +7,7 @@ import test from 'node:test'
 test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', async () => {
   const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as any
   assert.equal(packageJson.name, '@rvaim/dsh-plugin-bridge')
-  assert.equal(packageJson.version, '0.10.1')
+  assert.equal(packageJson.version, '0.10.2')
   assert.equal(packageJson.publishConfig.access, 'public')
   assert.equal(packageJson.publishConfig.registry, 'https://registry.npmjs.org/')
   assert.equal(packageJson.repository.url, 'git+https://github.com/rvaim/dsh-plugin-bridge.git')
@@ -18,8 +18,10 @@ test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', 
   assert.equal(packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'], undefined)
   assert.equal(packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'], packageJson.engines.dsh)
   assert.equal(packageJson.devDependencies?.['@deepseek-ai/dsh-typert-generator'], packageJson.engines.dsh)
-  for (const [name, range] of Object.entries(packageJson.peerDependencies)) {
-    if (name.startsWith('@deepseek-ai/dsh-')) assert.equal(range, packageJson.engines.dsh, name)
+  for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+    for (const [name, range] of Object.entries(packageJson[section])) {
+      if (name.startsWith('@deepseek-ai/dsh-')) assert.equal(range, packageJson.engines.dsh, `${section}.${name}`)
+    }
   }
   assert.equal(packageJson.dependencies?.['ajv'], '8.20.0')
   assert.equal(packageJson.dependencies?.['@clack/prompts'], undefined)
@@ -39,6 +41,7 @@ test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', 
   assert.equal(packageJson.exports['./remote'].default, './dist/typert.remote-client.js')
   for (const file of [
     'dist/client.js',
+    'dist/THIRD_PARTY_NOTICES.txt',
     'dist/typert.host.js',
     'dist/typert.host.d.ts',
     'dist/typert.remote-client.js',

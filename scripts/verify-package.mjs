@@ -13,6 +13,7 @@ for (const file of [
   'dist/src/web/client/index.d.ts',
   'dist/client.js',
   'dist/client.js.map',
+  'dist/THIRD_PARTY_NOTICES.txt',
   'dist/typert.host.js',
   'dist/typert.host.d.ts',
   'dist/typert.remote-client.js',
@@ -45,6 +46,21 @@ for (const file of [
 }
 
 const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+const lock = JSON.parse(await readFile(new URL('package-lock.json', root), 'utf8'))
+for (const [path, dependency] of Object.entries(lock.packages)) {
+  if (/(?:^|\/)node_modules\/@deepseek-ai\/dsh-/.test(path) && dependency.version !== packageJson.engines.dsh) {
+    throw new Error(`锁文件中的 ${path} 未与目标 DSH 对齐`)
+  }
+}
+const notices = await readFile(new URL('dist/THIRD_PARTY_NOTICES.txt', root), 'utf8')
+for (const name of ['zod', '@deepseek-ai/dsh-typert-protocol']) {
+  const manifestUrl = new URL(import.meta.resolve(`${name}/package.json`))
+  const dependency = JSON.parse(await readFile(manifestUrl, 'utf8'))
+  const license = await readFile(new URL('./LICENSE', manifestUrl), 'utf8')
+  if (!notices.includes(`## ${name} ${dependency.version}`) || !notices.includes(license.trim())) {
+    throw new Error(`发布包缺少 ${name} 的完整许可证声明`)
+  }
+}
 if (packageJson.name !== '@rvaim/dsh-plugin-bridge') throw new Error('包名必须为 @rvaim/dsh-plugin-bridge')
 if (packageJson.exports?.['./locale/*.json'] !== './locale/*.json' || packageJson.exports?.['./icon'] !== './icon.png') throw new Error('包必须导出本地化展示元数据和图标')
 for (const [locale, title] of [['zh', '插件桥'], ['en', 'Plugin Bridge']]) {
@@ -53,7 +69,7 @@ for (const [locale, title] of [['zh', '插件桥'], ['en', 'Plugin Bridge']]) {
 }
 const icon = await readFile(new URL('icon.png', root))
 if (icon.length > 256 * 1024 || icon.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('包图标必须为有效大小的 PNG')
-if (packageJson.version !== '0.10.1') throw new Error('交付版本必须为 0.10.1')
+if (packageJson.version !== '0.10.2') throw new Error('交付版本必须为 0.10.2')
 if (packageJson.publishConfig?.access !== 'public') throw new Error('npm 组织包必须公开发布')
 if (packageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error('npm 发布 registry 配置错误')
 if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-plugin-bridge.git') {
@@ -92,8 +108,10 @@ if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== packageJson
   || packageJson.devDependencies?.['@deepseek-ai/dsh-typert-generator'] !== packageJson.engines?.dsh) {
   throw new Error('Hook Protocol、Typert Generator 必须与目标 DSH 对齐')
 }
-for (const [name, range] of Object.entries(packageJson.peerDependencies ?? {})) {
-  if (name.startsWith('@deepseek-ai/dsh-') && range !== packageJson.engines?.dsh) throw new Error(`${name} 未与目标 DSH 对齐`)
+for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+  for (const [name, range] of Object.entries(packageJson[section] ?? {})) {
+    if (name.startsWith('@deepseek-ai/dsh-') && range !== packageJson.engines?.dsh) throw new Error(`${section}.${name} 未与目标 DSH 对齐`)
+  }
 }
 for (const name of ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-settings']) {
   if (packageJson.dsh.client.inject.includes(name) || packageJson.peerDependencies[name] !== undefined
@@ -150,6 +168,7 @@ for (const required of [
   'dist/src/web/client/index.d.ts',
   'dist/client.js',
   'dist/client.js.map',
+  'dist/THIRD_PARTY_NOTICES.txt',
   'dist/typert.host.js',
   'dist/typert.host.d.ts',
   'dist/typert.remote-client.js',

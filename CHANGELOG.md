@@ -1,5 +1,12 @@
 # 更新日志
 
+## 0.10.3 — 2026-10-30
+
+- 将 `engines.dsh`、DSH SDK、Hook Protocol、Typert 生成器及全部 DSH peer 依赖从 `0.2.1-rc.3` 统一升级到 `0.2.1-rc.5`，对齐当前 Desktop 运行时。
+- 使用 rc.5 SDK 重新生成严格 Host/Remote 通信产物，并重新生成第三方许可证声明。
+- 同步 README 与安装运维示例。升级插件桥本体后需保存工作，完整退出并重启 DeepSeek Harness。
+- 验证结果：构建通过；437 项测试中 421 项通过，14 项因当前 Windows 用户缺少创建符号链接权限报 EPERM（环境限制，非代码失败）；12 轮真实 SDK RPC、8 种解析器物理移除组合和 582 个发布文件检查通过。
+
 ## 0.10.2 — 2026-10-24
 
 - 将 `engines.dsh`、DSH SDK、Hook Protocol、Typert 生成器及全部 DSH peer 依赖统一固定到 `0.2.1-rc.3`，解决当前 Desktop 因版本不匹配拒绝加载插件桥的问题；不使用版本豁免或扩大未验证的支持范围。

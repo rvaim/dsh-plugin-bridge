@@ -146,7 +146,7 @@ export async function registerHooks(
   }
   const protocol = await dependencies.loadHookProtocol()
   const detached = protocol.createDetachedRuns()
-  const sessionState = createHookSessionReader(ctx, plugin.id)
+  const sessionState = await createHookSessionReader(ctx, plugin.id)
   const stderrSummaryMaxChars = options.stderrSummaryMaxChars ?? protocol.DEFAULT_STDERR_SUMMARY_MAX_CHARS ?? 500
   ctx.effect(() => () => detached.drain(), `plugin-bridge:${plugin.id}:清理 Hook`)
   const byEvent = new Map<string, CompatHook[]>()

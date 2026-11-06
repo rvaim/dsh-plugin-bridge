@@ -1,5 +1,14 @@
 # 更新日志
 
+## 0.10.4 — 2026-11-06
+
+- 修复 `engines.dsh` 精确 pin 在 DSH 升级后触发 `incompatible-version`、导致整个 bundle 被跳过的问题；兼容声明改为 `^0.2.2-rc.1`，覆盖后续 `0.2.x`，仍拒绝 `0.3.x`。
+- 全部 DSH peer 同步使用有界范围；本地 SDK、Hook Protocol、Typert 生成器与开发依赖对齐 `0.2.2-rc.1`，Cordis / Schemastery 对齐 `4.1.0` / `3.19.0`。
+- 新增 `verify-compat` 构建期守卫，直接调用运行时 `evaluatePluginCompatibility` / `getDshRuntimeVersion`，验证当前版本、`0.2.3-rc.1` 和 `0.3.0-rc.1` 边界，并回读磁盘 SDK 版本防止旧依赖虚假通过。
+- 修正测试、Typert 生成和发布校验中把 peer 兼容范围与 SDK 精确版本混为一谈的第二道版本锁。
+- 适配 `0.2.2-rc.1` 的 Session Projection 破坏性类型变更：注册改为异步并返回 `ProjectionHandle`，Hook 会话读取改用 `handle.stateOf(session)`，不再依赖已删除的 `SessionProjectionStateMap` 和废弃的 registry `stateOf`。
+- 验证结果：构建通过；437 项测试中 421 项通过、14 项因 Windows 缺少 symlink 权限报 EPERM、2 项按环境跳过；兼容矩阵、12 轮真实 SDK RPC、8 种解析器物理移除组合和 582 个发布文件检查通过。
+
 ## 0.10.3 — 2026-10-30
 
 - 将 `engines.dsh`、DSH SDK、Hook Protocol、Typert 生成器及全部 DSH peer 依赖从 `0.2.1-rc.3` 统一升级到 `0.2.1-rc.5`，对齐当前 Desktop 运行时。

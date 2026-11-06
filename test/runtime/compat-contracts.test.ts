@@ -34,7 +34,7 @@ function plugin(command: Partial<CompatHook['commands'][number]> = {}, event: 'p
 }
 
 function harness(run: (request: ShellExecSpec) => Promise<ShellRunResult>, turn = 4) {
-  const listeners = new Map<string, (...args: any[]) => any>()
+  const listeners = new Map<string | symbol, (...args: any[]) => any>()
   const lifecycle = new Context()
   const logs: string[] = []
   const session = createTestSession('/original', 'contract-session', turn)

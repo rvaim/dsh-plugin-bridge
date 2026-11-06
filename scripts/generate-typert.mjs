@@ -7,9 +7,10 @@ import { FaceModelEmitter, WorkspaceAnalyzer } from '@deepseek-ai/dsh-typert-gen
 const root = fileURLToPath(new URL('../', import.meta.url))
 const packageName = '@rvaim/dsh-plugin-bridge'
 const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'))
+const runtimeVersion = JSON.parse(await readFile(new URL(import.meta.resolve('@deepseek-ai/dsh-app-boot/package.json')), 'utf8')).version
 for (const dependency of ['@deepseek-ai/dsh-typert-generator', '@deepseek-ai/dsh-typert-protocol']) {
   const installed = JSON.parse(await readFile(new URL(import.meta.resolve(`${dependency}/package.json`)), 'utf8'))
-  if (installed.version !== manifest.engines.dsh) throw new Error(`${dependency} 与目标 DSH 版本不一致`)
+  if (installed.version !== runtimeVersion) throw new Error(`${dependency} 与目标 DSH 版本不一致`)
 }
 const temporaryRoot = await mkdtemp(join(tmpdir(), 'dsh-plugin-bridge-typert-'))
 const temporaryReal = await realpath(temporaryRoot)

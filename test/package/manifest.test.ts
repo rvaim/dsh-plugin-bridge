@@ -6,8 +6,9 @@ import test from 'node:test'
 
 test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', async () => {
   const packageJson = JSON.parse(await readFile(resolve('package.json'), 'utf8')) as any
+  const runtimeVersion = JSON.parse(await readFile(new URL(import.meta.resolve('@deepseek-ai/dsh-app-boot/package.json')), 'utf8')).version
   assert.equal(packageJson.name, '@rvaim/dsh-plugin-bridge')
-  assert.equal(packageJson.version, '0.10.3')
+  assert.equal(packageJson.version, '0.10.4')
   assert.equal(packageJson.publishConfig.access, 'public')
   assert.equal(packageJson.publishConfig.registry, 'https://registry.npmjs.org/')
   assert.equal(packageJson.repository.url, 'git+https://github.com/rvaim/dsh-plugin-bridge.git')
@@ -16,12 +17,16 @@ test('发布清单是可安装 DSH bundle，且运行包不夹带测试目录', 
   assert(packageJson.files.includes('dist/src/'))
   assert.equal(packageJson.files.includes('dist/'), false)
   assert.equal(packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'], undefined)
-  assert.equal(packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'], packageJson.engines.dsh)
-  assert.equal(packageJson.devDependencies?.['@deepseek-ai/dsh-typert-generator'], packageJson.engines.dsh)
-  for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+  assert.match(packageJson.engines.dsh, /^(\^|~|>=)/)
+  assert.equal(packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'], runtimeVersion)
+  assert.equal(packageJson.devDependencies?.['@deepseek-ai/dsh-typert-generator'], runtimeVersion)
+  for (const section of ['dependencies', 'devDependencies']) {
     for (const [name, range] of Object.entries(packageJson[section])) {
-      if (name.startsWith('@deepseek-ai/dsh-')) assert.equal(range, packageJson.engines.dsh, `${section}.${name}`)
+      if (name.startsWith('@deepseek-ai/dsh-')) assert.equal(range, runtimeVersion, `${section}.${name}`)
     }
+  }
+  for (const [name, range] of Object.entries(packageJson.peerDependencies)) {
+    if (name.startsWith('@deepseek-ai/dsh-')) assert.equal(range, packageJson.engines.dsh, `peerDependencies.${name}`)
   }
   assert.equal(packageJson.dependencies?.['ajv'], '8.20.0')
   assert.equal(packageJson.dependencies?.['@clack/prompts'], undefined)

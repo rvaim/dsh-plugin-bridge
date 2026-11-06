@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-/** Exercise the pinned SDK's real registries and Host/Client dispatch in memory. */
+/** Exercise the installed SDK's real registries and Host/Client dispatch in memory. */
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
 import { TypertRegistry } from '@deepseek-ai/dsh-typert-registry'
 import { TypertGatewayService } from '@deepseek-ai/dsh-api-gateway'
 import { apply as applyClientRemote } from '@deepseek-ai/dsh-api-gateway/client'
-import { evaluatePluginCompatibility } from '@deepseek-ai/dsh-app-boot'
+import { evaluatePluginCompatibility, getDshRuntimeVersion } from '@deepseek-ai/dsh-app-boot'
 import { createAssistantMessage } from '@deepseek-ai/dsh-llm'
 import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
@@ -17,13 +17,16 @@ import { CompatWebGateway } from '../dist/src/web/host/gateway.js'
 import { createHookSessionReader } from '../dist/src/runtime/hook-session.js'
 
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'))
-const target = manifest.engines.dsh
+const target = getDshRuntimeVersion()
 for (const name of Object.keys({ ...manifest.dependencies, ...manifest.devDependencies })) {
   if (!name.startsWith('@deepseek-ai/dsh-')) continue
   const installed = JSON.parse(await readFile(new URL(import.meta.resolve(`${name}/package.json`)), 'utf8'))
-  assert.equal(installed.version, target, `${name} must match engines.dsh`)
+  assert.equal(installed.version, target, `${name} must match the app-boot runtime`)
 }
 assert.equal(evaluatePluginCompatibility(manifest, {}, target), undefined)
+assert.equal(evaluatePluginCompatibility(manifest, {}, '0.2.3-rc.1'), undefined)
+assert.notEqual(evaluatePluginCompatibility(manifest, {}, '0.3.0-rc.1'), undefined)
+assert.notEqual(evaluatePluginCompatibility(manifest, {}, '0.2.1-rc.5'), undefined)
 assert.notEqual(evaluatePluginCompatibility(manifest, {}, '0.2.1-rc.2'), undefined)
 assert.notEqual(evaluatePluginCompatibility(manifest, {}, '0.1.0-rc.6'), undefined)
 
@@ -75,9 +78,9 @@ try {
   await projectionProvider
   const hookFiber = host.plugin({
     name: 'plugin-bridge-contract-scope',
-    apply(ctx) {
+    async apply(ctx) {
       assert.throws(() => ctx.sessionProjections, /without inject/)
-      const read = createHookSessionReader(ctx, 'contract')
+      const read = await createHookSessionReader(ctx, 'contract')
       assert.deepEqual(read({ session: hookSession }), hookState)
     },
   })
@@ -207,7 +210,7 @@ try {
   await disposeHost()
   assert.equal(hostRegistry.local.list().length, 0)
   console.log(`DSH ${target}: strict Host/Client registration, ${calls} RPC round trips, invalid input and disposal passed`)
-  console.log('This probe uses the pinned SDK in memory; it does not install into a Desktop profile or verify browser rendering.')
+  console.log('This probe uses the installed SDK in memory; it does not install into a Desktop profile or verify browser rendering.')
 } finally {
   peerController.abort()
   await admin?.dispose()

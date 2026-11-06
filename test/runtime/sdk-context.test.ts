@@ -3,6 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
 import { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CredentialProvider } from '@deepseek-ai/dsh-credentials'
 import { Config as McpConfigSchema, type Config as McpConfig } from '@deepseek-ai/dsh-mcp-client'
 import { SessionId, SessionStore } from '@deepseek-ai/dsh-session'
@@ -79,10 +80,11 @@ test('可选服务通过 SDK typed get 读取，未 inject 的直接属性访问
       async apply(ctx) {
         assert.throws(() => ctx.sessionProjections, /without inject/)
         assert.throws(() => ctx.credentials, /without inject/)
-        assert.equal(typeof createHookSessionReader(ctx, 'sdk-optional'), 'function')
+        const read = await createHookSessionReader(ctx, 'sdk-optional')
+        assert.equal(typeof read, 'function')
         assert.equal(await resolveTemplate(ctx, { type: 'template', parts: [{ type: 'env', name: 'SDK_FIXTURE_TOKEN' }] },
           '/plugin', '/data', '/workspace'), 'sdk-resolved-secret')
-        assert.deepEqual(ctx.get('sessionProjections')?.stateOf(session, 'plugin-bridge:sdk-optional:hooks'), {
+        assert.deepEqual(read({ session } as Agent), {
           turn: 4, assistantTurn: 0, assistantText: null,
         })
       },

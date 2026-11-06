@@ -37,7 +37,7 @@ test('发布运行依赖可直接加载并执行 Hook Protocol', async () => {
 })
 
 test('默认运行依赖可让实际 Hook adapter 阻止工具调用', async () => {
-  const listeners = new Map<string, (...args: any[]) => unknown>()
+  const listeners = new Map<string | symbol, (...args: any[]) => unknown>()
   const lifecycle = new Context()
   let shellRequest: ShellExecSpec | undefined
   const services: Partial<RuntimeServices> = { sessionProjections: new SessionProjectionRegistry(new Context()) }

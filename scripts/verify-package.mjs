@@ -46,9 +46,10 @@ for (const file of [
 }
 
 const packageJson = JSON.parse(await readFile(new URL('package.json', root), 'utf8'))
+const runtimeVersion = JSON.parse(await readFile(new URL(import.meta.resolve('@deepseek-ai/dsh-app-boot/package.json')), 'utf8')).version
 const lock = JSON.parse(await readFile(new URL('package-lock.json', root), 'utf8'))
 for (const [path, dependency] of Object.entries(lock.packages)) {
-  if (/(?:^|\/)node_modules\/@deepseek-ai\/dsh-/.test(path) && dependency.version !== packageJson.engines.dsh) {
+  if (/(?:^|\/)node_modules\/@deepseek-ai\/dsh-/.test(path) && dependency.version !== runtimeVersion) {
     throw new Error(`锁文件中的 ${path} 未与目标 DSH 对齐`)
   }
 }
@@ -69,7 +70,7 @@ for (const [locale, title] of [['zh', '插件桥'], ['en', 'Plugin Bridge']]) {
 }
 const icon = await readFile(new URL('icon.png', root))
 if (icon.length > 256 * 1024 || icon.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('包图标必须为有效大小的 PNG')
-if (packageJson.version !== '0.10.3') throw new Error('交付版本必须为 0.10.3')
+if (packageJson.version !== '0.10.4') throw new Error('交付版本必须为 0.10.4')
 if (packageJson.publishConfig?.access !== 'public') throw new Error('npm 组织包必须公开发布')
 if (packageJson.publishConfig?.registry !== 'https://registry.npmjs.org/') throw new Error('npm 发布 registry 配置错误')
 if (packageJson.repository?.url !== 'git+https://github.com/rvaim/dsh-plugin-bridge.git') {
@@ -104,14 +105,17 @@ if (!packageJson.files?.includes('dist/src/')) throw new Error('发布清单缺�
 if (packageJson.peerDependenciesMeta?.['@deepseek-ai/schemastery'] !== undefined) {
   throw new Error('Schemastery 是静态导入，不能声明为 optional peer')
 }
-if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== packageJson.engines?.dsh
-  || packageJson.devDependencies?.['@deepseek-ai/dsh-typert-generator'] !== packageJson.engines?.dsh) {
+if (packageJson.dependencies?.['@deepseek-ai/dsh-hook-protocol'] !== runtimeVersion
+  || packageJson.devDependencies?.['@deepseek-ai/dsh-typert-generator'] !== runtimeVersion) {
   throw new Error('Hook Protocol、Typert Generator 必须与目标 DSH 对齐')
 }
-for (const section of ['dependencies', 'devDependencies', 'peerDependencies']) {
+for (const section of ['dependencies', 'devDependencies']) {
   for (const [name, range] of Object.entries(packageJson[section] ?? {})) {
-    if (name.startsWith('@deepseek-ai/dsh-') && range !== packageJson.engines?.dsh) throw new Error(`${section}.${name} 未与目标 DSH 对齐`)
+    if (name.startsWith('@deepseek-ai/dsh-') && range !== runtimeVersion) throw new Error(`${section}.${name} 未与目标 DSH SDK 对齐`)
   }
+}
+for (const [name, range] of Object.entries(packageJson.peerDependencies ?? {})) {
+  if (name.startsWith('@deepseek-ai/dsh-') && range !== packageJson.engines?.dsh) throw new Error(`peerDependencies.${name} 未使用有界兼容范围`)
 }
 for (const name of ['@deepseek-ai/dsh-client-runtime', '@deepseek-ai/dsh-client-ui-settings']) {
   if (packageJson.dsh.client.inject.includes(name) || packageJson.peerDependencies[name] !== undefined

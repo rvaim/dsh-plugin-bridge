@@ -21,7 +21,7 @@ export type HookEventName = 'agent/created' | 'agent/pre-step' | 'agent/turn-sto
 /** Only the SDK service members consumed by runtime adapters. */
 export interface RuntimeServices {
   subprocess: Pick<SubprocessRuntime, 'resolveExecutable' | 'spawn'>
-  sessionProjections: Pick<SessionProjectionRegistry, 'register' | 'stateOf'>
+  sessionProjections: Pick<SessionProjectionRegistry, 'register'>
   workingDirectory: Pick<WorkingDirectoryService, 'get'>
   agents: Pick<AgentRegistry, 'get'>
   credentials: CredentialsLike
